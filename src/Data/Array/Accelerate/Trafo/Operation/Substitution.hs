@@ -48,16 +48,16 @@ data SunkReindexPartial f env env' where
   Sink     :: SunkReindexPartial f env env' -> SunkReindexPartial f (env, s) (env', s)
   ReindexF :: ReindexPartial f env env' -> SunkReindexPartial f env env'
 
-reindexPartial :: (IsExecutableAcc exe, Applicative f) => ReindexPartial f env env' -> PreOpenAcc exe env t -> f (PreOpenAcc exe env' t)
+reindexPartial :: (Applicative f) => ReindexPartial f env env' -> PreOpenAcc exe env t -> f (PreOpenAcc exe env' t)
 reindexPartial k = reindexA' (ReindexF k)
 
-reindexPartialAfun :: (IsExecutableAcc exe, Applicative f) => ReindexPartial f env env' -> PreOpenAfun exe env t -> f (PreOpenAfun exe env' t)
+reindexPartialAfun :: (Applicative f) => ReindexPartial f env env' -> PreOpenAfun exe env t -> f (PreOpenAfun exe env' t)
 reindexPartialAfun k = reindexAfun' (ReindexF k)
 
-instance IsExecutableAcc exe => Sink (PreOpenAcc exe) where
+instance Sink (PreOpenAcc exe) where
   weaken k = runIdentity . reindexPartial (Identity . (k >:>))
 
-instance IsExecutableAcc exe => Sink (PreOpenAfun exe) where
+instance Sink (PreOpenAfun exe) where
   weaken k = runIdentity . reindexPartialAfun (Identity . (k >:>))
 
 instance Sink Arg where
@@ -95,9 +95,9 @@ reindexArrayInstr' k (Parameter v) = Parameter <$> reindexVar' k v
 reindexExp' :: (Applicative f, RebuildableExp e) => SunkReindexPartial f benv benv' -> e (ArrayInstr benv) env t -> f (e (ArrayInstr benv') env t)
 reindexExp' k = rebuildArrayInstrPartial (rebuildArrayInstrMap $ reindexArrayInstr' k)
 
-reindexA' :: forall exe f env env' t. (IsExecutableAcc exe, Applicative f) => SunkReindexPartial f env env' -> PreOpenAcc exe env t -> f (PreOpenAcc exe env' t)
+reindexA' :: forall exe f env env' t. (Applicative f) => SunkReindexPartial f env env' -> PreOpenAcc exe env t -> f (PreOpenAcc exe env' t)
 reindexA' k = \case
-    Exec exe -> Exec <$> reindexExecPartial (reindex' k) exe
+    Exec op args -> Exec op <$> reindexArgs (reindex' k) args
     Return vars -> Return <$> reindexVars' k vars
     Compute e -> Compute <$> reindexExp' k e
     Alet lhs uniqueness bnd body
@@ -111,12 +111,12 @@ reindexA' k = \case
     travA :: PreOpenAcc exe env s -> f (PreOpenAcc exe env' s)
     travA = reindexA' k
 
-reindexAfun' :: (IsExecutableAcc exe, Applicative f) => SunkReindexPartial f env env' -> PreOpenAfun exe env t -> f (PreOpenAfun exe env' t)
+reindexAfun' :: (Applicative f) => SunkReindexPartial f env env' -> PreOpenAfun exe env t -> f (PreOpenAfun exe env' t)
 reindexAfun' k (Alam lhs f)
   | Exists lhs' <- rebuildLHS lhs = Alam lhs' <$> reindexAfun' (sinkReindexWithLHS lhs lhs' k) f
 reindexAfun' k (Abody a) = Abody <$> reindexA' k a
 
-pair :: forall exe env a b. IsExecutableAcc exe => PreOpenAcc exe env a -> PreOpenAcc exe env b -> PreOpenAcc exe env (a, b)
+pair :: forall exe env a b. PreOpenAcc exe env a -> PreOpenAcc exe env b -> PreOpenAcc exe env (a, b)
 pair a b = goA weakenId a
   where
     -- Traverse 'a' and look for a return. We can jump over let bindings
@@ -139,7 +139,7 @@ pair a b = goA weakenId a
       | DeclareVars lhs k value <- declareVars $ groundsR b
                                = Alet lhs (shared $ groundsR b) acc $ Return (TupRpair (weakenVars k varsA) (value weakenId))
 
-alet :: IsExecutableAcc exe => GLeftHandSide t env env' -> PreOpenAcc exe env t -> PreOpenAcc exe env' s -> PreOpenAcc exe env s
+alet :: GLeftHandSide t env env' -> PreOpenAcc exe env t -> PreOpenAcc exe env' s -> PreOpenAcc exe env s
 alet lhs1 (Alet lhs2 uniqueness a1 a2) a3
   | Exists lhs1' <- rebuildLHS lhs1 = Alet lhs2 uniqueness a1 $ alet lhs1' a2 $ weaken (sinkWithLHS lhs1 lhs1' $ weakenWithLHS lhs2) a3
 alet     (LeftHandSideWildcard TupRunit) (Return TupRunit) a = a

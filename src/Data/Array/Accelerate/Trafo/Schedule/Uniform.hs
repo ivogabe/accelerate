@@ -44,6 +44,8 @@ import Data.Array.Accelerate.Type
 import Data.Maybe
 import Data.List
 import qualified Data.Set                               as S
+import Prelude hiding (id, (.))
+import Control.Category
 
 -- * Compilation from PartitionedAcc to UniformSchedule
 data FutureValue senv t
@@ -613,10 +615,10 @@ partialSchedule :: forall op genv1 t1. C.PartitionedAcc op genv1 t1 -> PartialSc
 partialSchedule = fst . travA (TupRsingle Shared)
   where
     travA :: forall genv t. Uniquenesses t -> C.PartitionedAcc op genv t -> (PartialSchedule op genv t, MaybeVars genv t)
-    travA _  (C.Exec cluster)
-      | Exists env <- convertEnvFromList $ map (foldr1 combineMod) $ groupBy (\(Exists v1) (Exists v2) -> isJust $ matchIdx (varIdx v1) (varIdx v2)) $ execVars cluster -- TODO: Remove duplicates more efficiently
+    travA _  (C.Exec cluster args)
+      | Exists env <- convertEnvFromList $ map (foldr1 combineMod) $ groupBy (\(Exists v1) (Exists v2) -> isJust $ matchIdx (varIdx v1) (varIdx v2)) $ argsVars args -- TODO: Remove duplicates more efficiently
       , Reads reEnv k inputBindings <- readRefs $ convertEnvRefs env
-      , Just cluster' <- reindexExecPartial (reEnvIdx reEnv) cluster
+      , Just args' <- reindexArgs (reEnvIdx reEnv) args
         = let
             signals = convertEnvSignals env
             resolvers = convertEnvSignalResolvers k env
@@ -624,7 +626,7 @@ partialSchedule = fst . travA (TupRsingle Shared)
             ( PartialDo OutputEnvUnit env
                 $ Effect (SignalAwait signals)
                 $ inputBindings
-                $ Effect (Exec cluster')
+                $ Effect (Exec cluster args')
                 $ Effect (SignalResolve resolvers)
                 $ Return
             , TupRunit

@@ -123,7 +123,8 @@ data Binding env t where
 
 -- Effects do not have a return value.
 data Effect exe env where
-  Exec          :: exe env
+  Exec          :: exe args
+                -> Args env args
                 -> Effect exe env
 
   SignalAwait   :: [Idx env Signal] -> Effect exe env

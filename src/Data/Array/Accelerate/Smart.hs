@@ -31,7 +31,7 @@ module Data.Array.Accelerate.Smart (
   -- * HOAS AST
   -- ** Array computations
   Acc(..), SmartAcc(..), PreSmartAcc(..),
-  Level, Direction(..),
+  Level, Direction(..), Message(..),
 
   -- ** Scalar expressions
   Exp(..), SmartExp(..), PreSmartExp(..),
@@ -101,7 +101,7 @@ import qualified Data.Array.Accelerate.Representation.Stencil       as R
 import qualified Data.Array.Accelerate.Sugar.Array                  as Sugar
 import qualified Data.Array.Accelerate.Sugar.Shape                  as Sugar
 
-import Data.Array.Accelerate.AST                                    ( Direction(..)
+import Data.Array.Accelerate.AST                                    ( Direction(..), Message(..)
                                                                     , PrimBool, PrimMaybe
                                                                     , PrimFun(..), primFunType
                                                                     , PrimConst(..), primConstType )
@@ -353,6 +353,11 @@ data PreSmartAcc acc exp as where
   Aprj          :: PairIdx (arrs1, arrs2) arrs
                 -> acc (arrs1, arrs2)
                 -> PreSmartAcc acc exp arrs
+
+  Atrace        :: Message arrs1
+                -> acc arrs1
+                -> acc arrs2
+                -> PreSmartAcc acc exp arrs2
 
   Use           :: ArrayR (Array sh e)
                 -> Array sh e
@@ -799,6 +804,7 @@ instance HasArraysR acc => HasArraysR (PreSmartAcc acc exp) where
                                    PairIdxLeft  -> t1
                                    PairIdxRight -> t2
     Aprj _ _                  -> error "Ejector seat? You're joking!"
+    Atrace _ _ a              -> arraysR a
     Use repr _                -> TupRsingle repr
     Unit tp _                 -> TupRsingle $ ArrayR ShapeRz $ tp
     Generate repr _ _         -> TupRsingle repr
@@ -1308,6 +1314,7 @@ showPreAccOp Awhile{}              = "Awhile"
 showPreAccOp Apair{}               = "Apair"
 showPreAccOp Anil{}                = "Anil"
 showPreAccOp Aprj{}                = "Aprj"
+showPreAccOp Atrace{}              = "Atrace"
 showPreAccOp Unit{}                = "Unit"
 showPreAccOp Generate{}            = "Generate"
 showPreAccOp Reshape{}             = "Reshape"

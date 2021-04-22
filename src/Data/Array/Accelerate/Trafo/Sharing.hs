@@ -51,8 +51,8 @@ import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Var
 import Data.Array.Accelerate.Analysis.Match
-import Data.Array.Accelerate.Debug.Flags                            as Debug
-import Data.Array.Accelerate.Debug.Trace                            as Debug
+import Data.Array.Accelerate.Debug.Internal.Flags                   as Debug
+import Data.Array.Accelerate.Debug.Internal.Trace                   as Debug
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Array                   ( Array, ArraysR, ArrayR(..), showArraysR )
 import Data.Array.Accelerate.Representation.Shape                   hiding ( zip )
@@ -72,7 +72,7 @@ import qualified Data.Array.Accelerate.Representation.Stencil       as R
 import qualified Data.Array.Accelerate.Sugar.Array                  as Sugar
 
 import Control.Applicative                                          hiding ( Const )
-import Control.Lens                                                 ( over, mapped, _1, _2 )
+import Lens.Micro                                                 ( over, mapped, _1, _2 )
 import Control.Monad.Fix
 import Data.Function                                                ( on )
 import Data.Hashable
@@ -340,6 +340,7 @@ convertSharingAcc config alyt aenv (ScopedAcc lams (AccSharing _ preAcc))
       Apair acc1 acc2             -> AST.Apair (cvtA acc1) (cvtA acc2)
       Aprj ix a                   -> let AST.OpenAcc a' = cvtAprj ix a
                                      in a'
+      Atrace msg acc1 acc2        -> AST.Atrace msg (cvtA acc1) (cvtA acc2)
       Use repr array              -> AST.Use repr array
       Unit tp e                   -> AST.Unit tp (cvtE e)
       Generate repr@(ArrayR shr _) sh f
@@ -1511,6 +1512,10 @@ makeOccMapSharingAcc config accOccMap = traverseAcc
                                              return (Apair a' b', h1 `max` h2 + 1)
             Aprj ix a                   -> travA (Aprj ix) a
 
+            Atrace msg acc1 acc2        -> do
+                                             (a', h1) <- traverseAcc lvl acc1
+                                             (b', h2) <- traverseAcc lvl acc2
+                                             return (Atrace msg a' b', h1 `max` h2 + 1)
             Use repr arr                -> return (Use repr arr, 1)
             Unit tp e                   -> do
                                              (e', h) <- traverseExp lvl e
@@ -2367,6 +2372,11 @@ determineScopesSharingAcc config accOccMap = scopesAcc
                                        reconstruct (Apair a1' a2') (accCount1 +++ accCount2)
           Aprj ix a               -> travA (Aprj ix) a
 
+          Atrace msg a1 a2        -> let
+                                       (a1', accCount1) = scopesAcc a1
+                                       (a2', accCount2) = scopesAcc a2
+                                     in
+                                       reconstruct (Atrace msg a1' a2') (accCount1 +++ accCount2)
           Use repr arr            -> reconstruct (Use repr arr) noNodeCounts
           Unit tp e               -> let
                                        (e', accCount) = scopesExp e

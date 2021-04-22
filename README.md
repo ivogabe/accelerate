@@ -3,7 +3,9 @@
 
 # High-performance parallel arrays for Haskell
 
-[![GitHub CI](https://github.com/tmcdonell/accelerate/workflows/CI/badge.svg)](https://github.com/tmcdonell/accelerate/actions)
+[![CI-Linux](https://github.com/tmcdonell/accelerate/workflows/ci-linux/badge.svg)](https://github.com/tmcdonell/accelerate/actions?query=workflow%3Aci-linux)
+[![CI-MacOS](https://github.com/tmcdonell/accelerate/workflows/ci-macos/badge.svg)](https://github.com/tmcdonell/accelerate/actions?query=workflow%3Aci-macos)
+[![CI-Windows](https://github.com/tmcdonell/accelerate/workflows/ci-windows/badge.svg)](https://github.com/tmcdonell/accelerate/actions?query=workflow%3Aci-windows)
 [![Gitter](https://img.shields.io/gitter/room/nwjs/nw.js.svg)](https://gitter.im/AccelerateHS/Lobby)
 <br>
 [![Stackage LTS](https://stackage.org/package/accelerate/badge/lts)](https://stackage.org/lts/package/accelerate)
@@ -72,13 +74,24 @@ The following supported add-ons are available as separate packages:
   * [accelerate-llvm-native][accelerate-llvm-native]: Backend targeting multicore CPUs
   * [accelerate-llvm-ptx][accelerate-llvm-ptx]: Backend targeting CUDA-enabled NVIDIA GPUs. Requires a GPU with compute capability 2.0 or greater (see the [table on Wikipedia][wiki-cc])
   * [accelerate-examples][accelerate-examples]: Computational kernels and applications showcasing the use of Accelerate as well as a regression test suite (supporting function and performance testing)
-  * [accelerate-io][accelerate-io]: Fast conversion between Accelerate arrays and other array formats (for example, Repa and Vector)
+  * Conversion between various formats:
+    * [accelerate-io](https://hackage.haskell.org/package/accelerate-io): For copying data directly between raw pointers
+    * [accelerate-io-array](https://hackage.haskell.org/package/accelerate-io-array): Immutable arrays
+    * [accelerate-io-bmp](https://hackage.haskell.org/package/accelerate-io-bmp): Uncompressed BMP image files
+    * [accelerate-io-bytestring](https://hackage.haskell.org/package/accelerate-io-bytestring): Compact, immutable binary data
+    * [accelerate-io-cereal](https://hackage.haskell.org/package/accelerate-io-cereal): Binary serialisation of arrays using [cereal](https://hackage.haskell.org/package/cereal)
+    * [accelerate-io-JuicyPixels](https://hackage.haskell.org/package/accelerate-io-JuicyPixels): Images in various pixel formats
+    * [accelerate-io-repa](https://hackage.haskell.org/package/accelerate-io-repa): Another Haskell library for high-performance parallel arrays
+    * [accelerate-io-serialise](https://hackage.haskell.org/package/accelerate-io-serialise): Binary serialisation of arrays using [serialise](https://hackage.haskell.org/package/serialise)
+    * [accelerate-io-vector](https://hackage.haskell.org/package/accelerate-io-vector): Efficient boxed and unboxed one-dimensional arrays
   * [accelerate-fft][accelerate-fft]: Fast Fourier transform implementation, with FFI bindings to optimised implementations
   * [accelerate-blas][accelerate-blas]: BLAS and LAPACK operations, with FFI bindings to optimised implementations
   * [accelerate-bignum][accelerate-bignum]: Fixed-width large integer arithmetic
   * [colour-accelerate][colour-accelerate]: Colour representations in Accelerate (RGB, sRGB, HSV, and HSL)
+  * [containers-accelerate](http://hackage.haskell.org/package/containers-accelerate): Hashing-based container types
   * [gloss-accelerate][gloss-accelerate]: Generate [gloss][gloss] pictures from Accelerate
   * [gloss-raster-accelerate][gloss-raster-accelerate]: Parallel rendering of raster images and animations
+  * [hashable-accelerate](http://hackage.haskell.org/package/hashable-accelerate): A class for types which can be converted into a hash value
   * [lens-accelerate][lens-accelerate]: [Lens][lens] operators for Accelerate types
   * [linear-accelerate][linear-accelerate]: [Linear][linear] vector spaces in Accelerate
   * [mwc-random-accelerate][mwc-random-accelerate]: Generate Accelerate arrays filled with high quality pseudorandom numbers

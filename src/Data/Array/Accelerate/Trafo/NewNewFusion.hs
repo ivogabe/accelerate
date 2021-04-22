@@ -38,17 +38,17 @@ import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.Trafo.Config
 import Data.Array.Accelerate.Error
 
-import Data.Array.Accelerate.Debug.Flags                ( array_fusion )
-import qualified Data.Array.Accelerate.Debug.Stats      as Stats
+
+import Data.Kind
 #ifdef ACCELERATE_DEBUG
 import System.IO.Unsafe -- for debugging
 #endif
 
+import Prelude hiding (id, (.))
+import Control.Category
 
 -- Array Fusion
 -- ============
-
-class FusibleAcc (op :: * -> *) where
 
 -- | Apply the fusion transformation to a de Bruijn AST
 --
@@ -77,5 +77,5 @@ withSimplStats x = unsafePerformIO Stats.resetSimplCount `seq` x
 withSimplStats x = x
 #endif
 
-dontFuse :: Execute op benv -> Cluster op benv
-dontFuse (Execute op args) = Base op args
+dontFuse :: op args -> Cluster op args
+dontFuse op = Leaf op id

@@ -41,7 +41,7 @@ import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Representation.Type
 import Data.Typeable                                                ( (:~:)(..) )
 
-import Data.Array.Accelerate.Debug.Flags                ( array_fusion )
+import Data.Array.Accelerate.Debug.Internal.Flags                ( array_fusion )
 
 class IsSchedule sched where
   -- 'a' is a ground type (ie, can be represented using GroundR)

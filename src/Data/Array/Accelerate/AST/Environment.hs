@@ -33,7 +33,7 @@ import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Analysis.Match         ((:~:)(..))
 import Data.Either
-import Data.List
+import Data.List ( sortOn )
 
 -- Valuation for an environment
 --

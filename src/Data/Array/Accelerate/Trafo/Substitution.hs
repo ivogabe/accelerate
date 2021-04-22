@@ -55,12 +55,12 @@ import Data.Array.Accelerate.Analysis.Match
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Array
 import Data.Array.Accelerate.Trafo.Exp.Substitution
-import qualified Data.Array.Accelerate.Debug.Stats      as Stats
+import qualified Data.Array.Accelerate.Debug.Internal.Stats         as Stats
 
 import Data.Kind
-import Control.Applicative                              hiding ( Const )
+import Control.Applicative                                          hiding ( Const )
 import Control.Monad
-import Prelude                                          hiding ( exp, seq )
+import Prelude                                                      hiding ( exp, seq )
 
 
 -- NOTE: [Renaming and Substitution]
@@ -319,6 +319,7 @@ rebuildPreOpenAcc k av acc =
     Avar ix                   -> accOut          <$> av ix
     Apair as bs               -> Apair           <$> k av as <*> k av bs
     Anil                      -> pure Anil
+    Atrace msg as bs          -> Atrace msg      <$> k av as <*> k av bs
     Apply repr f a            -> Apply repr      <$> rebuildAfun k av f <*> k av a
     Acond p t e               -> Acond           <$> travE p <*> k av t <*> k av e
     Awhile p f a              -> Awhile          <$> rebuildAfun k av p <*> rebuildAfun k av f <*> k av a

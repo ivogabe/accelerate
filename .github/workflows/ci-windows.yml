@@ -1,0 +1,71 @@
+name: ci-windows
+
+# Trigger the workflow on push or pull request
+on:
+  pull_request:
+    # branches: [master]
+  push:
+    paths:
+      - '.github/workflows/ci-windows.yml'
+      - 'stack*.yaml'
+      - '*.cabal'
+      - 'src/**'
+      - 'test/**'
+      - 'cbits/**'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        ghc:
+          # - "8.10"  XXX: borked?
+          - "8.8"
+          - "8.6"
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - run: mv stack-${{ matrix.ghc }}.yaml stack.yaml
+
+      - uses: actions/cache@v2
+        with:
+          path: snapshot.pkgdb
+          key: ${{ runner.os }}-${{ matrix.ghc }}-snapshot.pkgdb
+
+      - uses: actions/cache@v2
+        with:
+          path: |
+            C:\Users\runneradmin\AppData\Roaming\stack
+            C:\Users\runneradmin\AppData\Local\Programs\stack
+            .stack-work
+          key: ${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('stack.yaml') }}-${{ hashFiles('snapshot.pkgdb') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('stack.yaml') }}-${{ hashFiles('snapshot.pkgdb') }}
+            ${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('stack.yaml') }}-
+            ${{ runner.os }}-${{ matrix.ghc }}-
+
+      - name: Install stack
+        run: choco install haskell-stack
+
+      - name: Install GHC
+        run: stack --no-terminal setup --install-ghc
+
+      - name: Build dependencies
+        run: stack --no-terminal build --fast --flag accelerate:nofib --test --no-run-tests --only-dependencies
+
+      - name: Build
+        run: stack --no-terminal build --fast --flag accelerate:nofib --test --no-run-tests
+
+      # - name: Test doctest
+      #   run: stack --no-terminal test accelerate:doctest --fast --flag accelerate:nofib
+
+      - name: Test nofib
+        run: stack --no-terminal test accelerate:nofib-interpreter --fast --flag accelerate:nofib
+
+      - name: Test haddock generation
+        run: stack --no-terminal haddock --haddock --no-haddock-deps --no-haddock-hyperlink-source --haddock-arguments="--no-print-missing-docs" --fast --flag accelerate:nofib
+
+      - name: Save snapshot.pkgdb
+        run: stack exec ghc-pkg -- --package-db=$(stack path --snapshot-pkg-db) list > snapshot.pkgdb
+

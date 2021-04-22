@@ -110,6 +110,12 @@
 -- * <https://hackage.haskell.org/package/accelerate-bignum accelerate-bignum>:
 -- Fixed-width large integer arithmetic.
 --
+-- * <https://hackage.haskell.org/package/containers-accelerate containers-accelerate>:
+-- Container types for use with Accelerate.
+--
+-- * <https://hackage.haskell.org/package/hashable-accelerate hashable-accelerate>:
+-- Class for types which can be converted to a value.
+--
 -- * <https://hackage.haskell.org/package/colour-accelerate colour-accelerate>:
 -- Colour representations in Accelerate (RGB, sRGB, HSV, and HSL).
 --
@@ -311,6 +317,8 @@ module Data.Array.Accelerate (
   Ord(..), Ordering(..), pattern LT_, pattern EQ_, pattern GT_,
   Enum, succ, pred,
   Bounded, minBound, maxBound,
+  Functor(..), (<$>), ($>), void,
+  Monad(..),
 
   -- *** Numeric type classes
   Num, (+), (-), (*), negate, abs, signum, fromInteger,
@@ -340,7 +348,7 @@ module Data.Array.Accelerate (
   pattern T7,  pattern T8,  pattern T9,  pattern T10, pattern T11,
   pattern T12, pattern T13, pattern T14, pattern T15, pattern T16,
 
-  pattern Z_, pattern Ix, pattern (::.),
+  pattern Z_, pattern Ix, pattern (::.), pattern All_, pattern Any_,
   pattern I0, pattern I1, pattern I2, pattern I3, pattern I4,
   pattern I5, pattern I6, pattern I7, pattern I8, pattern I9,
 
@@ -403,15 +411,19 @@ module Data.Array.Accelerate (
 
   -- ---------------------------------------------------------------------------
   -- * Useful re-exports
-  (.), ($), (&), error, undefined, const, otherwise,
+  (.), ($), (&), flip, error, undefined, const, otherwise,
   Show, Generic, HasCallStack,
+  fromString, -- -XOverloadedStrings
+  fromListN,  -- -XOverloadedLists
 
   -- ---------------------------------------------------------------------------
   -- Types
   Int, Int8, Int16, Int32, Int64,
   Word, Word8, Word16, Word32, Word64,
   Half(..), Float, Double,
-  Bool(..), pattern True_, pattern False_,
+  Bool(..),   pattern True_,    pattern False_,
+  Maybe(..),  pattern Nothing_, pattern Just_,
+  Either(..), pattern Left_,    pattern Right_,
   Char,
 
   CFloat, CDouble,
@@ -420,7 +432,23 @@ module Data.Array.Accelerate (
 
 ) where
 
-import Data.Array.Accelerate.Classes
+import Data.Array.Accelerate.Classes.Bounded
+import Data.Array.Accelerate.Classes.Enum
+import Data.Array.Accelerate.Classes.Eq
+import Data.Array.Accelerate.Classes.Floating
+import Data.Array.Accelerate.Classes.Fractional
+import Data.Array.Accelerate.Classes.FromIntegral
+import Data.Array.Accelerate.Classes.Integral
+import Data.Array.Accelerate.Classes.Num
+import Data.Array.Accelerate.Classes.Ord
+import Data.Array.Accelerate.Classes.Rational
+import Data.Array.Accelerate.Classes.RealFloat
+import Data.Array.Accelerate.Classes.RealFrac
+import Data.Array.Accelerate.Classes.ToFloating
+import Data.Array.Accelerate.Control.Monad
+import Data.Array.Accelerate.Data.Either
+import Data.Array.Accelerate.Data.Functor
+import Data.Array.Accelerate.Data.Maybe
 import Data.Array.Accelerate.Language
 import Data.Array.Accelerate.Pattern
 import Data.Array.Accelerate.Pattern.TH
@@ -437,8 +465,9 @@ import qualified Data.Array.Accelerate.Sugar.Array                  as S
 import qualified Data.Array.Accelerate.Sugar.Shape                  as S
 
 import Data.Function                                                ( (&) )
-import Prelude                                                      ( (.), ($), Char, Show, undefined, error, const, otherwise )
+import Prelude                                                      ( (.), ($), Char, Show, flip, undefined, error, const, otherwise )
 
+import GHC.Exts                                                     ( fromListN, fromString )
 import GHC.Generics                                                 ( Generic )
 import GHC.Stack
 
@@ -652,15 +681,17 @@ arrayReshape = S.reshape
 --
 -- We often need to generate or read data into an 'Array' so that it can be used
 -- in Accelerate. The base @accelerate@ library includes basic conversions
--- routines, but for additional functionality see the
--- <http://hackage.haskell.org/package/accelerate-io accelerate-io> package,
--- which includes conversions between:
+-- routines, but additional functionality is contained in external
+-- libraries, for example:
 --
---  * <https://hackage.haskell.org/package/repa repa>: another Haskell library for high-performance parallel arrays
---  * <https://hackage.haskell.org/package/vector vector>: efficient boxed and unboxed one-dimensional arrays
---  * <https://hackage.haskell.org/package/array array>: immutable arrays
---  * <https://hackage.haskell.org/package/bmp BMP>: uncompressed BMP image files
---  * <https://hackage.haskell.org/package/bytestring bytestring> compact, immutable binary data
---  * As well as copying data directly from raw 'Foreign.Ptr.Ptr's
+--  * <https://hackage.haskell.org/package/accelerate-io accelerate-io>: For copying data directly from raw 'Foreign.Ptr.Ptr's
+--  * <https://hackage.haskell.org/package/accelerate-io-array accelerate-io-array>: immutable arrays
+--  * <https://hackage.haskell.org/package/accelerate-io-bmp accelerate-io-bmp>: uncompressed BMP image files
+--  * <https://hackage.haskell.org/package/accelerate-io-bytestring accelerate-io-bytestring>: compact, immutable binary data
+--  * <https://hackage.haskell.org/package/accelerate-io-cereal accelerate-io-cereal>: binary serialisation of arrays using <https://hackage.haskell.org/package/cereal cereal>
+--  * <https://hackage.haskell.org/package/accelerate-io-JuicyPixels accelerate-io-JuicyPixels>: images in various pixel formats
+--  * <https://hackage.haskell.org/package/accelerate-io-repa accelerate-io-repa>: another Haskell library for high-performance parallel arrays
+--  * <https://hackage.haskell.org/package/accelerate-io-serialise accelerate-io-serialise>: binary serialisation of arrays using <https://hackage.haskell.org/package/serialise serialise>
+--  * <https://hackage.haskell.org/package/accelerate-io-vector accelerate-io-vector>: efficient boxed and unboxed one-dimensional arrays
 --
 

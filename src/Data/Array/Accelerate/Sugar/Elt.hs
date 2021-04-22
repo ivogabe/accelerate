@@ -248,24 +248,6 @@ instance (GSumElt a, GSumElt b) => GSumElt (a :+: b) where
   gsumUntag t = gsumUntag @b (gsumUntag @a t)
 
 
-class GTags (f :: Type -> Type) where
-  gtags :: TAG -> [(String, TAG)]
-
-instance GTags a => GTags (D1 c a) where
-  gtags = gtags @a
-
-instance Constructor c => GTags (C1 c a) where
-  gtags k = [ (conName (undefined :: D1 c a ()), k) ]
-
-instance (GTags a, GTags b) => GTags (a :+: b) where
-  gtags k =
-    let as = gtags @a k
-        bs = gtags @b k
-     in
-     map (\(x,y) -> (x,         y `shiftL` 1)   ) as ++
-     map (\(x,y) -> (x, setBit (y `shiftL` 1) 0)) bs
-
-
 untag :: TypeR t -> TagR t
 untag TupRunit         = TagRunit
 untag (TupRsingle t)   = TagRundef t

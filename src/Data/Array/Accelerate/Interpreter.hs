@@ -36,14 +36,13 @@ module Data.Array.Accelerate.Interpreter (
   run, run1, runN,
 
   -- Internal (hidden)
-  evalPrim, evalPrimConst, evalCoerceScalar,
+  evalPrim, evalPrimConst, evalCoerceScalar, atraceOp,
 
 ) where
 
 import Data.Array.Accelerate.AST                                    hiding ( Boundary(..) )
 import Data.Array.Accelerate.AST.Environment
 import Data.Array.Accelerate.AST.Var
-import Data.Array.Accelerate.Array.Data
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Array
 import Data.Array.Accelerate.Representation.Elt
@@ -60,7 +59,10 @@ import Data.Array.Accelerate.Trafo.Sharing                          ( AfunctionR
 import Data.Array.Accelerate.Type
 import Data.Primitive.Vec
 import qualified Data.Array.Accelerate.AST                          as AST
-import qualified Data.Array.Accelerate.Debug                        as D
+import qualified Data.Array.Accelerate.Debug.Internal.Flags         as Debug
+import qualified Data.Array.Accelerate.Debug.Internal.Graph         as Debug
+import qualified Data.Array.Accelerate.Debug.Internal.Stats         as Debug
+import qualified Data.Array.Accelerate.Debug.Internal.Timed         as Debug
 import qualified Data.Array.Accelerate.Smart                        as Smart
 import qualified Data.Array.Accelerate.Sugar.Array                  as Sugar
 import qualified Data.Array.Accelerate.Sugar.Elt                    as Sugar
@@ -73,6 +75,7 @@ import Control.Monad.ST
 import Data.Bits
 import Data.Primitive.ByteArray
 import Data.Primitive.Types
+import Debug.Trace
 import System.IO.Unsafe                                             ( unsafePerformIO )
 import Text.Printf                                                  ( printf )
 import Unsafe.Coerce
@@ -89,9 +92,9 @@ run a = unsafePerformIO execute
   where
     !acc    = convertAcc a
     execute = do
-      D.dumpGraph $!! acc
-      D.dumpSimplStats
-      res <- phase "execute" D.elapsed $ evaluate $ evalOpenAcc acc Empty
+      Debug.dumpGraph $!! acc
+      Debug.dumpSimplStats
+      res <- phase "execute" Debug.elapsed $ evaluate $ evalOpenAcc acc Empty
       return $ Sugar.toArr $ snd res
 
 -- | This is 'runN' specialised to an array program of one argument.
@@ -106,8 +109,8 @@ runN f = go
   where
     !acc    = convertAfun f
     !afun   = unsafePerformIO $ do
-                D.dumpGraph $!! acc
-                D.dumpSimplStats
+                Debug.dumpGraph $!! acc
+                Debug.dumpSimplStats
                 return acc
     !go     = eval (afunctionRepr @f) afun Empty
     --
@@ -116,7 +119,7 @@ runN f = go
          -> Val aenv
          -> AfunctionR g
     eval (AfunctionReprLam reprF) (Alam lhs f) aenv = \a -> eval reprF f $ aenv `push` (lhs, Sugar.fromArr a)
-    eval AfunctionReprBody        (Abody b)    aenv = unsafePerformIO $ phase "execute" D.elapsed (Sugar.toArr . snd <$> evaluate (evalOpenAcc b aenv))
+    eval AfunctionReprBody        (Abody b)    aenv = unsafePerformIO $ phase "execute" Debug.elapsed (Sugar.toArr . snd <$> evaluate (evalOpenAcc b aenv))
     eval _                        _aenv        _    = error "Two men say they're Jesus; one of them must be wrong"
 
 -- -- | Stream a lazily read list of input arrays through the given program,
@@ -131,7 +134,7 @@ runN f = go
 -- ---------
 
 phase :: String -> (Double -> Double -> String) -> IO a -> IO a
-phase n fmt go = D.timed D.dump_phases (\wall cpu -> printf "phase %s: %s" n (fmt wall cpu)) go
+phase n fmt go = Debug.timed Debug.dump_phases (\wall cpu -> printf "phase %s: %s" n (fmt wall cpu)) go
 
 
 -- Delayed Arrays
@@ -199,58 +202,58 @@ evalOpenAcc (AST.Manifest pacc) aenv =
       dir RightToLeft _ r = r
   in
   case pacc of
-    Avar (Var repr ix)          -> (TupRsingle repr, prj ix aenv)
-    Alet lhs acc1 acc2          -> evalOpenAcc acc2 $ aenv `push` (lhs, snd $ manifest acc1)
-    Apair acc1 acc2             -> let
-                                     (r1, a1) = manifest acc1
-                                     (r2, a2) = manifest acc2
-                                   in
+    Avar (Var repr ix)            -> (TupRsingle repr, prj ix aenv)
+    Alet lhs acc1 acc2            -> evalOpenAcc acc2 $ aenv `push` (lhs, snd $ manifest acc1)
+    Apair acc1 acc2               -> let (r1, a1) = manifest acc1
+                                         (r2, a2) = manifest acc2
+                                     in
                                      (TupRpair r1 r2, (a1, a2))
-    Anil                        -> (TupRunit, ())
-    Apply repr afun acc         -> (repr, evalOpenAfun afun aenv $ snd $ manifest acc)
-    Aforeign repr _ afun acc    -> (repr, evalOpenAfun afun Empty $ snd $ manifest acc)
+    Anil                          -> (TupRunit, ())
+    Atrace msg as bs              -> unsafePerformIO $ manifest bs <$ atraceOp msg (snd $ manifest as)
+    Apply repr afun acc           -> (repr, evalOpenAfun afun aenv $ snd $ manifest acc)
+    Aforeign repr _ afun acc      -> (repr, evalOpenAfun afun Empty $ snd $ manifest acc)
     Acond p acc1 acc2
-      | toBool (evalE p)        -> manifest acc1
-      | otherwise               -> manifest acc2
+      | toBool (evalE p)          -> manifest acc1
+      | otherwise                 -> manifest acc2
 
-    Awhile cond body acc        -> (repr, go initial)
+    Awhile cond body acc          -> (repr, go initial)
       where
         (repr, initial) = manifest acc
-        p       = evalOpenAfun cond aenv
-        f       = evalOpenAfun body aenv
+        p               = evalOpenAfun cond aenv
+        f               = evalOpenAfun body aenv
         go !x
           | toBool (linearIndexArray (Sugar.eltR @Word8) (p x) 0) = go (f x)
           | otherwise                                             = x
 
-    Use repr arr                -> (TupRsingle repr, arr)
-    Unit tp e                   -> unitOp tp (evalE e)
-    -- Collect s                   -> evalSeq defaultSeqConfig s aenv
+    Use repr arr                  -> (TupRsingle repr, arr)
+    Unit tp e                     -> unitOp tp (evalE e)
+    -- Collect s                     -> evalSeq defaultSeqConfig s aenv
 
     -- Producers
     -- ---------
-    Map tp f acc                -> mapOp tp (evalF f) (delayed acc)
-    Generate repr sh f          -> generateOp repr (evalE sh) (evalF f)
-    Transform repr sh p f acc   -> transformOp repr (evalE sh) (evalF p) (evalF f) (delayed acc)
-    Backpermute shr sh p acc    -> backpermuteOp shr (evalE sh) (evalF p) (delayed acc)
-    Reshape shr sh acc          -> reshapeOp shr (evalE sh) (manifest acc)
+    Map tp f acc                  -> mapOp tp (evalF f) (delayed acc)
+    Generate repr sh f            -> generateOp repr (evalE sh) (evalF f)
+    Transform repr sh p f acc     -> transformOp repr (evalE sh) (evalF p) (evalF f) (delayed acc)
+    Backpermute shr sh p acc      -> backpermuteOp shr (evalE sh) (evalF p) (delayed acc)
+    Reshape shr sh acc            -> reshapeOp shr (evalE sh) (manifest acc)
 
-    ZipWith tp f acc1 acc2      -> zipWithOp tp (evalF f) (delayed acc1) (delayed acc2)
-    Replicate slice slix acc    -> replicateOp slice (evalE slix) (manifest acc)
-    Slice slice acc slix        -> sliceOp slice (manifest acc) (evalE slix)
+    ZipWith tp f acc1 acc2        -> zipWithOp tp (evalF f) (delayed acc1) (delayed acc2)
+    Replicate slice slix acc      -> replicateOp slice (evalE slix) (manifest acc)
+    Slice slice acc slix          -> sliceOp slice (manifest acc) (evalE slix)
 
     -- Consumers
     -- ---------
-    Fold f (Just z) acc         -> foldOp (evalF f) (evalE z) (delayed acc)
-    Fold f Nothing  acc         -> fold1Op (evalF f) (delayed acc)
-    FoldSeg i f (Just z) acc seg -> foldSegOp i (evalF f) (evalE z) (delayed acc) (delayed seg)
-    FoldSeg i f Nothing acc seg -> fold1SegOp i (evalF f) (delayed acc) (delayed seg)
-    Scan  d f (Just z) acc      -> dir d scanlOp  scanrOp  (evalF f) (evalE z) (delayed acc)
-    Scan  d f Nothing  acc      -> dir d scanl1Op scanr1Op (evalF f)           (delayed acc)
-    Scan' d f z acc             -> dir d scanl'Op scanr'Op (evalF f) (evalE z) (delayed acc)
-    Permute f def p acc         -> permuteOp (evalF f) (manifest def) (evalF p) (delayed acc)
-    Stencil s tp sten b acc     -> stencilOp s tp (evalF sten) (evalB b) (delayed acc)
+    Fold f (Just z) acc           -> foldOp (evalF f) (evalE z) (delayed acc)
+    Fold f Nothing  acc           -> fold1Op (evalF f) (delayed acc)
+    FoldSeg i f (Just z) acc seg  -> foldSegOp i (evalF f) (evalE z) (delayed acc) (delayed seg)
+    FoldSeg i f Nothing acc seg   -> fold1SegOp i (evalF f) (delayed acc) (delayed seg)
+    Scan  d f (Just z) acc        -> dir d scanlOp  scanrOp  (evalF f) (evalE z) (delayed acc)
+    Scan  d f Nothing  acc        -> dir d scanl1Op scanr1Op (evalF f)           (delayed acc)
+    Scan' d f z acc               -> dir d scanl'Op scanr'Op (evalF f) (evalE z) (delayed acc)
+    Permute f def p acc           -> permuteOp (evalF f) (manifest def) (evalF p) (delayed acc)
+    Stencil s tp sten b acc       -> stencilOp s tp (evalF sten) (evalB b) (delayed acc)
     Stencil2 s1 s2 tp sten b1 a1 b2 a2
-                                -> stencil2Op s1 s2 tp (evalF sten) (evalB b1) (delayed a1) (evalB b2) (delayed a2)
+                                  -> stencil2Op s1 s2 tp (evalF sten) (evalB b1) (delayed a1) (evalB b2) (delayed a2)
 
 
 -- Array primitives
@@ -393,11 +396,11 @@ foldSegOp itp f z (Delayed repr (sh, _) arr _) (Delayed _ ((), n) _ seg)
   | IntegralDict <- integralDict itp
   = boundsCheck "empty segment descriptor" (n > 0)
   $ fromFunction' repr (sh, n-1)
-  $ \(sz, ix) ->   let start = fromIntegral $ seg ix
-                       end   = fromIntegral $ seg (ix+1)
-                   in
-                   boundsCheck "empty segment" (end >= start)
-                   $ iter (ShapeRsnoc ShapeRz) ((), end-start) (\((), i) -> arr (sz, start+i)) f z
+  $ \(sz, ix) -> let start = fromIntegral $ seg ix
+                     end   = fromIntegral $ seg (ix+1)
+                 in
+                 boundsCheck "empty segment" (end >= start)
+                 $ iter (ShapeRsnoc ShapeRz) ((), end-start) (\((), i) -> arr (sz, start+i)) f z
 
 
 fold1SegOp
@@ -423,9 +426,8 @@ scanl1Op
     => (e -> e -> e)
     -> Delayed (Array (sh, Int) e)
     -> WithReprs (Array (sh, Int) e)
-scanl1Op f (Delayed (ArrayR shr tp) sh@(_, n) ain _)
-  = boundsCheck "empty array" (n > 0)
-    ( TupRsingle $ ArrayR shr tp
+scanl1Op f (Delayed (ArrayR shr tp) sh ain _)
+  = ( TupRsingle $ ArrayR shr tp
     , adata `seq` Array sh adata
     )
   where
@@ -530,8 +532,7 @@ scanr1Op
     -> Delayed (Array (sh, Int) e)
     -> WithReprs (Array (sh, Int) e)
 scanr1Op f (Delayed (ArrayR shr tp) sh@(_, n) ain _)
-  = boundsCheck "empty array" (n > 0)
-    ( TupRsingle $ ArrayR shr tp
+  = ( TupRsingle $ ArrayR shr tp
     , adata `seq` Array sh adata
     )
   where
@@ -865,6 +866,13 @@ evalBoundary bnd aenv =
     AST.Wrap       -> Wrap
     AST.Constant v -> Constant v
     AST.Function f -> Function (evalFun f aenv)
+
+atraceOp :: Message as -> as -> IO ()
+atraceOp (Message show _ msg) as =
+  let str = show as
+   in if null str
+         then traceIO msg
+         else traceIO $ printf "%s: %s" msg str
 
 
 -- Scalar expression evaluation

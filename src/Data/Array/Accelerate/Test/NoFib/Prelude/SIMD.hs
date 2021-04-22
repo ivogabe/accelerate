@@ -20,7 +20,8 @@ module Data.Array.Accelerate.Test.NoFib.Prelude.SIMD (
 
 ) where
 
-import Control.Lens                                                 ( view, _1, _2, _3, _4 )
+import Lens.Micro                                                 ( _1, _2, _3, _4 )
+import Lens.Micro.Extras                                          ( view )
 import Prelude                                                      as P
 
 import Data.Array.Accelerate                                        as A
@@ -95,7 +96,7 @@ test_extract_v2 runN dim e =
   property $ do
     sh      <- forAll dim
     xs      <- forAll (array sh (v2 e))
-    (_l,_m) <- P.snd <$> forAllWith P.fst (Gen.element [("_1",(_1,_1)), ("_2",(_2,_2))])
+    (_l,_m) <- P.snd P.<$> forAllWith P.fst (Gen.element [("_1",(_1,_1)), ("_2",(_2,_2))])
     let !go = runN (A.map (view _m . unpackVec2')) in go xs === mapRef (view _l . unpackVec2) xs
 
 test_extract_v3
@@ -108,7 +109,7 @@ test_extract_v3 runN dim e =
   property $ do
     sh      <- forAll dim
     xs      <- forAll (array sh (v3 e))
-    (_l,_m) <- P.snd <$> forAllWith P.fst (Gen.element [("_1",(_1,_1)), ("_2",(_2,_2)), ("_3",(_3,_3))])
+    (_l,_m) <- P.snd P.<$> forAllWith P.fst (Gen.element [("_1",(_1,_1)), ("_2",(_2,_2)), ("_3",(_3,_3))])
     let !go = runN (A.map (view _m . unpackVec3')) in go xs === mapRef (view _l . unpackVec3) xs
 
 test_extract_v4
@@ -121,7 +122,7 @@ test_extract_v4 runN dim e =
   property $ do
     sh      <- forAll dim
     xs      <- forAll (array sh (v4 e))
-    (_l,_m) <- P.snd <$> forAllWith P.fst (Gen.element [("_1",(_1,_1)), ("_2",(_2,_2)), ("_3",(_3,_3)), ("_4",(_4,_4))])
+    (_l,_m) <- P.snd P.<$> forAllWith P.fst (Gen.element [("_1",(_1,_1)), ("_2",(_2,_2)), ("_3",(_3,_3)), ("_4",(_4,_4))])
     let !go = runN (A.map (view _m . unpackVec4')) in go xs === mapRef (view _l . unpackVec4) xs
 
 test_inject_v2

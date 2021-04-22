@@ -137,10 +137,8 @@ import Data.Array.Accelerate.Classes.Ord
 
 import Data.Array.Accelerate.Data.Bits
 
-import Control.Lens                                                 ( Lens', (&), (^.), (.~), (+~), (-~), lens, over )
+import Lens.Micro                                                   ( Lens', (&), (^.), (.~), (+~), (-~), lens, over )
 import Prelude                                                      ( (.), ($), Maybe(..), const, id, flip )
-
-import GHC.Base                                                     ( Constraint )
 
 
 -- $setup
@@ -1665,8 +1663,11 @@ compact keep arr
         result          = permute const dummy prj arr
     in
     if null arr
-      then T2 emptyArray (fill Z_ 0)
-      else T2 result len
+       then T2 emptyArray (fill Z_ 0)
+       else
+    if the len == unindex1 (shape arr)
+       then T2 arr    len
+       else T2 result len
 
 compact keep arr
   = let
@@ -1674,8 +1675,8 @@ compact keep arr
         T2 target len   = scanl' (+) 0 (map boolToInt keep)
         T2 offset valid = scanl' (+) 0 (flatten len)
         prj ix          = if keep!ix
-                            then Just_ (I1 (offset !! (toIndex sz (indexTail ix)) + target!ix))
-                            else Nothing_
+                             then Just_ (I1 (offset !! (toIndex sz (indexTail ix)) + target!ix))
+                             else Nothing_
         dummy           = fill (I1 (the valid)) undef
         result          = permute const dummy prj arr
     in
@@ -2196,19 +2197,22 @@ infix 0 ?
 (?) :: Elt t => Exp Bool -> (Exp t, Exp t) -> Exp t
 c ? (t, e) = cond c t e
 
--- | For use with @-XRebindableSyntax@, this class provides 'ifThenElse' lifted
--- to both scalar and array types.
+-- | For use with @-XRebindableSyntax@, this class provides 'ifThenElse'
+-- for host and embedded scalar and array types.
 --
-class IfThenElse t where
-  type EltT t a :: Constraint
-  ifThenElse :: EltT t a => Exp Bool -> t a -> t a -> t a
+class IfThenElse bool a where
+  ifThenElse :: bool -> a -> a -> a
 
-instance IfThenElse Exp where
-  type EltT Exp t = Elt t
+instance IfThenElse Bool a where
+  ifThenElse p t e =
+    case p of
+      True  -> t
+      False -> e
+
+instance Elt a => IfThenElse (Exp Bool) (Exp a) where
   ifThenElse = cond
 
-instance IfThenElse Acc where
-  type EltT Acc a = Arrays a
+instance Arrays a => IfThenElse (Exp Bool) (Acc a) where
   ifThenElse = acond
 
 
@@ -2258,7 +2262,7 @@ instance IfThenElse Acc where
 -- >   None_   -> True_
 -- >   Some_{} -> False_
 --
--- @since 1.4.0.0
+-- @since 1.3.0.0
 --
 match :: Matching f => f -> f
 match f = mkFun (mkMatch f) id
@@ -2504,9 +2508,9 @@ length = unindex1 . shape
 -- Vector (Z :. 25) [2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97]
 --
 -- Inspired by the paper /Data-Parallel Flattening by Expansion/ by Martin
--- Elsman, Troels Henddriksen, and Niels Gustav Westphal Serup, ARRAY'19.
+-- Elsman, Troels Henriksen, and Niels Gustav Westphal Serup, ARRAY'19.
 --
--- @since 1.4.0.0
+-- @since 1.3.0.0
 --
 expand :: (Elt a, Elt b)
        => (Exp a -> Exp Int)
@@ -2514,31 +2518,40 @@ expand :: (Elt a, Elt b)
        -> Acc (Vector a)
        -> Acc (Vector b)
 expand f g xs =
-  if length xs == 0
+  let
+      szs           = map f xs
+      T2 offset len = scanl' (+) 0 szs
+      m             = the len
+  in
+  if length xs == 0 || m == 0
      then use $ fromList (Z:.0) []
      else
       let
-          szs           = map f xs
-          T2 offset len = scanl' (+) 0 szs
+          n          = m + 1
+          put ix     = Just_ (I1 (offset ! ix))
 
-          m             = the len
-          n             = m + 1
-          put ix        = Just_ (I1 (offset ! ix))
+          head_flags :: Acc (Vector Int)
+          head_flags = permute const (fill (I1 n) 0) put (fill (shape szs) 1)
 
-          head_flags    :: Acc (Vector Int)
-          head_flags    = permute const (fill (I1 n) 0) put (fill (shape szs) 1)
+          idxs       = map (subtract 1)
+                     $ map snd
+                     $ scanl1 (segmentedL (+))
+                     $ zip head_flags
+                     $ fill (I1 m) 1
 
-          idxs          = map (subtract 1)
-                        $ map snd
-                        $ scanl1 (segmentedL (+))
-                        $ zip head_flags
-                        $ fill (I1 m) 1
-
-          iotas         = map snd
-                        $ scanl1 (segmentedL const)
-                        $ zip head_flags
-                        $ permute const (fill (I1 n) undef) put
-                        $ enumFromN (shape xs) 0
+          iotas      = map snd
+                     $ scanl1 (segmentedL const)
+                     $ zip head_flags
+                     $ permute const
+                               (fill (I1 n) undef)
+                               -- If any of the elements expand to zero new
+                               -- elements then this would result in multiple
+                               -- writes to the same index since the offsets are
+                               -- also the same, which is undefined behaviour
+                               (\ix -> if szs ! ix > 0
+                                         then put ix
+                                         else Nothing_)
+                     $ enumFromN (shape xs) 0
       in
       zipWith g (gather iotas xs) idxs
 

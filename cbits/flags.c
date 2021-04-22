@@ -18,7 +18,6 @@
  */
 
 #include <ctype.h>
-#include <getopt.h>
 #include <inttypes.h>
 #include <libgen.h>
 #include <stdint.h>
@@ -27,6 +26,7 @@
 #include <string.h>
 
 #include "flags.h"
+#include "getopt.h"
 
 
 /* These globals will be accessed from the Haskell side to implement the
@@ -194,7 +194,6 @@ static void parse_options(int argc, char *argv[])
       abort();
     }
   }
-
 #if !defined(ACCELERATE_DEBUG)
   if (__cmd_line_flags.bitfield & 0x7fffc00) {  // SEE: [layout of command line options bitfield]
     fprintf(stderr, "Data.Array.Accelerate: Debugging options are disabled.\n");

@@ -52,8 +52,8 @@ import Control.DeepSeq
 #ifdef ACCELERATE_DEBUG
 import Text.Printf
 import System.IO.Unsafe
-import Data.Array.Accelerate.Debug.Flags                hiding ( when )
-import Data.Array.Accelerate.Debug.Timed
+import Data.Array.Accelerate.Debug.Internal.Flags                   hiding ( when )
+import Data.Array.Accelerate.Debug.Internal.Timed
 #endif
 
 
