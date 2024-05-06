@@ -87,7 +87,7 @@ import GHC.Types
 -- e.g. the shape of the array should be stored elsewhere.
 -- Replaces the former 'ScalarArrayData' type synonym.
 --
-newtype Buffer e = Buffer (UniqueArray (ScalarArrayDataR e))
+data Buffer e = Buffer Int (UniqueArray (ScalarArrayDataR e))
 
 -- | A structure of buffers represents an array, corresponding to the SoA conversion.
 -- NOTE: We use a standard (non-strict) pair to enable lazy device-host data transfers.
@@ -96,7 +96,7 @@ newtype Buffer e = Buffer (UniqueArray (ScalarArrayDataR e))
 --
 type Buffers e = Distribute Buffer e
 
-newtype MutableBuffer e = MutableBuffer (UniqueArray (ScalarArrayDataR e))
+data MutableBuffer e = MutableBuffer Int (UniqueArray (ScalarArrayDataR e))
 
 type MutableBuffers e = Distribute MutableBuffer e
 
@@ -187,12 +187,12 @@ newBuffer :: HasCallStack => ScalarType e -> Int -> IO (MutableBuffer e)
 newBuffer (SingleScalarType s) !size
   | SingleDict      <- singleDict s
   , SingleArrayDict <- singleArrayDict s
-  = MutableBuffer <$> allocateArray size
+  = MutableBuffer size <$> allocateArray size
 newBuffer (VectorScalarType v) !size
   | VectorType w s  <- v
   , SingleDict      <- singleDict s
   , SingleArrayDict <- singleArrayDict s
-  = MutableBuffer <$> allocateArray (w * size)
+  = MutableBuffer (w * size) <$> allocateArray (w * size)
 
 indexBuffers :: TypeR e -> Buffers e -> Int -> e
 indexBuffers tR arr ix = unsafePerformIO $ indexBuffers' tR arr ix
@@ -201,7 +201,7 @@ indexBuffers' :: TypeR e -> Buffers e -> Int -> IO e
 indexBuffers' tR arr = readBuffers tR (veryUnsafeUnfreezeBuffers tR arr)
 
 indexBuffer :: ScalarType e -> Buffer e -> Int -> e
-indexBuffer tR (Buffer arr) ix = unsafePerformIO $ readBuffer tR (MutableBuffer arr) ix
+indexBuffer tR (Buffer n arr) ix = unsafePerformIO $ readBuffer tR (MutableBuffer n arr) ix
 
 readBuffers :: forall e. TypeR e -> MutableBuffers e -> Int -> IO e
 readBuffers TupRunit         ()       !_  = return ()
@@ -210,11 +210,11 @@ readBuffers (TupRsingle t)   !buffer  !ix
   | Refl <- reprIsSingle @ScalarType @e @MutableBuffer t = readBuffer t buffer ix
 
 readBuffer :: forall e. ScalarType e -> MutableBuffer e -> Int -> IO e
-readBuffer (SingleScalarType s) !(MutableBuffer array) !ix
+readBuffer (SingleScalarType s) !(MutableBuffer _ array) !ix
   | SingleDict      <- singleDict s
   , SingleArrayDict <- singleArrayDict s
   = unsafeReadArray array ix
-readBuffer (VectorScalarType v) !(MutableBuffer array) (I# ix#)
+readBuffer (VectorScalarType v) !(MutableBuffer _ array) (I# ix#)
   | VectorType (I# w#) s <- v
   , SingleDict           <- singleDict s
   , SingleArrayDict      <- singleArrayDict s
@@ -236,11 +236,11 @@ writeBuffers (TupRsingle t)   arr      !ix !val
   | Refl <- reprIsSingle @ScalarType @e @MutableBuffer t = writeBuffer t arr ix val
 
 writeBuffer :: forall e. ScalarType e -> MutableBuffer e -> Int -> e -> IO ()
-writeBuffer (SingleScalarType s) (MutableBuffer arr) !ix !val
+writeBuffer (SingleScalarType s) (MutableBuffer _ arr) !ix !val
   | SingleDict <- singleDict s
   , SingleArrayDict <- singleArrayDict s
   = unsafeWriteArray arr ix val
-writeBuffer (VectorScalarType v) (MutableBuffer arr) (I# ix#) (Vec ba#)
+writeBuffer (VectorScalarType v) (MutableBuffer _ arr) (I# ix#) (Vec ba#)
   | VectorType (I# w#) s <- v
   , SingleDict           <- singleDict s
   , SingleArrayDict      <- singleArrayDict s
@@ -269,10 +269,10 @@ touchMutableBuffers (TupRsingle t)   buffer
   | Refl <- reprIsSingle @ScalarType @e @MutableBuffer t = touchMutableBuffer buffer
 
 touchBuffer :: Buffer e -> IO ()
-touchBuffer (Buffer arr) = touchUniqueArray arr
+touchBuffer (Buffer _ arr) = touchUniqueArray arr
 
 touchMutableBuffer :: MutableBuffer e -> IO ()
-touchMutableBuffer (MutableBuffer arr) = touchUniqueArray arr
+touchMutableBuffer (MutableBuffer _ arr) = touchUniqueArray arr
 
 rnfBuffers :: forall e. TypeR e -> Buffers e -> ()
 rnfBuffers TupRunit         ()       = ()
@@ -281,7 +281,7 @@ rnfBuffers (TupRsingle t)   arr
   | Refl <- reprIsSingle @ScalarType @e @Buffer t = rnfBuffer arr
 
 rnfBuffer :: Buffer e -> ()
-rnfBuffer (Buffer arr) = rnf (unsafeUniqueArrayPtr arr)
+rnfBuffer (Buffer _ arr) = rnf (unsafeUniqueArrayPtr arr)
 
 unPtr# :: Ptr a -> Addr#
 unPtr# (Ptr addr#) = addr#
@@ -305,7 +305,7 @@ unsafeFreezeBuffers (TupRsingle t)   buffer
   , Refl <- reprIsSingle @ScalarType @e @Buffer t = unsafeFreezeBuffer buffer
 
 unsafeFreezeBuffer :: MutableBuffer e -> Buffer e
-unsafeFreezeBuffer (MutableBuffer arr) = Buffer arr
+unsafeFreezeBuffer (MutableBuffer n arr) = Buffer n arr
 
 veryUnsafeUnfreezeBuffers :: forall e. TypeR e -> Buffers e -> MutableBuffers e
 veryUnsafeUnfreezeBuffers TupRunit         ()       = ()
@@ -315,7 +315,7 @@ veryUnsafeUnfreezeBuffers (TupRsingle t)   buffer
   , Refl <- reprIsSingle @ScalarType @e @Buffer t = veryUnsafeUnfreezeBuffer buffer
 
 veryUnsafeUnfreezeBuffer :: Buffer e -> MutableBuffer e
-veryUnsafeUnfreezeBuffer (Buffer arr) = MutableBuffer arr
+veryUnsafeUnfreezeBuffer (Buffer n arr) = MutableBuffer n arr
 
 -- Allocate a new buffer with enough storage to hold the given number of
 -- elements.
@@ -382,10 +382,10 @@ liftBuffers n (TupRsingle s)   buffer
   | Refl <- reprIsSingle @ScalarType @e @Buffer s = liftBuffer n s buffer
 
 liftBuffer :: forall e. Int -> ScalarType e -> Buffer e -> CodeQ (Buffer e)
-liftBuffer n (VectorScalarType (VectorType w t)) (Buffer arr)
-  | SingleArrayDict <- singleArrayDict t = [|| Buffer $$(liftUniqueArray (n * w) arr) ||]
-liftBuffer n (SingleScalarType t)                (Buffer arr)
-  | SingleArrayDict <- singleArrayDict t = [|| Buffer $$(liftUniqueArray n arr) ||]
+liftBuffer n (VectorScalarType (VectorType w t)) (Buffer _ arr)
+  | SingleArrayDict <- singleArrayDict t = [|| Buffer (n * w) $$(liftUniqueArray (n * w) arr) ||]
+liftBuffer n (SingleScalarType t)                (Buffer _ arr)
+  | SingleArrayDict <- singleArrayDict t = [|| Buffer n $$(liftUniqueArray n arr) ||]
 
 -- Determine the underlying type of a Haskell CLong or CULong.
 --

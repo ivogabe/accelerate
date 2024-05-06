@@ -531,14 +531,14 @@ executeBinding env = \case
     return (S.Ref ioref, S.OutputRef ioref)
   S.Alloc shr tp sh -> do
     let n = size shr $ prjVars sh env
-    MutableBuffer buffer <- newBuffer tp n
-    return $ Buffer buffer
+    MutableBuffer n buffer <- newBuffer tp n
+    return $ Buffer n buffer
   S.Use _ _ buffer ->
     return buffer
   S.Unit (Var tp ix) -> do
-    mbuffer@(MutableBuffer buffer) <- newBuffer tp 1
+    mbuffer@(MutableBuffer 1 buffer) <- newBuffer tp 1
     writeBuffer tp mbuffer 0 $ prj ix env
-    return $ Buffer buffer
+    return $ Buffer 1 buffer
   S.RefRead ref -> do
     let S.Ref ioref = prj (varIdx ref) env
     readIORef ioref

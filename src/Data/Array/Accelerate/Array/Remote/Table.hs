@@ -370,7 +370,7 @@ makeStableBuffer
     => SingleType a
     -> MutableBuffer a
     -> m StableBuffer
-makeStableBuffer !tp !(MutableBuffer ad)
+makeStableBuffer !tp !(MutableBuffer _ ad)
   | SingleArrayDict <- singleArrayDict tp
   = return $! StableBuffer (uniqueArrayId ad)
 
@@ -388,7 +388,7 @@ makeWeakArrayData
     -> c
     -> Maybe (IO ())
     -> IO (Weak c)
-makeWeakArrayData !tp !(MutableBuffer ad) !c !mf | SingleArrayDict <- singleArrayDict tp = do
+makeWeakArrayData !tp !(MutableBuffer _ ad) !c !mf | SingleArrayDict <- singleArrayDict tp = do
   let !uad = uniqueArrayData ad
   case mf of
     Nothing -> return ()
