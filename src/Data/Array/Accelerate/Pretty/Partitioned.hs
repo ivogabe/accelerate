@@ -25,13 +25,17 @@
 
 module Data.Array.Accelerate.Pretty.Partitioned ({- instance PrettyOp (Cluster op) -}) where
 
-import Data.Array.Accelerate.Pretty.Exp hiding (Val(..))
+import Data.Array.Accelerate.Pretty.Exp hiding (Val(..), prj)
 import qualified Data.Array.Accelerate.Pretty.Exp as Pretty
+import Data.Array.Accelerate.Pretty.Type
 import Data.Array.Accelerate.Pretty.Operation
+import Data.Array.Accelerate.AST.Environment (Env)
+import qualified Data.Array.Accelerate.AST.Environment as Env
 import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Trafo.Operation.LiveVars
+import Data.Array.Accelerate.Error
 
 import Prettyprinter
 
@@ -43,15 +47,18 @@ import Data.Array.Accelerate.AST.Idx (Idx (..))
 import Data.Bifunctor (second)
 import Data.Array.Accelerate.AST.Var (varsType)
 
-instance PrettyOp op => PrettyOp (Clustered op) where
+instance (PrettyOp op, SetOpIndices op) => PrettyOp (Clustered op) where
   prettyOp :: PrettyOp op => Clustered op t -> Adoc
   prettyOp (Clustered c _) = prettyOp c
   prettyOpWithArgs env (Clustered c _) = prettyOpWithArgs env c
 
-instance PrettyOp op => PrettyOp (Cluster op) where
+instance (PrettyOp op, SetOpIndices op) => PrettyOp (Cluster op) where
   prettyOp _ = "cluster"
 
   prettyOpWithArgs env cluster args
+    {- = prettyFlatCluster env flat
+    where
+      flat = toFlatCluster cluster args-}
     | isSingle cluster = body
     | otherwise = annotate Execute "execute" <+> "{" <> line
       <> indent 2 body <> line <> "}"
@@ -96,18 +103,28 @@ prettyCluster _ (Fused fusion left right) args fresh
     , fresh''')
 
 prettySingleOp :: PrettyOp op => Bool -> SingleOp op t -> PrettyArgs t -> Adoc
-prettySingleOp topLevel (Single op soas (SA _ sortArgs) subArgs) args =
+prettySingleOp topLevel (Single op opArgs) args =
   hang 2 $ group $ vsep $
-    [ annotate Execute "execute" | topLevel]
+    [ annotate Execute "execute" | topLevel ]
     ++
     [
       prettyOp op,
-      tupled $ map (\(Exists a) -> prettyPrettyArg a) $ argsToList args'''
+      tupled $ map (\(Exists a) -> prettyPrettyArg $ prettyClusterArg args a) $ argsToList opArgs
     ]
+
+prettyClusterArg :: forall f t. PrettyArgs f -> ClusterArg (FunToEnv f) t -> PrettyArg t
+prettyClusterArg pArgs = \case
+  ClusterArgSingle idx -> funToEnvPrj pArgs idx
+  ClusterArgArray m _ _ buffers -> prettyBuffers m buffers
   where
-    args' = prettyExtendArgs subArgs args
-    args'' = sortArgs args'
-    args''' = prettySoaArgs soas args''
+    prettyBuffers :: Modifier m -> ClusterArgBuffers (FunToEnv f) m sh e -> PrettyArg (m sh e)
+    prettyBuffers _ (ClusterArgBuffersDead _ idx) = case funToEnvPrj pArgs idx of
+      PrettyArgVarShape _ sh ->
+        PrettyArgArray Out sh (TupRsingle $ Adoc' "_")
+      PrettyArgOther sh ->
+        PrettyArgArray Out sh (TupRsingle $ Adoc' "_")
+    prettyBuffers _ (ClusterArgBuffersLive _ idx) = funToEnvPrj pArgs idx
+    prettyBuffers m (ClusterArgBuffersPair l r) = prettyBuffers m l `prettyPairArg` prettyBuffers m r
 
 toPrettyArg :: Val env -> Arg env t -> PrettyArg t
 toPrettyArg env (ArgArray m _ sh buffers) = PrettyArgArray m (prettyShapeVars env sh) (mapTupR (Adoc' . prettyVar env) buffers)
@@ -120,37 +137,6 @@ prettyPrettyArg :: PrettyArg t -> Adoc
 prettyPrettyArg (PrettyArgArray m sh buffers) = group $ vsep [prettyModifier m, "(" <> sh <> ")", prettyTupR (\_ (Adoc' doc) -> doc) 0 buffers]
 prettyPrettyArg (PrettyArgVarShape doc _) = doc
 prettyPrettyArg (PrettyArgOther doc) = doc
-
-prettyExtendArgs :: SubArgs a b -> PrettyArgs b -> PrettyArgs a
-prettyExtendArgs SubArgsNil ArgsNil = ArgsNil
-prettyExtendArgs (SubArgsLive subArg subArgs) (a :>: as) = prettyExtendArg subArg a :>: prettyExtendArgs subArgs as
-prettyExtendArgs (SubArgsDead subArgs) (a :>: as) = case a of
-  PrettyArgVarShape _ sh
-    -> PrettyArgArray Out sh (TupRsingle $ Adoc' "_") :>: prettyExtendArgs subArgs as
-  _ -> PrettyArgOther "?" :>: prettyExtendArgs subArgs as
-
-prettyExtendArg :: SubArg a b -> PrettyArg b -> PrettyArg a
-prettyExtendArg (SubArgOut subTup) (PrettyArgArray m sh buffers) = PrettyArgArray m sh $ prettyExtendTup subTup buffers
-prettyExtendArg (SubArgOut _) _ = PrettyArgOther "?"
-prettyExtendArg SubArgKeep arg = arg
-
-prettyExtendTup :: SubTupR a b -> TupR Adoc' (Buffers b) -> TupR Adoc' (Buffers a)
-prettyExtendTup SubTupRskip _ = TupRsingle $ Adoc' "_"
-prettyExtendTup SubTupRkeep a = a
-prettyExtendTup (SubTupRpair s1 s2) (TupRpair t1 t2) = prettyExtendTup s1 t1 `TupRpair` prettyExtendTup s2 t2
-
-prettySoaArgs :: SOAs args expanded -> PrettyArgs expanded -> PrettyArgs args
-prettySoaArgs SOArgsNil _ = ArgsNil
-prettySoaArgs (SOArgsCons xs x) args
-  | (arg, args') <- prettySoaArg x args
-  = arg :>: prettySoaArgs xs args'
-
-prettySoaArg :: SOA arg appendto result -> PrettyArgs result -> (PrettyArg arg, PrettyArgs appendto)
-prettySoaArg SOArgSingle (a :>: as) = (a, as)
-prettySoaArg (SOArgTup right left) as
-  | (left', as') <- prettySoaArg left as
-  , (right', as'') <- prettySoaArg right as'
-  = (prettyPairArg left' right', as'')
 
 prettyPairArg :: PrettyArg (f left) -> PrettyArg (f right) -> PrettyArg (f (left, right))
 prettyPairArg (PrettyArgArray m sh left) (PrettyArgArray _ _ right) = PrettyArgArray m sh $ TupRpair left right
@@ -223,3 +209,97 @@ splitEnv (IntroR next) (a :>: as) fresh =
 prettyFuseList :: Adoc -> [Adoc] -> Adoc
 prettyFuseList _ [] = ""
 prettyFuseList name docs = (hang 2 $ group $ vsep $ [name, tupled docs]) <> line
+
+prettyFlatCluster :: PrettyOp op => Val env -> FlatCluster op env -> Adoc
+prettyFlatCluster env (FlatCluster _ idxLhs sizes directions localR localLHS ops) =
+  annotate Execute "execute" <+> "{" <> line
+    <> indent 2 (forIndices <> localBuffers <> vsep ops') <> line <> "}"
+  where
+    (forIndices, idxEnv, _) = prettyIdxLHS env Pretty.Empty 0 idxLhs sizes directions
+    (env', _) = pushLocalBuffers env 0 localLHS
+    (localBuffers, _) = prettyLocalLHS 0 localLHS localR
+    ops' = prettyFlatOps False env' idxEnv ops
+
+prettyIdxLHS :: Val env0 -> Val env -> Int -> ELeftHandSide sh env env' -> GroundVars env0 sh -> TupR LoopDirection sh -> (Adoc, Val env', Int)
+prettyIdxLHS _ env fresh (LeftHandSideWildcard _) _ _ = (mempty, env, fresh)
+prettyIdxLHS env0 env fresh (LeftHandSideSingle _) (TupRsingle sz) (TupRsingle direction) =
+  (doc, env `Pretty.Push` var, fresh + 1)
+  where
+    doc = for_ <+> var <+> in_ <+> "0 .. " <> prettyVar env0 sz <> direction' <> hardline
+    var = "i" <> viaShow fresh
+    direction' = case direction of
+      LoopAny -> mempty
+      LoopMonotone -> " [monotone]"
+      LoopAscending -> " [ascending]"
+      LoopDescending -> " [descending]"
+prettyIdxLHS env0 env fresh (LeftHandSidePair lhs1 lhs2) (TupRpair sz1 sz2) (TupRpair d1 d2)
+  | (doc1, env1, fresh1) <- prettyIdxLHS env0 env fresh lhs1 sz1 d1
+  , (doc2, env2, fresh2) <- prettyIdxLHS env0 env1 fresh1 lhs2 sz2 d2
+  = (doc1 <> doc2, env2, fresh2)
+prettyIdxLHS _ _ _ _ _ _ = internalError "Tuple mismatch"
+
+pushLocalBuffers :: Val env -> Int -> GLeftHandSide t env env' -> (Val env', Int)
+pushLocalBuffers env fresh (LeftHandSideWildcard _) = (env, fresh)
+pushLocalBuffers env fresh (LeftHandSideSingle _) =
+  (env `Pretty.Push` ("%" <> viaShow fresh), fresh + 1)
+pushLocalBuffers env fresh (LeftHandSidePair lhs1 lhs2)
+  | (env', fresh') <- pushLocalBuffers env fresh lhs1
+  = pushLocalBuffers env' fresh' lhs2
+
+prettyLocalLHS :: Int -> GLeftHandSide t env env' -> TupR LocalBufferR t -> (Adoc, Int)
+prettyLocalLHS fresh (LeftHandSideWildcard _) _ = (mempty, fresh)
+prettyLocalLHS fresh (LeftHandSideSingle _) (TupRsingle (LocalBufferR tp depth)) =
+  ( let_ <> " %" <> viaShow fresh <> ": [" <> prettyScalarType tp <> "] " <> comment <> hardline
+  , fresh + 1)
+  where
+    comment
+      | depth == 0 = "-- outside for loops"
+      | otherwise = "-- in for i" <> viaShow (depth - 1)
+prettyLocalLHS fresh (LeftHandSidePair lhs1 lhs2) (TupRpair r1 r2)
+  | (d1, fresh1) <- prettyLocalLHS fresh lhs1 r1
+  , (d2, fresh2) <- prettyLocalLHS fresh1 lhs2 r2
+  = (d1 <> d2, fresh2)
+prettyLocalLHS _ _ _ = internalError "Tuple mismatch"
+
+prettyFlatOps :: PrettyOp op => Bool -> Val env -> Val idxEnv -> FlatOps op env idxEnv -> [Adoc]
+prettyFlatOps single env idxEnv = \case
+  FlatOpsNil -> []
+  FlatOpsOp op ops ->
+    prettyFlatOp single env idxEnv op : prettyFlatOps single env idxEnv ops
+  FlatOpsBind depth lhs expr ops
+    | (idxEnv', lhs') <- prettyLhs False 'i' idxEnv lhs ->
+      ( ( if depth == 0
+          then "-- Backpermute outside all for loops"
+          else "-- Backpermute in for loop of i" <> viaShow (depth - 1) <> hardline)
+        <> let_ <+> lhs' <+> "=" <+> prettyPreOpenExp context0 (prettyArrayInstr env) idxEnv expr)
+      : prettyFlatOps single env idxEnv' ops
+
+prettyFlatOp :: PrettyOp op => Bool -> Val env -> Val idxEnv -> FlatOp op env idxEnv -> Adoc
+prettyFlatOp single env idxEnv (FlatOp op args idxArgs) =
+  hang 2 $ group $ vsep $
+    [ annotate Execute "execute" | single ]
+    ++
+    [
+      prettyOp op,
+      tupled $ prettyArgsWithIdx env idxEnv args idxArgs
+    ]
+
+prettyArgsWithIdx :: Val env -> Val idxEnv -> Args env args -> IdxArgs idxEnv args -> [Adoc]
+prettyArgsWithIdx _ _ ArgsNil _ = []
+prettyArgsWithIdx env idxEnv (a :>: as) (i :>: is)
+  = prettyArgWithIdx env idxEnv a i : prettyArgsWithIdx env idxEnv as is
+
+prettyArgWithIdx :: Val env -> Val idxEnv -> Arg env arg -> IdxArg idxEnv arg -> Adoc
+prettyArgWithIdx env idxEnv arg idxArg
+  | ArgArray{} <- arg = case idxArg of
+    IdxArgIdx depth idx ->
+      let
+        idx' = map (\(Exists var) -> prettyVar idxEnv var) $ flattenTupR idx
+        comment
+          | depth == 0 = "{- outside for loops -}"
+          | otherwise = "{- in for i" <> viaShow (depth - 1) <> " -}"
+      in arg' <> " @ " <> tupled idx' <+> comment
+    IdxArgNone -> arg' <> " @ ?"
+  | otherwise = arg'
+  where
+    arg' = prettyArg env arg

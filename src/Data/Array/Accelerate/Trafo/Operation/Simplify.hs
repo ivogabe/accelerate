@@ -51,8 +51,8 @@ import Control.Monad
 import Data.Functor.Identity
 
 class SimplifyOperation op where
-  detectCopy :: (forall t t'. GroundVars env t -> GroundVars env t' -> Maybe (t :~: t')) -> op f -> Args env f -> [CopyOperation env]
-  detectCopy _ _ _ = []
+  detectCopy :: op f -> Args env f -> [CopyOperation env]
+  detectCopy _ _ = []
 
 data CopyOperation env where
   CopyOperation
@@ -102,14 +102,14 @@ detectMapCopies' lhs body input output = go Just body output []
       Right buffer -> Right buffer
     findInput' _ _ _ = internalError "Tuple mismatch"
 
-detectBackpermuteCopies :: forall env sh sh' t. (forall t t'. GroundVars env t -> GroundVars env t' -> Maybe (t :~: t')) -> Args env (Fun' (sh' -> sh) -> In sh t -> Out sh' t -> ()) -> [CopyOperation env]
-detectBackpermuteCopies matchVars'' (ArgFun f :>: input@(ArgArray _ _ sh _) :>: output@(ArgArray _ _ sh' _) :>: ArgsNil)
-  | Just Refl <- matchVars'' sh sh'
+detectBackpermuteCopies :: forall env sh sh' t. Args env (Fun' (sh' -> sh) -> In sh t -> Out sh' t -> ()) -> [CopyOperation env]
+detectBackpermuteCopies (ArgFun f :>: input@(ArgArray _ _ sh _) :>: output@(ArgArray _ _ sh' _) :>: ArgsNil)
+  | Just Refl <- matchVars sh sh'
   , Just Refl <- isIdentity f = copyOperationsForArray input output
-detectBackpermuteCopies _ _ = []
+detectBackpermuteCopies _ = []
 
 data Info env t where
-  InfoConst    :: t         -> Info env t -- A constant scalar
+  InfoConst    :: ScalarType t -> t -> Info env t -- A constant scalar
   InfoAlias    :: Idx env t -> Info env t
   InfoBuffer   :: Maybe (Idx env t) -- In case of a Unit, the index of the scalar variable that it contains.
                -- Copy of another buffer. This is similar to an alias, but a buffer may only
@@ -126,31 +126,9 @@ newtype InfoEnv env = InfoEnv { unInfoEnv :: WEnv Info env }
 emptySimplifyEnv :: InfoEnv ()
 emptySimplifyEnv = InfoEnv wempty
 
-matchVars' :: InfoEnv env -> GroundVars env t -> GroundVars env t' -> Maybe (t :~: t')
-matchVars' env = matchTupR (matchVar' env)
-
-matchVar' :: InfoEnv env -> GroundVar env t -> GroundVar env t' -> Maybe (t :~: t')
-matchVar' env v1 v2
-  | Just Refl <- matchVar v1 v2 = Just Refl
-  | InfoConst c1 <- infoFor (varIdx v1) env
-  , InfoConst c2 <- infoFor (varIdx v2) env
-  , GroundRscalar tp1 <- varType v1
-  , GroundRscalar tp2 <- varType v2
-  , Just Refl <-  matchScalarType tp1 tp2
-  = case tp1 of
-      SingleScalarType t
-        | SingleDict <- singleDict t -- Gives 'Eq t'
-        , c1 == c2 -> Just Refl
-      VectorScalarType (VectorType _ t)
-        | SingleDict <- singleDict t
-        , c1 == c2 -> Just Refl
-      _ -> Nothing
-  | otherwise = Nothing
-
-
 instance Sink Info where
   weaken k (InfoAlias idx) = InfoAlias $ weaken k idx
-  weaken _ (InfoConst c)   = InfoConst c
+  weaken _ (InfoConst t c)   = InfoConst t c
   weaken k (InfoBuffer unitScalar copyOf copied) = InfoBuffer (fmap (weaken k) unitScalar) (fmap (weaken k) copyOf) (fmap (weaken k) copied)
   weaken _ InfoNone        = InfoNone
 
@@ -238,7 +216,7 @@ simplify' uniquenesses = \case
           let
             bnd'' = bnd' env
             env' = bindingEnv setBnd lhs bnd'' (invalidate setBnd env)
-          in bindLet lhs us bnd'' (body' env')
+          in alet' lhs us bnd'' (body' env')
       )
   Alloc shr tp sh -> (IdxSet.empty, \env -> Alloc shr tp $ mapTupR (weaken $ substitute env) sh)
   Use tp 1 buffer ->
@@ -257,8 +235,8 @@ simplify' uniquenesses = \case
     in 
       ( set
       , \env -> case infoFor (varIdx cond) env of
-        InfoConst 0  -> false' env
-        InfoConst _  -> true'  env
+        InfoConst _ 0 -> false' env
+        InfoConst _ _ -> true'  env
         InfoAlias ix -> Acond (cond{varIdx = ix}) (true' env) (false' env)
         InfoNone     -> Acond cond                (true' env) (false' env)
       )
@@ -289,40 +267,52 @@ simplifyReturnVars env (TupRsingle Unique) v = mapTupR (weaken $ substituteOutpu
 simplifyReturnVars _   TupRunit _ = TupRunit
 simplifyReturnVars _   _ _ = internalError "Tuple mismatch"
 
-bindLet :: forall env env' op t s. GLeftHandSide t env env' -> Uniquenesses t -> OperationAcc op env t -> OperationAcc op env' s -> OperationAcc op env s
-bindLet (LeftHandSidePair l1 l2) (TupRpair u1 u2) (Compute (Pair e1 e2))
-  = bindLet l1 u1 (Compute e1) . bindLet l2 u2 (Compute $ weakenArrayInstr (weakenWithLHS l1) e2)
-bindLet (LeftHandSidePair l1 l2) (TupRpair u1 u2) (Return (TupRpair v1 v2))
-  = bindLet l1 u1 (Return v1) . bindLet l2 u2 (Return $ mapTupR (weaken $ weakenWithLHS l1) v2)
-bindLet lhs@(LeftHandSideWildcard _) us bnd = case bnd of
-  Compute _ -> id -- Drop this binding, as it has no observable effect
-  Return _  -> id
-  Alloc{}   -> id
-  Use{}     -> id
-  Unit _    -> id
-  _ -> Alet lhs us bnd -- Might have a side effect
-bindLet lhs@(LeftHandSideSingle _) us (Compute (ArrayInstr (Parameter (Var tp ix)) _))
-  = Alet lhs us $ Return $ TupRsingle $ Var (GroundRscalar tp) ix
-bindLet lhs us bnd = Alet lhs us bnd
+findConstant :: forall env env' t. WEnv' Info env' env -> ScalarType t -> t -> Maybe (Idx env t)
+findConstant env tp1 value1 = go env
+  where
+    go :: WEnv' Info env2 env1 -> Maybe (Idx env1 t)
+    go WEmpty = Nothing
+    go (WPushA e (InfoConst tp2 value2))
+      | Just idx <- tryMatch tp2 value2 = Just idx
+    go (WPushB e (InfoConst tp2 value2))
+      | Just idx <- tryMatch tp2 value2 = Just idx
+    go (WPushA e _) = SuccIdx <$> go e
+    go (WPushB e _) = SuccIdx <$> go e
+    go (WWeaken _ e) = go e
+
+    tryMatch :: ScalarType s -> s -> Maybe (Idx (env3, s) t)
+    tryMatch tp2 value2
+      | Just Refl <- matchScalarType tp1 tp2
+      = case tp1 of
+          SingleScalarType t
+            | SingleDict <- singleDict t -- Gives 'Eq t'
+            , value1 == value2 -> Just ZeroIdx
+          VectorScalarType (VectorType _ t)
+            | SingleDict <- singleDict t
+            , value1 == value2 -> Just ZeroIdx
+          _ -> Nothing
+      | otherwise = Nothing
 
 bindingEnv :: forall op t env env'. SimplifyOperation op => IdxSet env -> GLeftHandSide t env env' -> OperationAcc op env t -> InfoEnv env -> InfoEnv env'
-bindingEnv _ lhs (Compute expr) (InfoEnv environment) = InfoEnv $ weaken (weakenWithLHS lhs) $ go lhs expr environment
+bindingEnv _ lhs (Compute expr) (InfoEnv environment) = InfoEnv $ go weakenId lhs expr environment
   where
-    go :: GLeftHandSide s env1 env2 -> Exp env s -> WEnv' Info env env1 -> WEnv' Info env env2
-    go (LeftHandSideSingle _) e env
-      | ArrayInstr (Parameter var) _ <- e = wpush' env (InfoAlias $ varIdx var)
-      | Const _ c <- e = wpush' env (InfoConst c)
-      | otherwise = wpush' env InfoNone
+    go :: env :> env1 -> GLeftHandSide s env1 env2 -> Exp env s -> WEnv' Info env1 env1 -> WEnv' Info env2 env2
+    go k (LeftHandSideSingle _) e env
+      | ArrayInstr (Parameter var) _ <- e = wpush env (InfoAlias $ weaken (weakenSucc' k) $ varIdx var)
+      | Const tp c <- e = case findConstant env tp c of
+        Just idx -> wpush env (InfoAlias $ SuccIdx idx)
+        Nothing -> wpush env (InfoConst tp c)
+      | otherwise = wpush env InfoNone
 
-    go (LeftHandSidePair l1 l2) (Pair e1 e2) env
-      = go l2 e2 $ go l1 e1 env
+    go k (LeftHandSidePair l1 l2) (Pair e1 e2) env
+      = go (weakenWithLHS l1 .> k) l2 e2 $ go k l1 e1 env
 
-    go (LeftHandSideWildcard _) _ env = env
+    go k (LeftHandSideWildcard _) _ env = env
 
-    go l _ env = goUnknown l env
+    go _ l _ env = goUnknown l env
 
-    goUnknown :: GLeftHandSide s env1 env2 -> WEnv' Info env env1 -> WEnv' Info env env2
-    goUnknown (LeftHandSideSingle _)   env = wpush' env InfoNone
+    goUnknown :: GLeftHandSide s env1 env2 -> WEnv' Info env1 env1 -> WEnv' Info env2 env2
+    goUnknown (LeftHandSideSingle _)   env = wpush env InfoNone
     goUnknown (LeftHandSideWildcard _) env = env
     goUnknown (LeftHandSidePair l1 l2) env = goUnknown l2 $ goUnknown l1 env
 bindingEnv _ lhs (Return variables) (InfoEnv environment) = InfoEnv $ weaken (weakenWithLHS lhs) $ go lhs variables environment
@@ -333,7 +323,7 @@ bindingEnv _ lhs (Return variables) (InfoEnv environment) = InfoEnv $ weaken (we
     go (LeftHandSideWildcard _) _                       env = env
     go _                        _                       _   = internalError "Tuple mismatch"
 bindingEnv _ (LeftHandSideSingle _) (Unit (Var _ idx)) (InfoEnv env) = InfoEnv $ wpush env $ InfoBuffer (Just $ SuccIdx idx) Nothing []
-bindingEnv outputs (LeftHandSideWildcard _) (Exec op args)      env = foldl' addCopy env $ detectCopy (matchVars' env) op args
+bindingEnv outputs (LeftHandSideWildcard _) (Exec op args)      env = foldl' addCopy env $ detectCopy op args
   where
     addCopy :: InfoEnv env -> CopyOperation env -> InfoEnv env
     addCopy env' (CopyOperation input output)
@@ -394,7 +384,7 @@ simplifyExpFun env = Exp.simplifyFun . runIdentity . rebuildArrayInstrFun (simpl
 simplifyArrayInstr :: InfoEnv env -> RebuildArrayInstr Identity (ArrayInstr env) (ArrayInstr env)
 simplifyArrayInstr env instr@(Parameter (Var tp idx)) = case infoFor idx env of
   InfoAlias idx'   -> simplifyArrayInstr env (Parameter $ Var tp idx')
-  InfoConst c      -> Identity $ const $ Const tp c
+  InfoConst _ c    -> Identity $ const $ Const tp c
   InfoBuffer _ _ _ -> bufferImpossible tp
   InfoNone         -> Identity $ \arg -> ArrayInstr instr arg
 simplifyArrayInstr env instr@(Index (Var tp idx)) = case infoFor idx env of
@@ -439,7 +429,12 @@ unionSubTupR (SubTupRpair l1 r1) (SubTupRpair l2 r2)
   = Exists $ subTupRpair l r
 unionSubTupR _ _ = Exists SubTupRkeep
 
-
+-- Detects which parts of the state of an awhile loop are invariant and
+-- transforms the program accordingly.
+-- For instance, if the state of an awhile loop contains an array whose
+-- shape doesn't change throughout the execution of the awhile loop,
+-- it will remove the shape from the state of the loop and always refer
+-- to the initial shape of the array.
 awhileSimplifyInvariant
   :: Uniquenesses a
   -> PreOpenAfun op env (a -> PrimBool)
@@ -447,10 +442,11 @@ awhileSimplifyInvariant
   -> GroundVars     env a
   -> PreOpenAcc  op env a
 awhileSimplifyInvariant us cond step initial = case awhileDropInvariantFun step of
+  Exists SubTupRkeep -> Awhile us cond step initial
   Exists sub
     | Just Refl <- subTupPreserves tp sub -> Awhile us cond step initial
     | DeclareVars lhs k value <- declareVars $ subTupR sub tp ->
-      Alet lhs (subTupR sub us)
+      alet' lhs (subTupR sub us)
         (Awhile (subTupR sub us)
           (subTupFunctionArgument sub initial cond)
           (subTupFunctionArgument sub initial $ subTupFunctionResult sub step)

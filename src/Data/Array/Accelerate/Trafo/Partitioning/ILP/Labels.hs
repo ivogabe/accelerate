@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE LambdaCase #-}
@@ -6,6 +7,8 @@
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE RankNTypes #-}
@@ -18,7 +21,11 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels where
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.LeftHandSide ( LeftHandSide(..) )
 import Data.Array.Accelerate.AST.Operation
-import Data.Array.Accelerate.Representation.Type ( TupR(..) )
+import Data.Array.Accelerate.Representation.Type
+import Data.Array.Accelerate.Type
+import Data.Array.Accelerate.Array.Buffer (Buffer, Buffers)
+import Data.Array.Accelerate.Representation.Array
+import Data.Array.Accelerate.Error
 
 -- In this file, order very often subly does matter.
 -- To keep this clear, we use S.Set whenever it does not,
@@ -33,9 +40,7 @@ import qualified Data.Map as M
 import Lens.Micro ((^.))
 import Data.Bifunctor (first)
 import Data.Type.Equality
-import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.Functor.Const as C
-import Data.Array.Accelerate.Array.Buffer (Buffers)
 import qualified Debug.Trace
 
 {-
@@ -85,23 +90,6 @@ data ALabel t where
   NotArr :: ALabel (t e) -- matches on `Var' e`, `Exp' e` and `Fun' e` (is typecorrect on arrays, but wish it wasn't)
 deriving instance Show (ALabel t)
 
-matchALabel :: ALabel (m sh s) -> ALabel (m' sh' t) -> Maybe ((sh,s) :~: (sh',t))
-matchALabel (Arr e1) (Arr e2)
-  | Just Refl <- matchELabelTup e1 e2
-  = Just $ unsafeCoerce Refl
-matchALabel _ _ = Nothing
-
-matchELabelTup :: ELabelTup a -> ELabelTup b -> Maybe (a :~: b)
-matchELabelTup TupRunit TupRunit = Just Refl
-matchELabelTup (TupRsingle (C.Const e)) (TupRsingle (C.Const f))
-  -- If the labels align, we inform the typechecker that the types are equal
-  | e == f = Just $ unsafeCoerce Refl
-matchELabelTup (TupRpair t1 t2) (TupRpair t3 t4)
-  | Just Refl <- matchELabelTup t1 t3
-  , Just Refl <- matchELabelTup t2 t4
-  = Just Refl
-matchELabelTup _ _ = Nothing
-
 type ALabels t = (ALabel t, Labels) -- An ELabel if it corresponds to an array, otherwise Nothing
 
 -- Map identifiers to labels
@@ -150,7 +138,7 @@ reindexLabelledArgs = reindexPreArgs reindexLabelledArg
 
 -- | Keeps track of which array in the environment belongs to which label
 data LabelEnv env where
-  LabelEnvNil  :: LabelEnv ()
+  LabelEnvNil :: LabelEnv ()
   (:>>:)      :: ELabels -> LabelEnv t -> LabelEnv (t, s)
 instance Semigroup (LabelEnv env) where
   LabelEnvNil <> LabelEnvNil = LabelEnvNil
@@ -210,10 +198,12 @@ getLabelsArg (ArgFun fun)                  env = getLabelsFun fun    env
 
 -- another update: adding the labels from the shapes now, and I see that there are tupr's of elabs already.
 -- Maybe we should only return the sh labels for input arrays?
-getLabelsArg (ArgArray _ _ shVars buVars) env = let (Arr x,             buLabs         ) = getLabelsTup buVars env
-                                                    (Arr y,                      shLabs) = getLabelsTup shVars env
-                                                in ( --Debug.Trace.trace ("\n\ngetLabelsArg: buffer alabel:" <> show x <> "\nshape alabel:" <> show y <> "\nbuf labels:" <> show buLabs <> "\nshape labels:" <> show shLabs) $ 
-                                                  unBuffers $ Arr x, buLabs <> shLabs)
+getLabelsArg (ArgArray _ (ArrayR _ tp) shVars buVars) env =
+  let
+    (Arr x,             buLabs         ) = getLabelsTup buVars env
+    (Arr y,                      shLabs) = getLabelsTup shVars env
+  in ( --Debug.Trace.trace ("\n\ngetLabelsArg: buffer alabel:" <> show x <> "\nshape alabel:" <> show y <> "\nbuf labels:" <> show buLabs <> "\nshape labels:" <> show shLabs) $ 
+    unBuffers tp $ Arr x, buLabs <> shLabs)
 
 getLabelsTup :: TupR (Var a env) b -> LabelEnv env -> ALabels (m sh b)
 getLabelsTup TupRunit         _   = (Arr TupRunit, mempty)
@@ -337,11 +327,14 @@ body NotArr = NotArr
 lam  :: ALabel (Fun' f) -> ALabel (Fun' (e->f))
 lam  NotArr = NotArr
 
-unBuffers :: ALabel (m sh (Buffers e)) -> ALabel (m sh e)
-unBuffers (Arr TupRunit)        = Arr $ unsafeCoerce TupRunit
-unBuffers (Arr (TupRsingle e)) = Arr $ unsafeCoerce (TupRsingle e)
-unBuffers (Arr (TupRpair l r))
-  | Arr l' <- unBuffers (unsafeCoerce $ Arr l)
-  , Arr r' <- unBuffers (unsafeCoerce $ Arr r)
-  = Arr (unsafeCoerce $ TupRpair l' r')
-unBuffers _ = error "not arr"
+unBuffers :: forall m sh e. TypeR e -> ALabel (m sh (Buffers e)) -> ALabel (m sh e)
+unBuffers TupRunit _ = Arr TupRunit
+unBuffers (TupRsingle t) (Arr (TupRsingle (C.Const e)))
+  | Refl <- reprIsSingle @ScalarType @e @Buffer t
+   = Arr (TupRsingle $ C.Const e)
+unBuffers (TupRpair t1 t2) (Arr (TupRpair l r))
+  | Arr l' <- unBuffers t1 (Arr l)
+  , Arr r' <- unBuffers t2 (Arr r)
+  = Arr (TupRpair l' r')
+unBuffers _ (Arr _) = internalError "Tuple mismatch"
+unBuffers _ _ = internalError "Not an array"

@@ -82,6 +82,16 @@ data TupleIdx s t where
   TupleIdxRight :: TupleIdx r t -> TupleIdx (l, r) t
   TupleIdxSelf  :: TupleIdx t t
 
+tupleLeft :: TupleIdx a (b, c) -> TupleIdx a b
+tupleLeft (TupleIdxLeft  idx) = TupleIdxLeft  $ tupleLeft idx
+tupleLeft (TupleIdxRight idx) = TupleIdxRight $ tupleLeft idx
+tupleLeft TupleIdxSelf        = TupleIdxLeft TupleIdxSelf
+
+tupleRight :: TupleIdx a (b, c) -> TupleIdx a c
+tupleRight (TupleIdxLeft  idx) = TupleIdxLeft  $ tupleRight idx
+tupleRight (TupleIdxRight idx) = TupleIdxRight $ tupleRight idx
+tupleRight TupleIdxSelf        = TupleIdxRight TupleIdxSelf
+
 -- | Distributes a type constructor over the elements of a tuple.
 -- TODO: Could we make this type class injective? Then we wouldn't
 -- need the type class Distributes any more.

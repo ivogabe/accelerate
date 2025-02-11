@@ -33,7 +33,7 @@ import Data.Array.Accelerate.Debug.Internal.Stats                   as Stats
 -- index when looking up in the environment congruent expressions.
 --
 data Gamma arr env env' where
-  EmptyExp :: Gamma arr env env'
+  EmptyExp :: Gamma arr env ()
 
   PushExp  :: Gamma arr env env'
            -> WeakOpenExp arr env t
@@ -68,7 +68,6 @@ incExp (PushExp env w) = incExp env `PushExp` subs w
 prjExp :: HasCallStack => Idx env' t -> Gamma arr env env' -> PreOpenExp arr env t
 prjExp ZeroIdx      (PushExp _   (Subst _ _ e)) = e
 prjExp (SuccIdx ix) (PushExp env _)             = prjExp ix env
-prjExp _            _                           = internalError "inconsistent valuation"
 
 pushExp :: Gamma arr env env' -> PreOpenExp arr env t -> Gamma arr env (env',t)
 pushExp env e = env `PushExp` Subst weakenId e e

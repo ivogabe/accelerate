@@ -26,7 +26,8 @@ module Data.Array.Accelerate.AST.Environment (
   mapMaybePartialEnv, partialEnvValues, diffPartialEnv, diffPartialEnvWith,
   intersectPartialEnv, partialEnvTail, partialEnvLast, partialEnvSkip,
   partialUpdate, partialRemove, partialEnvToList, partialEnvSingleton, partialEnvPush,
-  partialEnvSameKeys, partialEnvSub, partialEnvSkipLHS,
+  partialEnvPushLHS, partialEnvSameKeys, partialEnvSub, partialEnvSkipLHS,
+  envToPartial, envFromPartialLazy,
 
   Skip(..), skipIdx, chainSkip, skipWeakenIdx, lhsSkip,
 
@@ -45,6 +46,7 @@ import Data.Either
 import Data.List ( sortOn )
 import Data.Functor.Identity
 import Data.Kind (Type)
+import Data.String ( fromString )
 
 -- Valuation for an environment
 --
@@ -144,6 +146,13 @@ partialEnvPush :: PartialEnv f env -> Maybe (f t) -> PartialEnv f (env, t)
 partialEnvPush e Nothing  = PNone e
 partialEnvPush e (Just a) = PPush e a
 
+partialEnvPushLHS :: LeftHandSide s t env env' -> TupR f t -> PartialEnv f env -> PartialEnv f env'
+partialEnvPushLHS (LeftHandSideSingle _) (TupRsingle a) env = PPush env a
+partialEnvPushLHS (LeftHandSideWildcard _) _ env = env
+partialEnvPushLHS (LeftHandSidePair l1 l2) (TupRpair a1 a2) env =
+  partialEnvPushLHS l2 a2 $ partialEnvPushLHS l1 a1 env
+partialEnvPushLHS _ _ _ = internalError "Tuple mismatch"
+
 partialUpdate :: f t -> Idx env t -> PartialEnv f env -> PartialEnv f env
 partialUpdate v ZeroIdx       env         = PPush (partialEnvTail env) v
 partialUpdate v (SuccIdx idx) (PPush e a) = PPush (partialUpdate v idx e) a
@@ -225,6 +234,21 @@ partialEnvValues (PPush env (IdentityF a)) = a : partialEnvValues env
 partialEnvSingleton :: Idx env t -> f t -> PartialEnv f env
 partialEnvSingleton ZeroIdx       v = PPush PEnd v
 partialEnvSingleton (SuccIdx idx) v = PNone $ partialEnvSingleton idx v
+
+envToPartial :: Env f env -> PartialEnv f env
+envToPartial Empty = PEnd
+envToPartial (Push env a) = envToPartial env `PPush` a
+
+-- Lazily converts a PartialEnv to an Env.
+-- Laziness is here used to allow the environment to be used safely
+-- even if some bindings are missing in the PartialEnv.
+-- Only when a missing binding is actually used in this Env,
+-- it will throw an error.
+envFromPartialLazy :: HasCallStack => String -> PartialEnv f env -> Env f env
+envFromPartialLazy msg = \case
+  PEnd -> internalError (fromString msg)
+  PNone env -> envFromPartialLazy msg env `Push` internalError (fromString msg)
+  PPush env a -> envFromPartialLazy msg env `Push` a
 
 -- Wrapper to put homogenous types in an Env or PartialEnv
 newtype IdentityF t f = IdentityF t

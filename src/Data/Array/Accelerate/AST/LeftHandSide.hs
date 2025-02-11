@@ -32,7 +32,7 @@ import Data.Typeable
 
 
 data Exists f where
-  Exists :: f a -> Exists f
+  Exists :: !(f a) -> Exists f
 
 data LeftHandSide s v env env' where
   LeftHandSideSingle

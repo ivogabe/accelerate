@@ -238,7 +238,7 @@ class NFData' op => DesugarAcc (op :: Type -> Type) where
           $ alet (LeftHandSideWildcard TupRunit) (mkGenerate argG argTmp')
           $ mkScan dir (weaken kTmp f) Nothing argTmp (weaken kTmp argOut)
   mkScan dir f Nothing (ArgArray _ (ArrayR shr tp) sh input) argOut
-  -- (inc, tmp) = awhile (\(inc, _) -> inc <= n / 4) (\(inc, a) -> (inc*2, generate {\i -> reduce i and i +/- inc in a})) input
+  -- (inc, tmp) = awhile (\(inc, _) -> inc < (n+1) / 2) (\(inc, a) -> (inc*2, generate {\i -> reduce i and i +/- inc in a})) input
   -- generate {\i -> reduce i and i +/- inc in tmp}
   -- 
   -- Note that the last iteration of the loop is decoupled, as that will output into argOut,
@@ -259,7 +259,10 @@ class NFData' op => DesugarAcc (op :: Type -> Type) where
               $ Abody
               $ Compute
               $ mkBinary (PrimLt singleType) (paramIn' $ Var scalarTypeInt ZeroIdx)
-              $ mkBinary (PrimBShiftR integralType) n (mkConstant (TupRsingle scalarTypeInt) 1) -- n/2
+              $ mkBinary
+                (PrimBShiftR integralType)
+                (mkBinary (PrimAdd numType) n (mkConstant (TupRsingle scalarTypeInt) 1))
+                (mkConstant (TupRsingle scalarTypeInt) 1) -- (n+1)/2
 
         argAlloc = ArgArray Out (ArrayR shr tp) (weakenVars (weakenSucc $ weakenSucc $ kAlloc .> kTmp) sh) (valueAlloc weakenId)
         -- Awhile step function
@@ -391,10 +394,10 @@ desugarOpenAcc env = travA
             lhsScalarBool = LeftHandSidePair (LeftHandSideWildcard TupRunit) (LeftHandSideSingle bufferType)
             env'          = weakenBEnv k env
             c'            = case desugarOpenAfun @op env' c of
-              Alam lhs' (Abody body) -> Alam lhs' $ Abody $ Alet lhsScalarBool (TupRsingle Shared) body $ Compute $ ArrayInstr (Index $ Var bufferType ZeroIdx) $ Const scalarTypeInt 0
+              Alam lhs' (Abody body) -> Alam lhs' $ Abody $ alet lhsScalarBool body $ Compute $ ArrayInstr (Index $ Var bufferType ZeroIdx) $ Const scalarTypeInt 0
               Abody _                -> error "It's a long time since we last met"
             f'            = desugarOpenAfun env' f
-          in alet lhs (travA i) $ Awhile (shared $ desugarArraysR repr) c' f' (value weakenId)
+          in alet lhs (travA i) $ awhileRemoveScalars repr (shared $ desugarArraysR repr) c' f' (value weakenId)
       Named.Use repr array -> desugarUse repr array
       Named.Unit tp e
         | DeclareVars lhs _ value <- declareVars tp ->
@@ -1240,7 +1243,6 @@ mkDefaultScanPrepend dir (ArgExp def) (ArgArray _ repr@(ArrayR (ShapeRsnoc shr) 
         $ index repr sh input
         $ Pair (expVars $ value $ weakenSucc weakenId) x
 
--- TODO: Is the order of arguments to 'f' correct, in both directions?
 mkDefaultScanFunction :: Direction -> GroundVar benv Int -> Arg benv (Fun' (e -> e -> e)) -> Arg benv (In (sh, Int) e) -> Fun benv ((sh, Int) -> e)
 mkDefaultScanFunction dir inc (ArgFun f) (ArgArray _ repr@(ArrayR (ShapeRsnoc shr) tp) sh input)
   | DeclareVars lhs _ value <- declareVars $ shapeType shr
@@ -1261,7 +1263,11 @@ mkDefaultScanFunction dir inc (ArgFun f) (ArgArray _ repr@(ArrayR (ShapeRsnoc sh
       Lam (lhs `LeftHandSidePair` LeftHandSideSingle scalarTypeInt)
         $ Body
         $ Cond condition
-          (apply2 tp f (index' x) (index' y))
+          (
+            case dir of
+              LeftToRight -> apply2 tp f (index' y) (index' x)
+              RightToLeft -> apply2 tp f (index' x) (index' y)
+          )
           (index' x)
 
 mkDefaultFoldSegFunction
@@ -1306,3 +1312,182 @@ uncurry' :: Fun env (a -> b -> c) -> Fun env ((a, b) -> c)
 uncurry' (Lam lhs1 (Lam lhs2 f)) = Lam (LeftHandSidePair lhs1 lhs2) f
 uncurry' (Lam _ (Body _)) = error "impossible: Expression of function type"
 uncurry' (Body _) = error "impossible: Expression of function type"
+
+-- Replaces scalar arrays with expression variables in the state of an awhile loop.
+
+data RemoveScalars before after where
+  RemoveScalarsKeep :: RemoveScalars t t
+  RemoveScalarsPair
+    :: RemoveScalars before1 after1
+    -> RemoveScalars before2 after2
+    -> RemoveScalars (before1, before2) (after1, after2)
+  RemoveScalarsScalar :: ScalarType t -> RemoveScalars (Buffer t) t
+
+removeScalarsForType :: ArraysR t -> Exists (RemoveScalars (DesugaredArrays t))
+removeScalarsForType TupRunit = Exists RemoveScalarsKeep
+removeScalarsForType (TupRsingle (ArrayR shr tp)) = case shr of
+  ShapeRz -> Exists $ RemoveScalarsPair RemoveScalarsKeep $ go tp
+  _ -> Exists RemoveScalarsKeep
+  where
+    go :: forall e. TypeR e -> RemoveScalars (Buffers e) e
+    go (TupRpair t1 t2) = RemoveScalarsPair (go t1) (go t2)
+    go TupRunit = RemoveScalarsKeep
+    go (TupRsingle t)
+      | Refl <- reprIsSingle @ScalarType @e @Buffer t = RemoveScalarsScalar t
+removeScalarsForType (TupRpair l r)
+  | Exists RemoveScalarsKeep <- l'
+  , Exists RemoveScalarsKeep <- r'
+  = Exists RemoveScalarsKeep
+  | Exists l'' <- l'
+  , Exists r'' <- r'
+  = Exists $ RemoveScalarsPair l'' r''
+  where
+    l' = removeScalarsForType l
+    r' = removeScalarsForType r
+
+data RemoveScalarsInTerm op env t where
+  RemoveScalarsInTerm
+    :: (forall r. OperationAcc op env' r -> OperationAcc op env r)
+    -> env :> env'
+    -> (forall env''. env' :> env'' -> GroundVars env'' t)
+    -> RemoveScalarsInTerm op env t
+
+awhileRemoveScalars
+  :: forall tp op env.
+     DesugarAcc op
+  => ArraysR tp
+  -> Uniquenesses (DesugaredArrays tp)
+  -> OperationAfun op env (DesugaredArrays tp -> PrimBool)
+  -> OperationAfun op env (DesugaredArrays tp -> DesugaredArrays tp)
+  -> GroundVars env (DesugaredArrays tp)
+  -> OperationAcc op env (DesugaredArrays tp)
+awhileRemoveScalars repr us cond step initial
+  | not $ desugarPreferNoScalar @op
+  = Awhile us cond step initial
+  | Exists RemoveScalarsKeep <- remove'
+  = Awhile us cond step initial
+  | Exists remove <- remove'
+  -- Convert initial value
+  , RemoveScalarsInTerm b1 k1 res1 <- removeScalarsInTerm' remove weakenId initial
+  , us' <- uniquenesses remove us
+  , initial' <- res1 weakenId
+  = removeScalarsInTermInv (varsType initial') us' remove
+  $ b1
+  $ Awhile
+    us'
+    (weaken k1 $ removeBoundScalars remove us cond)
+    (weaken k1 $ removeBoundScalars remove us $ removeScalarsInFun tp us remove step)
+    initial'
+  where
+    remove' = removeScalarsForType repr
+    tp = varsType initial
+
+    uniquenesses :: RemoveScalars b a -> Uniquenesses b -> Uniquenesses a
+    uniquenesses RemoveScalarsKeep u = u
+    uniquenesses (RemoveScalarsPair r1 r2) (TupRpair u1 u2) = uniquenesses r1 u1 `TupRpair` uniquenesses r2 u2
+    uniquenesses (RemoveScalarsScalar _) _ = TupRsingle Shared
+    uniquenesses _ _ = internalError "Tuple mismatch"
+
+removeBoundScalars
+  :: RemoveScalars before after
+  -> Uniquenesses before
+  -> OperationAfun op env (before -> t)
+  -> OperationAfun op env (after -> t)
+removeBoundScalars remove us (Alam lhs (Abody body))
+  | DeclareVars lhsNew k0 value <- declareVars $ tp remove $ lhsToTupR lhs
+  , RemoveScalarsInTerm b k1 res <- removeScalarsInTermInv' remove weakenId (value weakenId)
+  , Exists lhs' <- rebuildLHS lhs
+  = Alam lhsNew
+  $ Abody
+  $ b
+  $ alet' lhs' us (Return $ res weakenId)
+  $ weaken (sinkWithLHS lhs lhs' (k1 .> k0)) body
+  where
+    tp :: RemoveScalars b a -> GroundsR b -> GroundsR a
+    tp RemoveScalarsKeep t = t
+    tp (RemoveScalarsPair r1 r2) (TupRpair t1 t2) = tp r1 t1 `TupRpair` tp r2 t2
+    tp (RemoveScalarsScalar t) _ = TupRsingle $ GroundRscalar t
+    tp _ _ = internalError "Tuple mismatch"
+removeBoundScalars _ _ _ = internalError "Expected unary function"
+
+removeScalarsInFun
+  :: GroundsR before
+  -> Uniquenesses before
+  -> RemoveScalars before after
+  -> OperationAfun op env (t -> before)
+  -> OperationAfun op env (t -> after)
+removeScalarsInFun tp us r (Alam lhs (Abody body))
+  = Alam lhs $ Abody $ removeScalarsInTerm tp us r body
+removeScalarsInFun _ _ _ _ = internalError "Expected unary function"
+
+removeScalarsInTerm
+  :: GroundsR before
+  -> Uniquenesses before
+  -> RemoveScalars before after
+  -> OperationAcc op env before
+  -> OperationAcc op env after
+removeScalarsInTerm tp us r term
+  | DeclareVars lhs _ value <- declareVars tp
+  , RemoveScalarsInTerm bind _ result <- removeScalarsInTerm' r weakenId (value weakenId) =
+    alet' lhs us term $ bind $ Return $ result weakenId
+
+removeScalarsInTerm'
+  :: RemoveScalars before after
+  -> env0 :> env
+  -> GroundVars env0 before
+  -> RemoveScalarsInTerm op env after
+removeScalarsInTerm' RemoveScalarsKeep k0 vars =
+  RemoveScalarsInTerm id weakenId $ \k -> mapTupR (weaken (k .> k0)) vars
+removeScalarsInTerm' (RemoveScalarsPair r1 r2) k0 (TupRpair v1 v2)
+  | RemoveScalarsInTerm b1 k1 res1 <- removeScalarsInTerm' r1 k0 v1
+  , RemoveScalarsInTerm b2 k2 res2 <- removeScalarsInTerm' r2 (k1 .> k0) v2
+  = RemoveScalarsInTerm
+    (b1 . b2)
+    (k2 .> k1)
+    $ \k -> res1 (k .> k2) `TupRpair` res2 k
+removeScalarsInTerm' (RemoveScalarsScalar tp) k0 (TupRsingle buffer) =
+  RemoveScalarsInTerm
+    (alet'
+      (LeftHandSideSingle $ GroundRscalar tp)
+      (TupRsingle Shared)
+      (Compute $ ArrayInstr (Index $ weaken k0 buffer) $ Const scalarTypeInt 0))
+    (weakenSucc weakenId)
+    $ \k -> TupRsingle $ Var (GroundRscalar tp) $ weaken k ZeroIdx
+removeScalarsInTerm' _ _ _ = internalError "Tuple mismatch"
+
+removeScalarsInTermInv
+  :: GroundsR after
+  -> Uniquenesses after
+  -> RemoveScalars before after
+  -> OperationAcc op env after
+  -> OperationAcc op env before
+removeScalarsInTermInv tp us r term
+  | DeclareVars lhs _ value <- declareVars tp
+  , RemoveScalarsInTerm bind _ result <- removeScalarsInTermInv' r weakenId (value weakenId) =
+    alet' lhs us term $ bind $ Return $ result weakenId
+
+removeScalarsInTermInv'
+  :: RemoveScalars before after
+  -> env0 :> env
+  -> GroundVars env0 after
+  -> RemoveScalarsInTerm op env before
+removeScalarsInTermInv' RemoveScalarsKeep k0 vars =
+  RemoveScalarsInTerm id weakenId $ \k -> mapTupR (weaken (k .> k0)) vars
+removeScalarsInTermInv' (RemoveScalarsPair r1 r2) k0 (TupRpair v1 v2)
+  | RemoveScalarsInTerm b1 k1 res1 <- removeScalarsInTermInv' r1 k0 v1
+  , RemoveScalarsInTerm b2 k2 res2 <- removeScalarsInTermInv' r2 (k1 .> k0) v2
+  = RemoveScalarsInTerm
+    (b1 . b2)
+    (k2 .> k1)
+    $ \k -> res1 (k .> k2) `TupRpair` res2 k
+removeScalarsInTermInv' (RemoveScalarsScalar tp) k0 (TupRsingle var) =
+  RemoveScalarsInTerm
+    (alet'
+      (LeftHandSideSingle $ GroundRbuffer tp)
+      (TupRsingle Shared)
+      (Unit var'))
+    (weakenSucc weakenId)
+    $ \k -> TupRsingle $ Var (GroundRbuffer tp) $ weaken k ZeroIdx
+  where
+    var' = Var tp $ weaken k0 $ varIdx var
+removeScalarsInTermInv' _ _ _ = internalError "Tuple mismatch"

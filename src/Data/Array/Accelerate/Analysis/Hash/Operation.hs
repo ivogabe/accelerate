@@ -82,45 +82,23 @@ encodeFusion (IntroL f)     = intHost $(hashQ "IntroL")     <> encodeFusion f
 encodeFusion (IntroR f)     = intHost $(hashQ "IntroR")     <> encodeFusion f
 
 encodeSingleOp :: EncodeOperation op => SingleOp op args -> Builder
-encodeSingleOp (Single op soa sorted sub)
+encodeSingleOp (Single op args)
   = encodeOperation op
-  <> encodeSOAs soa
-  <> encodeSortedArgs sorted
-  <> encodeSubArgs sub
+  <> encodeClusterArgs args
 
-encodeSOAs :: SOAs args expanded -> Builder
-encodeSOAs SOArgsNil = intHost $(hashQ "SOArgsNil")
-encodeSOAs (SOArgsCons soas soa) = intHost $(hashQ "SOArgsCons") <> encodeSOAs soas <> encodeSOA soa
+encodeClusterArgs :: ClusterArgs env f -> Builder
+encodeClusterArgs = encodePreArgs encodeClusterArg
 
-encodeSOA :: SOA arg appendto result -> Builder
-encodeSOA SOArgSingle = intHost $(hashQ "SOArgSingle")
-encodeSOA (SOArgTup a b) = intHost $(hashQ "SOArgTup") <> encodeSOA a <> encodeSOA b
+encodeClusterArg :: ClusterArg env t -> Builder
+encodeClusterArg (ClusterArgSingle idx)
+  = intHost $(hashQ "ClusterArgSingle") <> encodeIdx idx
+encodeClusterArg (ClusterArgArray m _ _ buffers)
+  = intHost $(hashQ "ClusterArgArray") <> encodeModifier m <> encodeClusterArgBuffers buffers
 
-encodeSortedArgs :: SortedArgs args sorted -> Builder
-encodeSortedArgs _ = intHost $(hashQ "todo") -- TODO: Encode SortedArgs. I think we need to defunctionalize this data type to encode it.
-
-encodeSubArgs :: SubArgs a b -> Builder
-encodeSubArgs SubArgsNil = intHost $(hashQ "SubArgsNil")
-encodeSubArgs (SubArgsDead subArgs) = intHost $(hashQ "SubArgsDead") <> encodeSubArgs subArgs
-encodeSubArgs (SubArgsLive SubArgKeep subArgs) = intHost $(hashQ "SubArgsLive Keep") <> encodeSubArgs subArgs
-encodeSubArgs (SubArgsLive (SubArgOut subTup) subArgs) = intHost $(hashQ "SubArgsLive Out") <> encodeSubTupR subTup <> encodeSubArgs subArgs
-
-encodeSubTupR :: SubTupR s t -> Builder
-encodeSubTupR SubTupRskip       = intHost $(hashQ "skip")
-encodeSubTupR SubTupRkeep       = intHost $(hashQ "keep")
-encodeSubTupR (SubTupRpair a b) = intHost $(hashQ "pair") <> encodeSubTupR a <> encodeSubTupR b
-
--- encodeClusterAST :: EncodeOperation op => ClusterAST op env result -> Builder
--- encodeClusterAST None = intHost $(hashQ "None")
--- encodeClusterAST (Bind lhs op l ast) = intHost $(hashQ "Bind") <> encodeLeftHandSideArgs lhs <> encodeOperation op <> encodeClusterAST ast
-
--- encodeLeftHandSideArgs :: LeftHandSideArgs body env scope -> Builder
--- encodeLeftHandSideArgs _ = intHost $(hashQ "If I just don't hash this, that's fine right? :)")
--- encodeLeftHandSideArgs Base = intHost $(hashQ "Base")
--- encodeLeftHandSideArgs (Reqr t1 t2 lhs) = intHost $(hashQ "Reqr") <> encodeTake t1 <> encodeTake t2 <> encodeLeftHandSideArgs lhs
--- encodeLeftHandSideArgs (Make t lhs) = intHost $(hashQ "Make") <> encodeTake t <> encodeLeftHandSideArgs lhs
--- encodeLeftHandSideArgs (Adju lhs) = intHost $(hashQ "Adju") <> encodeLeftHandSideArgs lhs
--- encodeLeftHandSideArgs (Ignr lhs) = intHost $(hashQ "Ignr") <> encodeLeftHandSideArgs lhs
--- encodeLeftHandSideArgs (EArg lhs) = intHost $(hashQ "EArg") <> encodeLeftHandSideArgs lhs
--- encodeLeftHandSideArgs (VArg lhs) = intHost $(hashQ "VArg") <> encodeLeftHandSideArgs lhs
--- encodeLeftHandSideArgs (FArg lhs) = intHost $(hashQ "FArg") <> encodeLeftHandSideArgs lhs
+encodeClusterArgBuffers :: ClusterArgBuffers env m sh t -> Builder
+encodeClusterArgBuffers (ClusterArgBuffersPair l r)
+  = intHost $(hashQ "ClusterArgBuffersPair") <> encodeClusterArgBuffers l <> encodeClusterArgBuffers r
+encodeClusterArgBuffers (ClusterArgBuffersDead _ idx)
+  = intHost $(hashQ "ClusterArgBuffersDead") <> encodeIdx idx
+encodeClusterArgBuffers (ClusterArgBuffersLive _ idx)
+  = intHost $(hashQ "ClusterArgBuffersLive") <> encodeIdx idx

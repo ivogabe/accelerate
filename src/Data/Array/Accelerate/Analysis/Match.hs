@@ -799,6 +799,13 @@ matchShapeType
 #ifdef ACCELERATE_INTERNAL_CHECKS
   = gcast Refl
 #else
+  -- Ivo: I was trying to remove this unsafeCoerce.
+  -- I introduced an injective type family ShapeEltR which is equal to EltR for
+  -- shapes. In contrast to EltR, ShapeEltR can then be defined as an injective
+  -- type class since it is only defined over Z and (Int :. sh).
+  -- However, even when ShapeEltR is injective, GHC won't use that
+  -- ShapeEltR s ~ ShapeEltR t implies s ~ t. See the following issue:
+  -- https://gitlab.haskell.org/ghc/ghc/-/issues/10833
   = Just (unsafeCoerce Refl)
 #endif
   | otherwise

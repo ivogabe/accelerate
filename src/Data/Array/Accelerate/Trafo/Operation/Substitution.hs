@@ -159,8 +159,13 @@ aletUnique lhs = alet' lhs $ unique $ lhsToTupR lhs
 alet' :: GLeftHandSide t env env' -> Uniquenesses t -> PreOpenAcc op env t -> PreOpenAcc op env' s -> PreOpenAcc op env s
 alet' lhs1 us (Alet lhs2 uniqueness a1 a2) a3
   | Exists lhs1' <- rebuildLHS lhs1 = Alet lhs2 uniqueness a1 $ alet' lhs1' us a2 $ weaken (sinkWithLHS lhs1 lhs1' $ weakenWithLHS lhs2) a3
-alet' (LeftHandSideWildcard TupRunit) _ (Return TupRunit) a = a
-alet' (LeftHandSideWildcard TupRunit) _ (Compute Nil) a = a
+alet' lhs@(LeftHandSideWildcard TupRunit) _ bnd a = case bnd of
+  Compute _ -> a
+  Return _  -> a
+  Alloc{}   -> a
+  Use{}     -> a
+  Unit _    -> a
+  _ -> Alet lhs TupRunit bnd a -- 'bnd' may have side effects
 alet' lhs@(LeftHandSideWildcard TupRunit) _ bnd a = Alet lhs TupRunit bnd a
 alet' lhs _ (Return vars)      a = weaken (substituteLHS lhs vars) a
 alet' lhs us (Compute e)       a

@@ -24,7 +24,7 @@
 module Data.Array.Accelerate.Pretty.Exp (
   Adoc,
   Keyword(..),
-  let_, in_, case_, of_, if_, then_, else_,
+  for_, let_, in_, case_, of_, if_, then_, else_,
   prettyPreOpenFun, prettyPreOpenExp, PrettyArrayInstr,
   parensIf, Operator(..), Associativity, Direction(..),
   needsParens, prettyLhs, prettyLhs', prettyELhs, prettyConst,
@@ -63,7 +63,8 @@ data Keyword
   | Modifier
   deriving (Eq, Show)
 
-let_, in_ :: Adoc
+for_, let_, in_ :: Adoc
+for_ = annotate Statement "for"
 let_ = annotate Statement "let"
 in_  = annotate Statement "in"
 

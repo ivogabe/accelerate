@@ -279,15 +279,18 @@ instance EncodeOperation InterpretOp where
 -- mkBackpermuteOr a b c d = Exec IBackpermuteOr (a :>: b :>: c :>: d :>: ArgsNil)
 
 instance SimplifyOperation InterpretOp where
-  detectCopy _          IMap         = detectMapCopies
-  detectCopy matchVars' IBackpermute = detectBackpermuteCopies matchVars'
-  detectCopy _ _                     = const []
+  detectCopy IMap         = detectMapCopies
+  detectCopy IBackpermute = detectBackpermuteCopies
+  detectCopy _            = const []
 
 instance SLVOperation InterpretOp where
   slvOperation IGenerate    = defaultSlvGenerate    IGenerate
   slvOperation IMap         = defaultSlvMap         IMap
   slvOperation IBackpermute = defaultSlvBackpermute IBackpermute
   slvOperation _            = Nothing
+
+instance SetOpIndices InterpretOp where
+  setOpIndices _ _ _ _ = error "TODO"
 
 data InterpretKernel env where
   InterpretKernel :: Clustered InterpretOp args -> Args env args -> InterpretKernel env
@@ -673,10 +676,14 @@ evalClusterInterpreter (Clustered c b) args env =
 
 
 iterationsize :: Cluster InterpretOp args -> BackendArgs InterpretOp env args -> Int
-iterationsize (Op _ _) ArgsNil = 0
-iterationsize (Op _ _) ((BCA _ n) :>: args) = if n==0 then iterationsize (Op undefined undefined) args else n
+iterationsize (SingleOp _ _) args' = go args'
+  where
+    go :: BackendArgs InterpretOp env args -> Int
+    go ((BCA _ 0) :>: args) = go args
+    go ((BCA _ n) :>: _) = n
+    go ArgsNil = 0
 iterationsize (P.Fused f l r) b = 
-  let lsz = iterationsize l (left' (\(BCA f x) -> BCA f x) f b) 
+  let lsz = iterationsize l (left' (\_ (BCA f x) -> BCA f x) f b) 
   in if lsz == 0 
      then iterationsize r (right' (\_ (BCA f x)->BCA f x) (\(BCA f x)->BCA f x) f b) 
      else lsz

@@ -637,8 +637,10 @@ buildAwhile io step initial next =
     awhileHeight = (funAwhileHeight step + 1) `max` awhileHeight next,
     construct = \k env postponed cont ->
       placePostponed postponed env
-        -- TODO: Decide whether this Awhile should become an AwhileSeq
-        $ if True {- awhileHeight .. > 1 -} then
+        -- If a this awhile contains another awhile, downgrade this awhile to an awhile-seq.
+        -- Nested awhiles would exponentially blow up the memory required to
+        -- store the space of this program.
+        $ if funAwhileHeight step > 0 then
             let
               env' = env `BPush` IResolved `BPush` INone
               k' = weakenSucc' $ weakenSucc' k

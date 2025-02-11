@@ -16,6 +16,7 @@
 module Data.Array.Accelerate.Representation.Shape
   where
 
+import Data.Array.Accelerate.AST.LeftHandSide ( Exists(..) )
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Representation.Type
@@ -61,6 +62,12 @@ dim3 = ShapeRsnoc dim2
 rank :: ShapeR sh -> Int
 rank ShapeRz          = 0
 rank (ShapeRsnoc shr) = rank shr + 1
+
+shapeRFromRank :: Int -> Exists ShapeR
+shapeRFromRank 0 = Exists ShapeRz
+shapeRFromRank r
+  | Exists shr <- shapeRFromRank (r - 1)
+  = Exists $ ShapeRsnoc shr
 
 -- | Total number of elements in an array of the given shape
 --

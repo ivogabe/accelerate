@@ -54,6 +54,7 @@ import qualified Data.Array.Accelerate.Smart as Smart
 import Data.Array.Accelerate.AST.Schedule
 import Data.Array.Accelerate.AST.Kernel
 import Data.Array.Accelerate.AST.Execute
+import qualified Data.Array.Accelerate.AST.Partitioned as Partitioned
 import qualified Data.Array.Accelerate.Sugar.Array as Sugar
 import Data.Array.Accelerate.Representation.Array
 import Data.Array.Accelerate.Representation.Ground
@@ -82,6 +83,7 @@ class
   , Operation.SLVOperation (Operation backend)
   , Operation.SimplifyOperation (Operation backend)
   , Partitioning.MakesILP (Operation backend)
+  , Partitioned.SetOpIndices (Operation backend)
   , IsSchedule (Schedule backend)
   , IsKernel (Kernel backend)
   , Pretty.PrettyOp (Operation backend)

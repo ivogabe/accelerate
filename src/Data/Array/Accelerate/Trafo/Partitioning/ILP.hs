@@ -12,7 +12,7 @@ import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
     ( reconstruct, reconstructF )
 import Data.Array.Accelerate.AST.Partitioned
-    ( PartitionedAcc, PartitionedAfun, Cluster)
+    ( PartitionedAcc, PartitionedAfun, Cluster, groundsR )
 import Data.Array.Accelerate.AST.Operation
     ( OperationAcc, OperationAfun )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
@@ -63,10 +63,10 @@ ilpFusionF'' (MIPSolver s) = case s of
 
 
 ilpFusion  :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
-ilpFusion  = ilpFusion' makeFullGraph  (reconstruct False)
+ilpFusion solver objective acc = ilpFusion' makeFullGraph  (reconstruct (groundsR acc) False) solver objective acc
 
 ilpFusionF :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
-ilpFusionF = ilpFusion' makeFullGraphF (reconstructF False)
+ilpFusionF solver objective fun = ilpFusion' makeFullGraphF (reconstructF fun False) solver objective fun
 
 ilpFusion' :: (MakesILP op, ILPSolver s op) 
            => (x -> (Information op, Map Label (Construction op))) 
@@ -169,10 +169,10 @@ greedyF = greedyFusionF (MIP gurobiCl)
 noF :: (MakesILP op, Pretty.PrettyOp (Cluster op)) => Objective -> OperationAfun op () a -> PartitionedAfun op () a
 noF = noFusionF (MIP gurobiCl)
 greedyFusion  :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Benchmarking -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
-greedyFusion  = greedyFusion' makeFullGraph  (reconstruct False)
+greedyFusion  solver b objective acc = greedyFusion' makeFullGraph  (reconstruct (groundsR acc) False) solver b objective acc
 greedyFusionF :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Benchmarking -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
-greedyFusionF = greedyFusion' makeFullGraphF (reconstructF False)
+greedyFusionF solver b objective fun = greedyFusion' makeFullGraphF (reconstructF fun False) solver b objective fun
 noFusion      :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
-noFusion      =     noFusion' makeFullGraph  (reconstruct True)
+noFusion      solver objective acc =     noFusion' makeFullGraph  (reconstruct (groundsR acc) True) solver objective acc
 noFusionF     :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
-noFusionF     =     noFusion' makeFullGraphF (reconstructF True)
+noFusionF     solver objective fun =     noFusion' makeFullGraphF (reconstructF fun True) solver objective fun

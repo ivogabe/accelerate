@@ -4,6 +4,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -24,14 +25,17 @@
 
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering where
 
-import Data.Array.Accelerate.AST.LeftHandSide ( Exists(..), LeftHandSide (..) )
+import Data.Array.Accelerate.AST.LeftHandSide ( Exists(..), LeftHandSide (..), lhsToTupR )
 import Data.Array.Accelerate.AST.Partitioned
+import Data.Array.Accelerate.AST.Var
 import Data.Array.Accelerate.Representation.Type
+import Data.Array.Accelerate.Type ( scalarType )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (info)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels hiding (ELabels)
+import Data.Array.Accelerate.Analysis.Match
+import Data.Array.Accelerate.Error
 
 import qualified Data.Map as M
-import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.Graph as G
 import qualified Data.Set as S
 import Data.Maybe (fromJust)
@@ -42,10 +46,14 @@ import Data.Array.Accelerate.AST.Environment (weakenWithLHS)
 import Prelude hiding ( take )
 import Lens.Micro (_1)
 import Lens.Micro.Extras (view)
-import Data.Array.Accelerate.Representation.Array (ArrayR (ArrayR))
+import Data.Array.Accelerate.Representation.Array (ArrayR (ArrayR), ArraysR)
 import Data.Functor.Identity
 import qualified Data.Tree as T
 import Data.Array.Accelerate.Representation.Shape (shapeType)
+
+import Data.String (fromString)
+import qualified Data.Array.Accelerate.Pretty.Operation as P
+import qualified Data.Array.Accelerate.Pretty.Exp as P
 
 -- "open research question"
 -- -- Each set of ints corresponds to a set of Constructions, which themselves contain a set of ints (the things they depend on).
@@ -70,22 +78,17 @@ map' !?? key = case map' M.!? key of
 -- instance Show (Exists a) where
 --   show (Exists x) = "exis"
 
--- Note that the return type `a` is not existentially qualified: The caller of this function tells
--- us what the result type should be (namely, what it was before fusion). We use unsafe tricks to
+-- The caller of this function tells us what the result type should be
+-- (namely, what it was before fusion), via an GroundsR.
+-- Since fusion goes via an untyped ILP, during reconstruction we need to rebuild the program and temporarily
 -- fulfill this contract: if something goes wrong during fusion or at the caller, bad things happen.
-reconstruct :: forall op a. MakesILP op => Bool -> Graph -> [ClusterLs] -> M.Map Label [ClusterLs] -> M.Map Label (Construction op)  -> PreOpenAcc (Clustered op) () a
-reconstruct a b c d e = case openReconstruct a LabelEnvNil b c d e of
-          -- see [NOTE unsafeCoerce result type]
-          Exists res -> unsafeCoerce @(PartitionedAcc op () _)
-                                     @(PartitionedAcc op () a)
-                                     res
+reconstruct :: forall op a. MakesILP op => GroundsR a -> Bool -> Graph -> [ClusterLs] -> M.Map Label [ClusterLs] -> M.Map Label (Construction op) -> PreOpenAcc (Clustered op) () a
+reconstruct repr a b c d e = case openReconstruct a LabelEnvNil b c d e of
+          Exists res -> expectType repr res
 
-reconstructF :: forall op a. MakesILP op => Bool -> Graph -> [ClusterLs] -> M.Map Label [ClusterLs] -> M.Map Label (Construction op)  -> PreOpenAfun (Clustered op) () a
-reconstructF a b c d e = case openReconstructF a LabelEnvNil b c (Label 1 Nothing) d e of
-          -- see [NOTE unsafeCoerce result type]
-          Exists res -> unsafeCoerce @(PartitionedAfun op () _)
-                                     @(PartitionedAfun op () a)
-                                     res
+reconstructF :: forall op a. MakesILP op => PreOpenAfun op () a -> Bool -> Graph -> [ClusterLs] -> M.Map Label [ClusterLs] -> M.Map Label (Construction op)  -> PreOpenAfun (Clustered op) () a
+reconstructF original a b c d e = case openReconstructF a LabelEnvNil b c (Label 1 Nothing) d e of
+          Exists res -> expectFunTypeEqual original res
 
 
 -- ordered list of labels
@@ -178,7 +181,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap cons
     makeAST _ [] _ = error "empty AST"
     makeAST env [cluster] prev = case makeCluster env cluster of
       Fold c args -> Exists $ Exec c $ unLabelOp args
-      InitFold o l args -> unfused o l args $
+      InitFold o l args -> singleton l args o $
                             \c args' ->
                                 Exists $ Exec c (mapArgs (\(LOp a _ _) -> a) args')
       NotFold con -> case con of
@@ -186,26 +189,16 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap cons
         CExe'{}    -> error "should be Fold/InitFold!"
         CUse se  n be             -> Exists $ Use se n be
         CITE env' c t f   -> case (makeAST env (subcluster t) prev, makeAST env (subcluster f) prev) of
-          (Exists tacc, Exists facc) -> Exists $ Acond
+          (Exists tacc, Exists facc) -> Exists $ tryBuildAcond
             (fromJust $ reindexVar (mkReindexPartial env' env) c)
-            -- [See NOTE unsafeCoerce result type]
-            (unsafeCoerce @(PreOpenAcc (Clustered op) env _)
-                          @(PreOpenAcc (Clustered op) env _)
-                          tacc)
-            (unsafeCoerce @(PreOpenAcc (Clustered op) env _)
-                          @(PreOpenAcc (Clustered op) env _)
-                          facc)
+            tacc
+            facc
         CWhl env' c b i u -> case (subcluster c, subcluster b) of
           (findTopOfF -> c', findTopOfF -> b') -> case (makeASTF env c' prev, makeASTF env b' prev) of
-            (Exists cfun, Exists bfun) -> Exists $ Awhile
+            (Exists cfun, Exists bfun) -> Exists $ tryBuildAwhile
               u
-              -- [See NOTE unsafeCoerce result type]
-              (unsafeCoerce @(PreOpenAfun (Clustered op) env _)
-                            @(PreOpenAfun (Clustered op) env (_ -> PrimBool))
-                            cfun)
-              (unsafeCoerce @(PreOpenAfun (Clustered op) env _)
-                            @(PreOpenAfun (Clustered op) env (_ -> _))
-                            bfun)
+              cfun
+              bfun
               (fromJust $ reindexVars (mkReindexPartial env' env) i)
         CLHS {} -> error "let without scope"
         CFun {} -> error "wrong type: function"
@@ -223,13 +216,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap cons
           Exists bnd -> createLHS mylhs env $ \env' lhs ->
             case makeAST env' ctail (M.map (\(Exists acc) -> Exists $ weakenAcc lhs acc) $ M.insert b (Exists bnd) prev) of
               Exists scp
-                | bnd' <- unsafeCoerce @(PreOpenAcc (Clustered op) env _) -- [See NOTE unsafeCoerce result type]
-                                       @(PreOpenAcc (Clustered op) env a)
-                                       bnd
-                  -> Exists $ Alet lhs
-                      u -- (makeUniqueness lhs bnd') -- TODO @Ivo: `u` is the old uniquenesses of this lhs, do we just take that?
-                      bnd'
-                      scp
+                 -> Exists $ tryBuildAlet lhs u bnd scp
         _ -> let res = makeAST env [cluster] prev in case cluster of
                 ExecL _ -> case (res, makeAST env ctail prev) of
                   (Exists exec@Exec{}, Exists scp) -> Exists $ Alet LeftHandSideUnit (shared TupRunit) exec scp
@@ -289,7 +276,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap cons
     fuseCluster :: FoldType op env -> FoldType op env -> FoldType op env
     fuseCluster (Fold cluster cargs) (InitFold op l largs) =
       consCluster l largs op cargs cluster Fold
-    fuseCluster (InitFold op l largs) x = unfused op l largs $ \c cargs -> fuseCluster (Fold c cargs) x
+    fuseCluster (InitFold op l largs) x = singleton l largs op $ \c cargs -> fuseCluster (Fold c cargs) x
     fuseCluster Fold{} Fold{} = error "fuseCluster got non-leaf as second argument" -- Should never happen
     fuseCluster NotFold{}   _ = error "fuseCluster encountered NotFold" -- Should only occur in singleton clusters
     fuseCluster _   NotFold{} = error "fuseCluster encountered NotFold" -- Should only occur in singleton clusters
@@ -305,29 +292,8 @@ data FoldType op env
   | NotFold (Construction op)
 
 
-
-unfused :: forall op args env r. MakesILP op => op args -> Label -> LabelledArgsOp op env args -> (forall args'. Clustered op args' -> LabelledArgsOp op env args' -> r) -> r
-unfused op l largs k = singleton l largs op \case
-  c@(Clustered (Op (SLV (SOp (SOAOp (_op :: op argsToo) soas) (SA sort _unsort)) subargs) _l) _b) ->
-    case unsafeCoerce Refl of -- we know that `_op` is the same as `op`
-      (Refl :: args :~: argsToo) -> k c (slv louttovar subargs $ sort $ soaExpand splitLabelledArgsOp soas largs)
-  _ -> error "singleton gave fused"
-
 louttovar :: LabelledArgOp op env (Out sh e) -> LabelledArgOp op env (Var' sh)
 louttovar (LOp a (_,ls) b) = LOp (outvar a) (NotArr, ls) b -- unsafe marker: maybe this NotArr ends up a problem?
-
-
-{- [NOTE unsafeCoerce result type]
-
-  Because we lose some type information by rebuilding the AST from scratch, we use
-  unsafeCoerce to tell GHC what the result type of the computation is.
-  TypeApplications allows us to specify the exact types unsafeCoerce works on,
-  which in turn helps retain as much typesafety as possible. Whereever this note
-  is found, unsafeCoerce's type is restricted to only work on the result type.
-  In particular, we take care to not allow unsafeCoerce to mess with environment types,
-  as they are tricky to get right and we really want GHC to check our work.
-
--}
 
 tryUpdateList :: (a -> Bool) -> (a -> a) -> [a] -> Maybe [a]
 tryUpdateList _ _ [] = Nothing
@@ -347,7 +313,7 @@ consCluster :: forall env args extra op r
             -> Clustered op args
             -> (forall args'. Clustered op args' -> LabelledArgsOp op env args' -> r)
             -> r
-consCluster l lop op lcluster cluster k = unfused op l lop $ \c lop' ->
+consCluster l lop op lcluster cluster k = singleton l lop op $ \c lop' ->
   fuse 
     lop'
     lcluster 
@@ -371,3 +337,62 @@ fuseVertically
 
 instance NFData' op => NFData' (Clustered op) where
   rnf' c = () -- TODO
+
+expectType :: HasCallStack => GroundsR t -> PreOpenAcc op env s -> PreOpenAcc op env t
+expectType repr term
+  | Just Refl <- matchGroundsR repr $ groundsR term = term
+  | otherwise
+    = internalError $ fromString $
+      "Result of fusion has incompatible type.\nExpected: "
+      ++ show (P.prettyTupR (const P.prettyGroundR) 0 repr)
+      ++ "\nActual: "
+      ++ show (P.prettyTupR (const P.prettyGroundR) 0 $ groundsR term)
+
+expectFunTypeEqual :: PreOpenAfun op1 () t -> PreOpenAfun op2 () s -> PreOpenAfun op2 () t
+expectFunTypeEqual f1 f2
+  | Just Refl <- matchFunType f1 f2 = f2
+  | otherwise = internalError "Result of fused function has incompatible type"
+
+matchFunType :: PreOpenAfun op1 env t -> PreOpenAfun op2 env' s -> Maybe (t :~: s)
+matchFunType (Alam lhs1 f1) (Alam lhs2 f2)
+  | Just Refl <- matchGroundsR (lhsToTupR lhs1) (lhsToTupR lhs2)
+  , Just Refl <- matchFunType f1 f2
+  = Just Refl
+matchFunType (Abody b1) (Abody b2) = matchGroundsR (groundsR b1) (groundsR b2)
+matchFunType _ _ = Nothing
+
+tryBuildAcond :: HasCallStack => ExpVar env PrimBool -> PreOpenAcc op env t1 -> PreOpenAcc op env t2 -> PreOpenAcc op env t1
+tryBuildAcond cond true false
+  | Just Refl <- matchGroundsR (groundsR true) (groundsR false)
+  = Acond cond true false
+  | otherwise
+  = internalError "Cannot reconstruct Acond: branches have incompatible types"
+
+tryBuildAlet
+  :: HasCallStack
+  => GLeftHandSide t1 env1 env2
+  -> Uniquenesses t1
+  -> PreOpenAcc op env1 t2
+  -> PreOpenAcc op env2 s
+  -> PreOpenAcc op env1 s
+tryBuildAlet lhs u bnd next
+  | Just Refl <- matchGroundsR (lhsToTupR lhs) (groundsR bnd)
+  = Alet lhs u bnd next
+  | otherwise
+  = internalError "Cannot reconstruct Alet: left hand side and binding have incompatible types"
+
+tryBuildAwhile 
+  :: Uniquenesses a
+  -> PreOpenAfun op env c
+  -> PreOpenAfun op env s
+  -> GroundVars     env a
+  -> PreOpenAcc  op env a
+tryBuildAwhile u c@(Alam lhsCond (Abody cond)) s@(Alam lhsStep (Abody step)) initial
+  | Just Refl <- matchGroundsR tp $ lhsToTupR lhsCond
+  , Just Refl <- matchGroundsR (TupRsingle $ GroundRscalar $ scalarType @PrimBool) $ groundsR cond
+  , Just Refl <- matchGroundsR tp $ lhsToTupR lhsStep
+  , Just Refl <- matchGroundsR tp $ groundsR step
+  = Awhile u c s initial
+  where
+    tp = varsType initial
+tryBuildAwhile _ _ _ _ = internalError "Cannot reconstruct Awhile: condition or step has invalid type"

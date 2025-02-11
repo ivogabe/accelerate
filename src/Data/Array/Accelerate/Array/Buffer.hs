@@ -20,10 +20,15 @@
 -- Stability   : experimental
 -- Portability : non-portable (GHC extensions)
 --
--- This module fixes the concrete representation of Accelerate arrays.  We
--- allocate all arrays using pinned memory to enable safe direct-access by
--- non-Haskell code in multi-threaded code.  In particular, we can safely pass
--- pointers to an array's payload to foreign code.
+-- This module fixes the concrete representation of Accelerate arrays.
+-- We allocate memory via foreign function calls, outside of the Haskell heap.
+-- This gives us flexibility to manage memory ourselves, and prevents the
+-- Haskell GC to move arrays around (which would break in our foreign function
+-- calls).
+-- These arrays are reclaimed via reference counting. A Haskell-side reference
+-- to an array has a finalizer which will decrement the reference count.
+-- C or our generated LLVM code working with references to arrays will
+-- manually increment and decrement the reference count.
 --
 
 module Data.Array.Accelerate.Array.Buffer (
@@ -43,6 +48,7 @@ module Data.Array.Accelerate.Array.Buffer (
   -- * Utilities for type classes
   SingleArrayDict(..), singleArrayDict,
   ScalarArrayDict(..), scalarArrayDict,
+  scalarArrayDataR,
 
   -- * TemplateHaskell
   liftBuffers, liftBuffer,
@@ -200,6 +206,10 @@ singleArrayDict = single
     floating TypeFloat  = SingleArrayDict
     floating TypeDouble = SingleArrayDict
 
+scalarArrayDataR :: ScalarType t -> SingleType (ScalarArrayDataR t)
+scalarArrayDataR (VectorScalarType (VectorType _ t)) = t
+scalarArrayDataR (SingleScalarType t)
+  | SingleArrayDict <- singleArrayDict t = t
 
 -- Array operations
 -- ----------------

@@ -18,7 +18,7 @@
 --
 
 module Data.Array.Accelerate.Trafo.WeakenedEnvironment
-  ( WEnv, WEnv', wprj, wprj', wupdate, wupdateSetWeakened, wempty, wpush, wpush2, wpush', wremoveSet, wupdatePrjSet
+  ( WEnv, WEnv'(..), wprj, wprj', wupdate, wupdateSetWeakened, wempty, wpush, wpush2, wpush', wremoveSet, wupdatePrjSet
   ) where
 
 import Data.Array.Accelerate.AST.Environment
