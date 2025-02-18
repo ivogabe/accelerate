@@ -426,6 +426,32 @@ desugarOpenAcc env = travA
       --
 
       Named.Permute c def f src
+        -- If the array of default values is unique, we do not need to copy
+        -- this array before modifying it.
+        | resultIsUnique def
+        , ArrayR shr' tp <- Named.arrayR def
+        , ArrayR shr  _  <- Named.arrayR src
+        , DeclareVars lhsSh' kSh' valueSh' <- declareVars $ shapeType shr'
+        , DeclareVars lhsDef kDef valueDef <- declareVars $ buffersR tp
+        , DeclareVars lhsSh  kSh  valueSh  <- declareVars $ shapeType shr
+        , DeclareVars lhsSrc kSrc valueSrc <- declareVars $ buffersR tp ->
+          let
+            lhs'   = LeftHandSidePair (mapLeftHandSide GroundRscalar lhsSh') lhsDef
+            lhs    = LeftHandSidePair (mapLeftHandSide GroundRscalar lhsSh)  lhsSrc
+            sh'    = mapVars GroundRscalar $ valueSh' (kSrc .> kSh .> kDef)
+            sh     = mapVars GroundRscalar $ valueSh kSrc
+            env'   = weakenBEnv (kSrc .> kSh .> kDef .> kSh') env
+            argMut = ArgArray Mut (ArrayR shr' tp) sh' (valueDef $ kSrc .> kSh)
+            argSrc = ArgArray In  (ArrayR shr  tp) sh  (valueSrc weakenId)
+            argC   = ArgFun $ desugarFun env' c
+            argF   = ArgFun $ desugarFun env' f
+          in
+            aletUnique lhs' (travA def)
+              $ alet lhs (desugarOpenAcc (weakenBEnv (kDef .> kSh') env) src)
+              $ alet (LeftHandSideWildcard TupRunit) (mkPermute argC argMut argF argSrc)
+              $ Return (sh' `TupRpair` valueDef (kSrc .> kSh))
+
+      Named.Permute c def f src
         | ArrayR shr' tp <- Named.arrayR def
         , ArrayR shr  _  <- Named.arrayR src
         , DeclareVars lhsSh' kSh' valueSh' <- declareVars $ shapeType shr'
@@ -455,6 +481,19 @@ desugarOpenAcc env = travA
               $ alet (LeftHandSideWildcard TupRunit) (mkPermute argC argMut argF argSrc)
               $ Return (sh' `TupRpair` valOut)
 
+      Named.Generate (ArrayR shr tp) sh f
+        -- generate sh (\_ -> undef) is a pattern commonly used for a permute
+        -- if the permute writes to all indices. We optimize for this pattern here.
+        -- In this case, we only need to allocate the result; we don't need to
+        -- execute a kernel.
+        | Lam _ (Body body) <- f
+        , isUndef body
+        , DeclareVars lhsSh kSh valueSh <- declareVars $ shapeType shr
+        , DeclareVars lhsBf kBf valueBf <- declareVars $ buffersR tp ->
+          alet (mapLeftHandSide GroundRscalar lhsSh) (Compute $ travE sh)
+            $ aletUnique lhsBf (desugarAlloc (ArrayR shr tp) (valueSh weakenId))
+            $ Return
+              (mapVars GroundRscalar (valueSh kBf) `TupRpair` valueBf weakenId)
       Named.Generate (ArrayR ShapeRz tp) _ (Lam (LeftHandSideWildcard _) (Body expr))
         | desugarPreferNoScalar @op ->
           travA $ Named.OpenAcc $ Named.Unit tp expr
@@ -856,6 +895,30 @@ desugarOpenAcc env = travA
               $ alet (LeftHandSideWildcard TupRunit) (mkStencil2 sr1 sr2 argF b1' argIn1 b2' argIn2 argOut)
               $ Return (sh `TupRpair` valueOut weakenId)
       Named.Atrace _ _ _ -> error "implement me"
+
+resultIsUnique :: Named.OpenAcc aenv a -> Bool
+resultIsUnique (Named.OpenAcc acc) = case acc of
+  Named.Unit{} -> True
+  Named.Generate{} -> True
+  Named.Replicate{} -> True
+  Named.Slice{} -> True
+  Named.Map{} -> True
+  Named.ZipWith{} -> True
+  Named.Fold{} -> True
+  Named.FoldSeg{} -> True
+  Named.Scan{} -> True
+  Named.Permute{} -> True
+  Named.Backpermute{} -> True
+  Named.Stencil{} -> True
+  Named.Stencil2{} -> True
+  _ -> False
+
+isUndef :: Named.OpenExp aenv env a -> Bool
+isUndef (Let _ _ e) = isUndef e
+isUndef (Undef _) = True
+isUndef Nil = True
+isUndef (Pair a b) = isUndef a && isUndef b
+isUndef _ = False
 
 desugarAlloc :: forall benv op sh a. ArrayR (Array sh a) -> ExpVars benv sh -> OperationAcc op benv (Buffers a)
 desugarAlloc (ArrayR _   TupRunit        ) _  = Return TupRunit
