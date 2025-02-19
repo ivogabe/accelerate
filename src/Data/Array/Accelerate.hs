@@ -245,7 +245,7 @@ module Data.Array.Accelerate (
 
   -- *** Permutations
   -- **** Forward permutation (scatter)
-  permute,
+  permute, permute', permuteUnique, permuteUnique',
   scatter,
 
   -- **** Backward permutation (gather)
