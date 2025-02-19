@@ -112,6 +112,7 @@ import Data.Array.Accelerate.Sugar.Foreign
 import Data.Array.Accelerate.Sugar.Shape                            ( Shape(..), Slice(..), (:.) )
 import Data.Array.Accelerate.Type
 import qualified Data.Array.Accelerate.Representation.Array         as R
+import qualified Data.Array.Accelerate.Representation.Tag           as R
 
 import Data.Array.Accelerate.Classes.Eq
 import Data.Array.Accelerate.Classes.Fractional
@@ -122,9 +123,10 @@ import Data.Array.Accelerate.Classes.Ord
 import Prelude                                                      ( ($), (.), Maybe(..), Char )
 #if __GLASGOW_HASKELL__ >= 904
 import Data.Type.Equality
+import Data.Array.Accelerate.Smart (unExpBinaryFunction, PreSmartExp (Tag))
 #endif
 
-
+import qualified Prelude
 -- $setup
 -- >>> :seti -XFlexibleContexts
 -- >>> :seti -XScopedTypeVariables
@@ -796,7 +798,36 @@ permute
     -> (Exp sh -> Exp (Maybe sh'))      -- ^ index permutation function
     -> Acc (Array sh  a)                -- ^ array of source values to be permuted
     -> Acc (Array sh' a)
-permute = Acc $$$$ applyAcc (Permute $ arrayR @sh @a)
+permute = Prelude.undefined
+-- permute = undefined
+
+-- permuteUnique
+--     :: forall sh sh' a. (Shape sh, Shape sh', Elt a)
+--     => Acc (Array sh' a)                -- ^ array of default values
+--     -> (Exp sh -> Exp (Maybe sh'))      -- ^ index permutation function
+--     -> Acc (Array sh  a)                -- ^ array of source values to be permuted
+--     -> Acc (Array sh' a)
+-- permuteUnique = undefined
+
+permute'
+    :: forall sh sh' a. (Shape sh, Shape sh', Elt a)
+    => (Exp a -> Exp a -> Exp a)        -- ^ combination function
+    -> Acc (Array sh' a)                -- ^ array of default values
+    -> Acc (Array sh  (Maybe (sh', a)))  -- ^ array of source values to be permuted, alongside their target index
+    -> Acc (Array sh' a)
+permute' f = Acc $$ applyAcc $ Permute (arrayR @sh @a) (Just $ unExpBinaryFunction f)
+
+-- foo = 3 :: EltR (R.TAG, (Int, Bool))
+-- (R.TAG, (sh', a))
+--  Couldn't match type ‘((), EltR sh')’ with ‘()’
+
+
+-- permuteUnique'
+--     :: forall sh sh' a. (Shape sh, Shape sh', Elt a)
+--     => Acc (Array sh' a)                -- ^ array of default values
+--     -> Acc (Array sh  (Maybe (sh', a)))  -- ^ array of source values to be permuted, alongside their target index
+--     -> Acc (Array sh' a)
+-- permuteUnique' = Acc $$ applyAcc (Permute (_ $ arrayR @sh @a) Nothing)
 
 -- | Generalised backward permutation operation (array gather).
 --

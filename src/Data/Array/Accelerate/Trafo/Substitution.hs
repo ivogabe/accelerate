@@ -340,7 +340,7 @@ rebuildPreOpenAcc k av acc =
     FoldSeg itp f z a s       -> FoldSeg itp     <$> travF f <*> travME z <*> k av a <*> k av s
     Scan  d f z a             -> Scan  d         <$> travF f <*> travME z <*> k av a
     Scan' d f z a             -> Scan' d         <$> travF f <*> travE z <*> k av a
-    Permute f1 a1 f2 a2       -> Permute         <$> travF f1 <*> k av a1 <*> travF f2 <*> k av a2
+    Permute f1 a1 a2          -> Permute         <$> travMF f1 <*> k av a1 <*> k av a2
     Backpermute shr sh f a    -> Backpermute shr <$> travE sh <*> travF f <*> k av a
     Stencil sr tp f b a       -> Stencil sr tp   <$> travF f <*> rebuildBoundary av b  <*> k av a
     Stencil2 s1 s2 tp f b1 a1 b2 a2
@@ -357,6 +357,10 @@ rebuildPreOpenAcc k av acc =
 
     travF :: Fun aenv e -> f (Fun aenv' e)
     travF = rebuildArrayInstrPartial (reindexArrayInstr av)
+
+    travMF :: Maybe (Fun aenv e) -> f (Maybe (Fun aenv' e))
+    travMF Nothing = pure Nothing
+    travMF (Just x) = Just <$> travF x
 
 {-# INLINEABLE rebuildAfun #-}
 rebuildAfun
