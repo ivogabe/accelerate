@@ -139,9 +139,9 @@ instance StaticClusterAnalysis InterpretOp where
                       BCA outF sz :>: BCA outF sz :>: ArgsNil -- important: we store the Int -> Int besides the function argument!
   onOp IMap         (BCA outF sz :>: ArgsNil) _ _ =
                       BCA id 0 :>: BCA outF sz :>: BCA outF sz :>: ArgsNil
-  onOp IPermute ArgsNil (_ :>: _ :>: _ :>: ArgArray In (ArrayR shr _) sh _ :>: ArgsNil) env =
+  onOp IPermute ArgsNil (_ :>: _ :>: ArgArray In (ArrayR shr _) sh _ :>: ArgsNil) env =
     let sz = size shr (varsGetVal sh env) in
-    BCA id 0 :>: BCA id 0 :>: BCA id 0 :>: BCA id sz :>: ArgsNil
+    BCA id 0 :>: BCA id 0 :>: BCA id sz :>: ArgsNil
   onOp (IFold1 _) (BCA outF szO :>: ArgsNil) (_ :>: i :>: _ :>: ArgsNil) env =
     let ArgArray In _ (flip varsGetVal env -> (_, sz)) _ = i
         inF x = (+ x `mod` sz) $ outF (x `div` sz) -- this is where the magic happens to fuse backpermute . fold. Would be cleaner on shapes instead of Ints
@@ -187,8 +187,10 @@ data InterpretOp args where
   IGenerate    :: InterpretOp (Fun' (sh -> t)              -> Out sh  t -> ())
   IPermute     :: InterpretOp (Fun' (e -> e -> e)
                               -> Mut sh' e
-                              -> Fun' (sh -> PrimMaybe sh')
-                              -> In sh e
+                              -> In sh (PrimMaybe (sh', e))
+                              -> ())
+  IPermuteUnique::InterpretOp (Mut sh' e
+                              -> In sh (PrimMaybe (sh', e))
                               -> ())
   -- The interpreter doesn't have 'communication' with other 'threads' like the other backends do, to simulate cooperative scan/fold we use an IORef instead
   IFold1       :: IORef (Map Int e) -> InterpretOp (Fun' (e -> e -> e) -> In (sh, Int) e -> Out sh e -> ())
@@ -200,7 +202,8 @@ instance DesugarAcc InterpretOp where
   mkMap         a b c   = Exec IMap         (a :>: b :>: c :>:       ArgsNil)
   mkBackpermute a b c   = Exec IBackpermute (a :>: b :>: c :>:       ArgsNil)
   mkGenerate    a b     = Exec IGenerate    (a :>: b :>:             ArgsNil)
-  mkPermute     a b c d = Exec IPermute     (a :>: b :>: c :>: d :>: ArgsNil)
+  mkPermute     (Just a) b c = Exec IPermute     (a :>: b :>: c :>: ArgsNil)
+  mkPermute     Nothing  b c = Exec IPermuteUnique (b :>: c :>: ArgsNil)
   mkFold        a Nothing b c = Exec (IFold1 $ unsafePerformIO $ newIORef mempty) (a :>: b :>: c :>:       ArgsNil)
   -- we desugar a Fold with seed element into a Fold1 followed by a map which prepends the seed
   mkFold a@(ArgFun f) (Just (ArgExp seed)) b@(ArgArray In (ArrayR _ tp) _ _) c@(ArgArray _ arr' sh' _)
@@ -636,14 +639,14 @@ instance EvalOp InterpretOp where
     pure $ Push Empty (FromArg $ Value' x sh) -- We evaluated the backpermute at the start already, now simply relabel the shape info
   evalOp i _ IGenerate env (Push (Push _ (BAE (Shape' shr sh) (BCA bp sz))) (BAE f _)) =
     pure $ Push Empty (FromArg $ Value' (Identity $ evalFun f (evalArrayInstrDefault env) (linearIndexToSh shr (runIdentity sh) (bp i))) (Shape' shr sh))
-  evalOp i _ IPermute env (Push (Push (Push (Push _ (BAE (Value' (Identity x) (Shape' shr (Identity sh))) (BCA bp sz))) (BAE shf _)) (BAE (ArrayDescriptor shr' sh' buf, typ) _)) (BAE ef _)) = 
+  evalOp i _ IPermute env (Push (Push (Push _ (BAE (Value' (Identity x) (Shape' shr (Identity sh))) (BCA bp sz))) (BAE (ArrayDescriptor shr' sh' buf, typ) _)) (BAE ef _)) = 
     do
-      case evalFun shf (evalArrayInstrDefault env) $ linearIndexToSh shr sh (bp i) of
+      case x of --evalFun shf (evalArrayInstrDefault env) $ linearIndexToSh shr sh (bp i) of
         (0,_) -> pure ()
-        (1,((),target)) -> do
+        (1, ((), (target, x'))) -> do
           let j = shToLinearIndex shr' (varsGetVal sh' env) target
           old <- indexBuffers' typ (varsGetVal buf env) j
-          writeOutputInterpreter typ buf env j (evalFun ef (evalArrayInstrDefault env) x old) 
+          writeOutputInterpreter typ buf env j (evalFun ef (evalArrayInstrDefault env) x' old) 
         _ -> error "primMaybe with weird tag"
       pure Empty
   evalOp i _ (IFold1 acc) env (Push (Push _ (BAE (Value' (Identity x) (Shape' shr@(ShapeRsnoc shr') (Identity sh@(sh',_)))) (BCA bp sz))) (BAE f _)) = 

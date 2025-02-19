@@ -432,10 +432,9 @@ data PreSmartAcc acc exp as where
                 -> PreSmartAcc acc exp (Array (sh, Int) e, Array sh e)
 
   Permute       :: ArrayR (Array sh e)
-                -> (SmartExp e -> SmartExp e -> exp e)
+                -> Maybe (SmartExp e -> SmartExp e -> exp e)
                 -> acc (Array sh' e)
-                -> (SmartExp sh -> exp (PrimMaybe sh'))
-                -> acc (Array sh e)
+                -> acc (Array sh (PrimMaybe (((),sh'), e))) -- instead `PrimMaybe (sh', e)` would be nice, but hard to link to the frontend through EltR.
                 -> PreSmartAcc acc exp (Array sh' e)
 
   Backpermute   :: ShapeR sh'
@@ -826,7 +825,7 @@ instance HasArraysR acc => HasArraysR (PreSmartAcc acc exp) where
     Scan _ _ _ _ a            -> arraysR a
     Scan' _ _ _ _ a           -> let repr@(ArrayR (ShapeRsnoc shr) tp) = arrayR a
                                  in  TupRsingle repr `TupRpair` TupRsingle (ArrayR shr tp)
-    Permute _ _ a _ _         -> arraysR a
+    Permute _ _ a _           -> arraysR a
     Backpermute shr _ _ a     -> let ArrayR _ tp = arrayR a
                                  in  TupRsingle (ArrayR shr tp)
     Stencil s tp _ _ _        -> TupRsingle $ ArrayR (stencilShapeR s) tp

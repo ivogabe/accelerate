@@ -401,13 +401,13 @@ data PreOpenAcc (acc :: Type -> Type -> Type) aenv a where
   -- Generalised forward permutation is characterised by a permutation function
   -- that determines for each element of the source array where it should go in
   -- the output. The permutation can be between arrays of varying shape and
-  -- dimensionality.
+  -- dimensionality. This permutation function is implicit in this representation.
   --
   -- Other characteristics of the permutation function 'f':
   --
   --   1. 'f' is a (morally) partial function: only the elements of the domain
-  --      for which the function evaluates to a 'Just' value are mapped in the
-  --      result. Other elements are dropped.
+  --      for which the source array contains a 'Just' value are mapped in the
+  --      result.
   --
   --   2. 'f' is not surjective: positions in the target array need not be
   --      picked up by the permutation function, so the target array must first
@@ -416,12 +416,12 @@ data PreOpenAcc (acc :: Type -> Type -> Type) aenv a where
   --   3. 'f' is not injective: distinct elements of the domain may map to the
   --      same position in the target array. In this case the combination
   --      function is used to combine elements, which needs to be /associative/
-  --      and /commutative/.
+  --      and /commutative/. When the combination function is missing (and thus
+  --      set to `const`), we assume that 'f' is injective.
   --
-  Permute     :: Fun            aenv (e -> e -> e)              -- combination function
-              -> acc            aenv (Array sh' e)              -- default values
-              -> Fun            aenv (sh -> PrimMaybe sh')      -- permutation function
-              -> acc            aenv (Array sh e)               -- source array
+  Permute     :: Maybe (Fun     aenv (e -> e -> e))                  -- combination function
+              -> acc            aenv (Array sh' e)                   -- default values
+              -> acc            aenv (Array sh (PrimMaybe (((),sh'), e))) -- source array with destination indices
               -> PreOpenAcc acc aenv (Array sh' e)
 
   -- Generalised multi-dimensional backwards permutation; the permutation can
@@ -580,7 +580,7 @@ instance HasArraysR acc => HasArraysR (PreOpenAcc acc) where
   arraysR (Scan _ _ _ a)              = arraysR a
   arraysR (Scan' _ _ _ a)             = let aR@(ArrayR (ShapeRsnoc sh) tR) = arrayR a
                                          in TupRsingle aR `TupRpair` TupRsingle (ArrayR sh tR)
-  arraysR (Permute _ a _ _)           = arraysR a
+  arraysR (Permute _ a _)             = arraysR a
   arraysR (Backpermute sh _ _ a)      = let ArrayR _ tR = arrayR a
                                          in arraysRarray sh tR
   arraysR (Stencil _ tR _ _ a)        = let ArrayR sh _ = arrayR a
@@ -657,7 +657,7 @@ rnfPreOpenAcc rnfA pacc =
     FoldSeg i f z a s         -> rnfIntegralType i `seq` rnfF f `seq` rnfMaybe rnfE z `seq` rnfA a `seq` rnfA s
     Scan d f z a              -> d `seq` rnfF f `seq` rnfMaybe rnfE z `seq` rnfA a
     Scan' d f z a             -> d `seq` rnfF f `seq` rnfE z `seq` rnfA a
-    Permute f d p a           -> rnfF f `seq` rnfA d `seq` rnfF p `seq` rnfA a
+    Permute f d a             -> rnfMaybe rnfF f `seq` rnfA d `seq` rnfA a
     Backpermute shr sh f a    -> rnfShapeR shr `seq` rnfE sh `seq` rnfF f `seq` rnfA a
     Stencil sr tp f b a       ->
       let
@@ -712,6 +712,10 @@ liftPreOpenAcc liftA pacc =
 
       liftB :: ArrayR (Array sh e) -> Boundary aenv (Array sh e) -> CodeQ (Boundary aenv (Array sh e))
       liftB = liftBoundary
+
+      liftMF :: Maybe (OpenFun env aenv t) -> CodeQ (Maybe (OpenFun env aenv t))
+      liftMF Nothing = [|| Nothing ||]
+      liftMF (Just f) = [|| Just $$(liftF f) ||]
   in
   case pacc of
     Alet lhs bnd body         -> [|| Alet $$(liftALeftHandSide lhs) $$(liftA bnd) $$(liftA body) ||]
@@ -736,7 +740,7 @@ liftPreOpenAcc liftA pacc =
     FoldSeg i f z a s         -> [|| FoldSeg $$(liftIntegralType i) $$(liftF f) $$(liftMaybe liftE z) $$(liftA a) $$(liftA s) ||]
     Scan d f z a              -> [|| Scan  $$(liftDirection d) $$(liftF f) $$(liftMaybe liftE z) $$(liftA a) ||]
     Scan' d f z a             -> [|| Scan' $$(liftDirection d) $$(liftF f) $$(liftE z) $$(liftA a) ||]
-    Permute f d p a           -> [|| Permute $$(liftF f) $$(liftA d) $$(liftF p) $$(liftA a) ||]
+    Permute f d a             -> [|| Permute $$(liftMF f) $$(liftA d) $$(liftA a) ||]
     Backpermute shr sh p a    -> [|| Backpermute $$(liftShapeR shr) $$(liftE sh) $$(liftF p) $$(liftA a) ||]
     Stencil sr tp f b a       ->
       let TupRsingle (ArrayR shr _) = arraysR a

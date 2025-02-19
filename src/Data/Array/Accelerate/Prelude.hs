@@ -13,6 +13,8 @@
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}   -- pattern synonyms
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE BlockArguments #-}
 -- |
 -- Module      : Data.Array.Accelerate.Prelude
 -- Copyright   : [2009..2020] The Accelerate Team
@@ -27,6 +29,9 @@
 --
 
 module Data.Array.Accelerate.Prelude (
+  -- * Permutations
+  permute,
+  permuteUnique,
 
   -- * Element-wise operations
   indexed,
@@ -155,6 +160,123 @@ import Data.Typeable
 --   let runExp :: Elt e => Exp e -> e
 --       runExp e = indexArray (run (unit e)) Z
 -- :}
+
+-- Permutations
+-- ------------
+
+-- | Generalised forward permutation operation (array scatter).
+--
+-- Forward permutation specified by a function mapping indices from the source
+-- array to indices in the result array. The result array is initialised with
+-- the given defaults and any further values that are permuted into the result
+-- array are added to the current value using the given combination function.
+--
+-- The combination function must be /associative/ and /commutative/.
+-- Elements for which the permutation function returns 'Nothing' are
+-- dropped.
+--
+-- The combination function is given the new value being permuted as its first
+-- argument, and the current value of the array as its second.
+--
+-- For example, we can use 'permute' to compute the occurrence count (histogram)
+-- for an array of values in the range @[0,10)@:
+--
+-- >>> :{
+--   let histogram :: Acc (Vector Int) -> Acc (Vector Int)
+--       histogram xs =
+--         let zeros = fill (constant (Z:.10)) 0
+--             ones  = fill (shape xs)         1
+--         in
+--         permute (+) zeros (\ix -> Just_ (I1 (xs!ix))) ones
+-- :}
+--
+-- >>> let xs = fromList (Z :. 20) [0,0,1,2,1,1,2,4,8,3,4,9,8,3,2,5,5,3,1,2] :: Vector Int
+-- >>> run $ histogram (use xs)
+-- Vector (Z :. 10) [2,4,4,3,2,2,0,0,2,1]
+--
+-- As a second example, note that the dimensionality of the source and
+-- destination arrays can differ. In this way, we can use 'permute' to create an
+-- identity matrix by overwriting elements along the diagonal:
+--
+-- >>> :{
+--   let identity :: Num a => Exp Int -> Acc (Matrix a)
+--       identity n =
+--         let zeros = fill (I2 n n) 0
+--             ones  = fill (I1 n)   1
+--         in
+--         permute const zeros (\(I1 i) -> Just_ (I2 i i)) ones
+-- :}
+--
+-- >>> run $ identity 5 :: Matrix Int
+-- Matrix (Z :. 5 :. 5)
+--   [ 1, 0, 0, 0, 0,
+--     0, 1, 0, 0, 0,
+--     0, 0, 1, 0, 0,
+--     0, 0, 0, 1, 0,
+--     0, 0, 0, 0, 1]
+--
+-- [/Note:/]
+--
+-- Regarding array fusion:
+--
+--   1. The 'permute' operation will always be evaluated; it can not be fused
+--      into a later step.
+--
+--   2. Since the index permutation function might not cover all positions in
+--      the output array (the function is not surjective), the array of default
+--      values must be evaluated. However, other operations may fuse into this.
+--
+--   3. The array of source values can fuse into the permutation operation.
+--
+--   4. If the array of default values is only used once, it will be updated
+--      in-place. This behaviour can be disabled this with @-fno-inplace@.
+--
+-- Regarding the defaults array:
+--
+-- If you are sure that the default values are not necessary---they are not used
+-- by the combination function and every element will be overwritten---a default
+-- array created by 'Data.Array.Accelerate.Prelude.fill'ing with the value
+-- 'Data.Array.Accelerate.Unsafe.undef' will give you a new uninitialised array.
+--
+-- Regarding the combination function:
+--
+-- The function 'const' can be used to replace elements of the defaults
+-- array with the new values. If the permutation function maps multiple
+-- values to the same location in the results array (the function is not
+-- injective) then this operation is non-deterministic.
+--
+-- Since Accelerate uses an unzipped struct-of-array representation, where
+-- the individual components of product types (for example, pairs) are
+-- stored in separate arrays, storing values of product type requires
+-- multiple store instructions.
+--
+-- Accelerate prior to version 1.3.0.0 performs this operation atomically,
+-- to ensure that the stored values are always consistent (each component
+-- of the product type is written by the same thread). Later versions relax
+-- this restriction, but this behaviour can be disabled with
+-- @-fno-fast-permute-const@.
+--
+permute
+    :: forall sh sh' a. (Shape sh, Shape sh', Elt a)
+    => (Exp a -> Exp a -> Exp a)        -- ^ combination function
+    -> Acc (Array sh' a)                -- ^ array of default values
+    -> (Exp sh -> Exp (Maybe sh'))      -- ^ index permutation function
+    -> Acc (Array sh  a)                -- ^ array of source values to be permuted
+    -> Acc (Array sh' a)
+permute c def perm src = permute' c def $ imap (\ix x -> perm ix & match \case
+  Nothing_ -> Nothing_
+  Just_ ix' -> Just_ (T2 ix' x)) src
+
+permuteUnique
+    :: forall sh sh' a. (Shape sh, Shape sh', Elt a)
+    => Acc (Array sh' a)                -- ^ array of default values
+    -> (Exp sh -> Exp (Maybe sh'))      -- ^ index permutation function
+    -> Acc (Array sh  a)                -- ^ array of source values to be permuted
+    -> Acc (Array sh' a)
+permuteUnique def perm src = permuteUnique' def $ imap (\ix x -> perm ix & match \case
+  Nothing_ -> Nothing_
+  Just_ ix' -> Just_ (T2 ix' x)) src
+
 
 -- Element-wise operations
 -- -----------------------
