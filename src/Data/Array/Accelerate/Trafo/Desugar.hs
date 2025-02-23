@@ -426,7 +426,7 @@ desugarOpenAcc env = travA
       --
 
       Named.Permute c (def :: Named.OpenAcc aenv (Array sh' e)) src
-        | resultIsUnique src
+        | resultIsUnique def
         , ArrayR shr' tp <- Named.arrayR def
         , ArrayR shr tsht  <- Named.arrayR src
         , DeclareVars lhsSh' kSh' valueSh' <- declareVars $ shapeType shr'
