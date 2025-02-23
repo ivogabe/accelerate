@@ -1805,19 +1805,22 @@ compact keep arr
   | Just Refl <- matchShapeType @sh @Z
   = let
         T2 target len   = scanl' (+) 0 (map boolToInt keep)
-        prj ix          = if keep!ix
-                             then Just_ (I1 (target!ix))
-                             else Nothing_
-        dummy           = fill (I1 (the len)) undef
-        result          = permute const dummy prj arr
+        f value k t =
+          if k then
+            Just_ $ T2 (I1 t) value
+          else
+            Nothing_
+        -- Allocate an array with the size of the input, instead of 'the len'.
+        -- We later shrink the array to 'the len'. This allows us to fuse the
+        -- scanl' with the permute. The backpermute to shrink the array might
+        -- be fused with a later consumer of the output of compact, depending
+        -- on the program.
+        dummy           = fill (shape arr) undef -- fill (I1 (the len)) undef
+        result          = permuteUnique' dummy $ zipWith3 f arr keep target
     in
-    if null arr
-       then T2 emptyArray (fill Z_ 0)
-       else
-    if the len == unindex1 (shape arr)
-       then T2 arr    len
-       else T2 result len
-
+      T2
+        (backpermute (I1 $ the len) id result)
+        len
 compact keep arr
   = let
         sz              = indexTail (shape arr)

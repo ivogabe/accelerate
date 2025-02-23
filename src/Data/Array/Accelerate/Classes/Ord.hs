@@ -186,22 +186,22 @@ runQ $ do
 
       mkLt' :: [ExpQ] -> [ExpQ] -> ExpQ
       mkLt' [x] [y]       = [| $x < $y |]
-      mkLt' (x:xs) (y:ys) = [| $x < $y || ( $x A.== $y && $(mkLt' xs ys) ) |]
+      mkLt' (x:xs) (y:ys) = [| $x < $y ||! ( $x A.== $y &&! $(mkLt' xs ys) ) |]
       mkLt' _      _      = error "mkLt'"
 
       mkGt' :: [ExpQ] -> [ExpQ] -> ExpQ
       mkGt' [x]    [y]    = [| $x > $y |]
-      mkGt' (x:xs) (y:ys) = [| $x > $y || ( $x A.== $y && $(mkGt' xs ys) ) |]
+      mkGt' (x:xs) (y:ys) = [| $x > $y ||! ( $x A.== $y &&! $(mkGt' xs ys) ) |]
       mkGt' _      _      = error "mkGt'"
 
       mkLtEq' :: [ExpQ] -> [ExpQ] -> ExpQ
       mkLtEq' [x] [y]       = [| $x < $y |]
-      mkLtEq' (x:xs) (y:ys) = [| $x < $y || ( $x A.== $y && $(mkLtEq' xs ys) ) |]
+      mkLtEq' (x:xs) (y:ys) = [| $x < $y ||! ( $x A.== $y &&! $(mkLtEq' xs ys) ) |]
       mkLtEq' _      _      = error "mkLtEq'"
 
       mkGtEq' :: [ExpQ] -> [ExpQ] -> ExpQ
       mkGtEq' [x]    [y]    = [| $x > $y |]
-      mkGtEq' (x:xs) (y:ys) = [| $x > $y || ( $x A.== $y && $(mkGtEq' xs ys) ) |]
+      mkGtEq' (x:xs) (y:ys) = [| $x > $y ||! ( $x A.== $y &&! $(mkGtEq' xs ys) ) |]
       mkGtEq' _      _      = error "mkGtEq'"
 
       mkTup :: Int -> Q [Dec]
@@ -228,14 +228,14 @@ runQ $ do
   return $ concat (concat [is,fs,ns,cs,ts])
 
 instance Ord sh => Ord (sh :. Int) where
-  x <= y = indexHead x <= indexHead y && indexTail x <= indexTail y
-  x >= y = indexHead x >= indexHead y && indexTail x >= indexTail y
+  x <= y = indexHead x <= indexHead y &&! indexTail x <= indexTail y
+  x >= y = indexHead x >= indexHead y &&! indexTail x >= indexTail y
   x < y  = indexHead x < indexHead y
-        && case matchTypeR (eltR @sh) (eltR @Z) of
+        &&! case matchTypeR (eltR @sh) (eltR @Z) of
              Just Refl -> constant True
              Nothing   -> indexTail x < indexTail y
   x > y  = indexHead x > indexHead y
-        && case matchTypeR (eltR @sh) (eltR @Z) of
+        &&! case matchTypeR (eltR @sh) (eltR @Z) of
              Just Refl -> constant True
              Nothing   -> indexTail x > indexTail y
 

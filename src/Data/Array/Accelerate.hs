@@ -374,7 +374,7 @@ module Data.Array.Accelerate (
   sfoldl,
 
   -- *** Logical operations
-  (&&), (||), not,
+  (&&), (&&!), (||), (||!), not,
 
   -- *** Numeric operations
   subtract, even, odd, gcd, lcm, (^), (^^),

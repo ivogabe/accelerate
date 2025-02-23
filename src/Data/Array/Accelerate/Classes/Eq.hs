@@ -192,8 +192,8 @@ runQ $ do
             pat vs  = conP (mkName ('T':show n)) (map varP vs)
         in
         [d| instance ($cst) => Eq $res where
-              $(pat xs) == $(pat ys) = $(foldr1 (\vs v -> [| $vs && $v |]) (zipWith (\x y -> [| $x == $y |]) (map varE xs) (map varE ys)))
-              $(pat xs) /= $(pat ys) = $(foldr1 (\vs v -> [| $vs || $v |]) (zipWith (\x y -> [| $x /= $y |]) (map varE xs) (map varE ys)))
+              $(pat xs) == $(pat ys) = $(foldr1 (\vs v -> [| $vs &&! $v |]) (zipWith (\x y -> [| $x == $y |]) (map varE xs) (map varE ys)))
+              $(pat xs) /= $(pat ys) = $(foldr1 (\vs v -> [| $vs ||! $v |]) (zipWith (\x y -> [| $x /= $y |]) (map varE xs) (map varE ys)))
           |]
 
   is <- mapM mkPrim integralTypes
@@ -204,8 +204,8 @@ runQ $ do
   return $ concat (concat [is,fs,ns,cs,ts])
 
 instance Eq sh => Eq (sh :. Int) where
-  x == y = indexHead x == indexHead y && indexTail x == indexTail y
-  x /= y = indexHead x /= indexHead y || indexTail x /= indexTail y
+  x == y = indexHead x == indexHead y &&! indexTail x == indexTail y
+  x /= y = indexHead x /= indexHead y ||! indexTail x /= indexTail y
 
 instance Eq Bool where
   x == y = mkCoerce x == (mkCoerce y :: Exp PrimBool)
