@@ -23,9 +23,9 @@
 
 module Data.Array.Accelerate.Backend (
   Backend(..),
-  run, runWith,
-  run1, run1With,
-  runN, runNWith,
+  runAt, runWithAt,
+  run1At, run1WithAt,
+  runNAt, runNWithAt,
 
   -- Type classes that a backend should implement:
   Desugar.DesugarAcc(..),
@@ -47,7 +47,7 @@ module Data.Array.Accelerate.Backend (
   Pretty.PrettyOp(..),
   Execute(..),
   Operation.NFData'(..),
-  Operation.ShrinkArg(..), runWithObj, runNWithObj, runNBench, Benchmarking
+  Operation.ShrinkArg(..), -- runWithObj, runNWithObj, runNBench, Benchmarking
 ) where
 
 import qualified Data.Array.Accelerate.Smart as Smart
@@ -102,58 +102,58 @@ type Operation backend = KernelOperation (Kernel backend)
 
 -- Backend can be chosen with an explicit type application, for instance:
 --   run @Interpreter acc
-run :: forall backend t. (Sugar.Arrays t, Backend backend) => Smart.Acc t -> t
-run = runWith @backend defaultOptions
+runAt :: forall backend t. (Sugar.Arrays t, Backend backend) => Smart.Acc t -> t
+runAt = runWithAt @backend defaultOptions
 
-runWith :: forall backend t. (Sugar.Arrays t, Backend backend) => Config -> Smart.Acc t -> t
-runWith config acc
+runWithAt :: forall backend t. (Sugar.Arrays t, Backend backend) => Config -> Smart.Acc t -> t
+runWithAt config acc
   = Sugar.toArr $ sugarArrays repr $ unsafePerformIO $ executeAcc (desugarArraysR repr) program
   where
     repr = Sugar.arraysR @t
     schedule = convertAccWith @(Schedule backend) @(Kernel backend) config acc
     program = linkAfunSchedule schedule
 
-runWithObj :: forall backend t. (Sugar.Arrays t, Backend backend) => Objective -> Smart.Acc t -> t
+{- runWithObj :: forall backend t. (Sugar.Arrays t, Backend backend) => Objective -> Smart.Acc t -> t
 runWithObj obj acc = Sugar.toArr $ sugarArrays repr $ unsafePerformIO $ executeAcc (desugarArraysR repr) program
   where
     repr = Sugar.arraysR @t
     schedule = convertAccWithObj @(Schedule backend) @(Kernel backend) obj acc
-    program = linkAfunSchedule schedule
+    program = linkAfunSchedule schedule -}
 
-run1
+run1At
   :: forall backend s t.
      (Sugar.Arrays s, Sugar.Arrays t, Backend backend)
   => (Smart.Acc s -> Smart.Acc t)
   -> s -> t
-run1 = runN @backend
+run1At = runNAt @backend
 
-run1With
+run1WithAt
   :: forall backend s t.
      (Sugar.Arrays s, Sugar.Arrays t, Backend backend)
   => Config
   -> (Smart.Acc s -> Smart.Acc t)
   -> s -> t
-run1With = runNWith @backend
+run1WithAt = runNWithAt @backend
 
-runN
+runNAt
   :: forall backend f.
      (Afunction f, Backend backend)
   => f
   -> AfunctionR f
-runN = runNWith @backend defaultOptions
+runNAt = runNWithAt @backend defaultOptions
 
-runNWith
+runNWithAt
   :: forall backend f.
      (Afunction f, Backend backend)
   => Config
   -> f
   -> AfunctionR f
-runNWith config f = program `seq` sugarFunction (afunctionRepr @f) $ executeAfun (afunctionGroundR @f) program
+runNWithAt config f = program `seq` sugarFunction (afunctionRepr @f) $ executeAfun (afunctionGroundR @f) program
   where
     schedule = convertAfunWith @(Schedule backend) @(Kernel backend) config f
     program = linkAfunSchedule schedule
 
-runNWithObj
+{- runNWithObj
   :: forall backend f.
      (Afunction f, Backend backend)
   => Objective
@@ -162,9 +162,9 @@ runNWithObj
 runNWithObj obj f = program `seq` sugarFunction (afunctionRepr @f) $ executeAfun (afunctionGroundR @f) program
   where
     schedule = convertAfunWithObj @(Schedule backend) @(Kernel backend) obj f
-    program = linkAfunSchedule schedule
+    program = linkAfunSchedule schedule -}
 
-runNBench
+{- runNBench
   :: forall backend f.
      (Afunction f, Backend backend)
   => Benchmarking
@@ -173,7 +173,7 @@ runNBench
 runNBench b f = program `seq` sugarFunction (afunctionRepr @f) $ executeAfun (afunctionGroundR @f) program
   where
     schedule = convertAfunBench @(Schedule backend) @(Kernel backend) b f
-    program = linkAfunSchedule schedule
+    program = linkAfunSchedule schedule -}
 
 sugarFunction
   :: forall f.
