@@ -902,6 +902,7 @@ desugarOpenAcc env = travA
 
 resultIsUnique :: Named.OpenAcc aenv a -> Bool
 resultIsUnique (Named.OpenAcc acc) = case acc of
+  Named.Alet _ _ body -> resultIsUnique body
   Named.Unit{} -> True
   Named.Generate{} -> True
   Named.Replicate{} -> True
