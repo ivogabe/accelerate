@@ -419,7 +419,6 @@ library
         Data.Array.Accelerate.Async
         Data.Array.Accelerate.Backend
         Data.Array.Accelerate.Error
-        Data.Array.Accelerate.Eval
         Data.Array.Accelerate.Debug.Internal
         Data.Array.Accelerate.Lifetime
         Data.Array.Accelerate.Pretty
