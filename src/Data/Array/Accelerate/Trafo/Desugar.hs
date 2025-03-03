@@ -412,13 +412,30 @@ desugarOpenAcc env = travA
       -- XXX: Should we check whether the sizes are equal? We could add an Assert constructor to PreOpenAcc,
       -- which we can use to verify the sizes at runtime.
       --
-      Named.Reshape shr sh a
-        | ArrayR oldShr tp <- Named.arrayR a
-        , DeclareVars lhsSh kSh valueSh <- declareVars $ mapTupR GroundRscalar $ shapeType shr
-        , DeclareVars lhsBf kBf valueBf <- declareVars $ buffersR tp ->
-          alet lhsSh (Compute $ travE sh)
-            $ alet (LeftHandSidePair (LeftHandSideWildcard $ mapTupR GroundRscalar $ shapeType oldShr) lhsBf) (desugarOpenAcc (weakenBEnv kSh env) a)
-            $ Return (TupRpair (valueSh kBf) (valueBf weakenId))
+      Named.Reshape shrOut shExp a
+        | ArrayR shrIn tp <- Named.arrayR a
+        , DeclareVars lhsShIn  kShIn  valueShIn  <- declareVars $ mapTupR GroundRscalar $ shapeType shrIn
+        , DeclareVars lhsIn    kIn    valueIn    <- declareVars $ buffersR tp
+        , DeclareVars lhsShOut kShOut valueShOut <- declareVars $ shapeType shrOut
+        , DeclareVars lhsOut   kOut   valueOut   <- declareVars $ buffersR tp
+        , DeclareVars lhsIx    _      valueIx    <- declareVars $ shapeType shrOut ->
+          let
+            shOut  = mapVars GroundRscalar $ valueShOut kOut
+            bfOut  = valueOut weakenId
+            argF   = ArgFun
+                   $ Lam lhsIx
+                   $ Body
+                   $ FromIndex shrIn (paramsIn (shapeType shrIn) $ valueShIn $ kOut .> kShOut .> kIn)
+                   $ ToIndex shrOut (paramsIn' $ valueShOut kOut)
+                   $ expVars $ valueIx weakenId
+            argIn  = ArgArray In  (ArrayR shrIn  tp) (valueShIn (kOut .> kShOut .> kIn)) (valueIn (kOut .> kShOut))
+            argOut = ArgArray Out (ArrayR shrOut tp) shOut bfOut
+          in
+            alet (LeftHandSidePair lhsShIn lhsIn) (travA a)
+              $ alet (mapLeftHandSide GroundRscalar lhsShOut) (Compute $ desugarExp (weakenBEnv (kIn .> kShIn) env) shExp)
+              $ aletUnique lhsOut (desugarAlloc (ArrayR shrOut tp) (valueShOut weakenId))
+              $ alet (LeftHandSideWildcard TupRunit) (mkBackpermute argF argIn argOut)
+              $ Return (shOut `TupRpair` bfOut)
 
       -- The remaining constructors of Named.OpenAcc are compiled into operations through the mkXX functions
       -- the type class DesugarAcc. We must here allocate the output arrays of the appropriate size and call
@@ -492,7 +509,7 @@ desugarOpenAcc env = travA
         -- execute a kernel.
         | Lam _ (Body body) <- f
         , isUndef body
-        , DeclareVars lhsSh kSh valueSh <- declareVars $ shapeType shr
+        , DeclareVars lhsSh _   valueSh <- declareVars $ shapeType shr
         , DeclareVars lhsBf kBf valueBf <- declareVars $ buffersR tp ->
           alet (mapLeftHandSide GroundRscalar lhsSh) (Compute $ travE sh)
             $ aletUnique lhsBf (desugarAlloc (ArrayR shr tp) (valueSh weakenId))
