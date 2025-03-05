@@ -113,7 +113,13 @@ data Var (op :: Type -> Type)
     -- Binary variable; will we write the output to a manifest array, or is it fused away (i.e. all uses are in its cluster)?
   | InDir Label
   -- ^ -3 can't fuse with anything, -2 for 'left to right', -1 for 'right to left', n for 'unpredictable, see computation n' (currently only backpermute)
-  | OutDir Label -- as InDir, but for the output of this label
+  | OutDir Label -- ^ as InDir, but for the output of this label
+  | InFoldSize Label 
+    -- ^ Keeps track of the fold that's one dimension larger than this operation, and is fused in the same cluster.
+    -- This prevents something like `zipWith f (fold g xs) (fold g ys)` from illegally fusing
+  | OutFoldSize Label 
+    -- ^ Keeps track of the fold that's one dimension larger than this operation, and is fused in the same cluster.
+    -- This prevents something like `zipWith f (fold g xs) (fold g ys)` from illegally fusing
   | Other String
     -- ^ For one-shot variables that don't deserve a constructor. These are also integer variables, and the responsibility is on the user to pick a unique name!
     -- It is possible to add a variation for continuous variables too, see `allIntegers` in MIP.hs.
@@ -134,7 +140,7 @@ pi l      = c $ Pi l
 delayed :: Label -> Expression op
 delayed = notB . manifest
 manifest :: Label -> Expression op
-manifest l = c $ ManifestOutput l
+manifest = c . ManifestOutput
 -- | Safe constructor for Fused variables
 fused :: HasCallStack => Label -> Label -> Expression op
 fused x y = let x' :-> y' = x -?> y
