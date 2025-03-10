@@ -126,8 +126,8 @@ encodePreOpenAcc options encodeAcc pacc =
     ZipWith _ f a1 a2               -> intHost $(hashQ "ZipWith")     <> travF f  <> travA a1 <> travA a2
     Fold f e a                      -> intHost $(hashQ "Fold")        <> travF f  <> encodeMaybe travE e  <> travA a
     FoldSeg _ f e a s               -> intHost $(hashQ "FoldSeg")     <> travF f  <> encodeMaybe travE e  <> travA a <> travA s
-    Scan  d f e a                   -> intHost $(hashQ "Scan")        <> travD d  <> travF f  <> encodeMaybe travE e <> travA a
-    Scan' d f e a                   -> intHost $(hashQ "Scan'")       <> travD d  <> travF f  <>             travE e <> travA a
+    Scan  d f e a                   -> intHost $(hashQ "Scan")        <> encodeMaybe travD d  <> travF f  <> encodeMaybe travE e <> travA a
+    Scan' d f e a                   -> intHost $(hashQ "Scan'")       <> encodeMaybe travD d  <> travF f  <>             travE e <> travA a
     Permute f a1 a2                 -> intHost $(hashQ "Permute")     <> foldMap travF f <> travA a1 <> travA a2
     Stencil s _ f b a               -> intHost $(hashQ "Stencil")     <> travF f  <> encodeBoundary (stencilEltR s) b   <> travA a
     Stencil2 s1 s2 _ f b1 a1 b2 a2  -> intHost $(hashQ "Stencil2")    <> travF f  <> encodeBoundary (stencilEltR s1) b1 <> travA a1 <> encodeBoundary (stencilEltR s2) b2 <> travA a2

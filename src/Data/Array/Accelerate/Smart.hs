@@ -417,14 +417,14 @@ data PreSmartAcc acc exp as where
                 -> acc (Segments i)
                 -> PreSmartAcc acc exp (Array (sh, Int) e)
 
-  Scan          :: Direction
+  Scan          :: Maybe Direction
                 -> TypeR e
                 -> (SmartExp e -> SmartExp e -> exp e)
                 -> Maybe (exp e)
                 -> acc (Array (sh, Int) e)
                 -> PreSmartAcc acc exp (Array (sh, Int) e)
 
-  Scan'         :: Direction
+  Scan'         :: Maybe Direction
                 -> TypeR e
                 -> (SmartExp e -> SmartExp e -> exp e)
                 -> exp e
@@ -1306,10 +1306,11 @@ instance (Arrays a, Arrays b, ApplyAcc t) => ApplyAcc ((Acc a -> Acc b) -> t) wh
 -- Debugging
 -- ---------
 
-formatDirection :: Format r (Direction -> r)
+formatDirection :: Format r (Maybe Direction -> r)
 formatDirection = later $ \case
-  LeftToRight -> singleton 'l'
-  RightToLeft -> singleton 'r'
+  Just LeftToRight -> singleton 'l'
+  Just RightToLeft -> singleton 'r'
+  Nothing -> "Unordered"
 
 formatPreAccOp :: Format r (PreSmartAcc acc exp arrs -> r)
 formatPreAccOp = later $ \case

@@ -219,9 +219,10 @@ prettyPreOpenAcc config ctx prettyAcc extractAcc aenv pacc =
     ppB tp (Constant e) = prettyConst tp e
     ppB _  (Function f) = ppF f
 
-    ppD :: String -> AST.Direction -> String -> Operator
-    ppD f AST.LeftToRight k = ppN (f <> "l" <> k)
-    ppD f AST.RightToLeft k = ppN (f <> "r" <> k)
+    ppD :: String -> Maybe AST.Direction -> String -> Operator
+    ppD f (Just AST.LeftToRight) k = ppN (f <> "l" <> k)
+    ppD f (Just AST.RightToLeft) k = ppN (f <> "r" <> k)
+    ppD f Nothing                k = ppN (f <> "Unordered" <> k)
 
 
 prettyAlet

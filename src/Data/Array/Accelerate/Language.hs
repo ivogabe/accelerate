@@ -56,6 +56,7 @@ module Data.Array.Accelerate.Language (
 
   -- * Scan functions
   scanl, scanl', scanl1, scanr, scanr', scanr1,
+  scanUnordered, scanUnordered', scanUnordered1,
 
   -- * Permutations
   permute', permuteUnique', backpermute,
@@ -612,7 +613,7 @@ scanl :: forall sh a.
       -> Exp a
       -> Acc (Array (sh:.Int) a)
       -> Acc (Array (sh:.Int) a)
-scanl f (Exp x) (Acc a) = Acc $ SmartAcc $ Scan LeftToRight (eltR @a) (unExpBinaryFunction f) (Just x) a
+scanl f (Exp x) (Acc a) = Acc $ SmartAcc $ Scan (Just LeftToRight) (eltR @a) (unExpBinaryFunction f) (Just x) a
 
 -- | Variant of 'scanl', where the last element (final reduction result) along
 -- each dimension is returned separately. Denotationally we have:
@@ -646,7 +647,7 @@ scanl' :: forall sh a.
        -> Exp a
        -> Acc (Array (sh:.Int) a)
        -> Acc (Array (sh:.Int) a, Array sh a)
-scanl' = Acc . mkPairToTuple $$$ applyAcc (Scan' LeftToRight $ eltR @a)
+scanl' = Acc . mkPairToTuple $$$ applyAcc (Scan' (Just LeftToRight) $ eltR @a)
 
 -- | Data.List style left-to-right scan along the innermost dimension without an
 -- initial value (aka inclusive scan). The innermost dimension of the array must
@@ -665,7 +666,7 @@ scanl1 :: forall sh a.
        => (Exp a -> Exp a -> Exp a)
        -> Acc (Array (sh:.Int) a)
        -> Acc (Array (sh:.Int) a)
-scanl1 f (Acc a) = Acc $ SmartAcc $ Scan LeftToRight (eltR @a) (unExpBinaryFunction f) Nothing a
+scanl1 f (Acc a) = Acc $ SmartAcc $ Scan (Just LeftToRight) (eltR @a) (unExpBinaryFunction f) Nothing a
 
 -- | Right-to-left variant of 'scanl'.
 --
@@ -675,7 +676,7 @@ scanr :: forall sh a.
       -> Exp a
       -> Acc (Array (sh:.Int) a)
       -> Acc (Array (sh:.Int) a)
-scanr f (Exp x) (Acc a) = Acc $ SmartAcc $ Scan RightToLeft (eltR @a) (unExpBinaryFunction f) (Just x) a
+scanr f (Exp x) (Acc a) = Acc $ SmartAcc $ Scan (Just RightToLeft) (eltR @a) (unExpBinaryFunction f) (Just x) a
 
 -- | Right-to-left variant of 'scanl''.
 --
@@ -685,7 +686,7 @@ scanr' :: forall sh a.
        -> Exp a
        -> Acc (Array (sh:.Int) a)
        -> Acc (Array (sh:.Int) a, Array sh a)
-scanr' = Acc . mkPairToTuple $$$ applyAcc (Scan' RightToLeft $ eltR @a)
+scanr' = Acc . mkPairToTuple $$$ applyAcc (Scan' (Just RightToLeft) $ eltR @a)
 
 -- | Right-to-left variant of 'scanl1'.
 --
@@ -694,7 +695,39 @@ scanr1 :: forall sh a.
        => (Exp a -> Exp a -> Exp a)
        -> Acc (Array (sh:.Int) a)
        -> Acc (Array (sh:.Int) a)
-scanr1 f (Acc a) = Acc $ SmartAcc $ Scan RightToLeft (eltR @a) (unExpBinaryFunction f) Nothing a
+scanr1 f (Acc a) = Acc $ SmartAcc $ Scan (Just RightToLeft) (eltR @a) (unExpBinaryFunction f) Nothing a
+
+-- | Unordered variant of 'scanl'.
+-- Performs a scan in an arbitrary order, not necessarily left-to-right or right-to-order. 
+--
+scanUnordered :: forall sh a.
+         (Shape sh, Elt a)
+      => (Exp a -> Exp a -> Exp a)
+      -> Exp a
+      -> Acc (Array (sh:.Int) a)
+      -> Acc (Array (sh:.Int) a)
+scanUnordered f (Exp x) (Acc a) = Acc $ SmartAcc $ Scan Nothing (eltR @a) (unExpBinaryFunction f) (Just x) a
+
+-- | Unordered variant of 'scanl''.
+-- Performs a scan in an arbitrary order, not necessarily left-to-right or right-to-order.
+--
+scanUnordered' :: forall sh a.
+          (Shape sh, Elt a)
+       => (Exp a -> Exp a -> Exp a)
+       -> Exp a
+       -> Acc (Array (sh:.Int) a)
+       -> Acc (Array (sh:.Int) a, Array sh a)
+scanUnordered' = Acc . mkPairToTuple $$$ applyAcc (Scan' Nothing $ eltR @a)
+
+-- | Unordered variant of 'scanl1'.
+-- Performs a scan in an arbitrary order, not necessarily left-to-right or right-to-order.
+--
+scanUnordered1 :: forall sh a.
+          (Shape sh, Elt a)
+       => (Exp a -> Exp a -> Exp a)
+       -> Acc (Array (sh:.Int) a)
+       -> Acc (Array (sh:.Int) a)
+scanUnordered1 f (Acc a) = Acc $ SmartAcc $ Scan Nothing (eltR @a) (unExpBinaryFunction f) Nothing a
 
 permute'
     :: forall sh sh' a. (Shape sh, Shape sh', Elt a)

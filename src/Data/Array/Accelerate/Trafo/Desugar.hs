@@ -42,7 +42,7 @@ import Data.Array.Accelerate.Trafo.Var
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Error
 import Data.Kind
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, fromMaybe)
 
 type a $ b = a b
 infixr 0 $
@@ -219,7 +219,7 @@ class NFData' op => DesugarAcc (op :: Type -> Type) where
   -- Default implementation using generate. It is sequential per segment, which is inefficient for some backends.
   mkFoldSeg itp f def input segments = mkGenerate (ArgFun $ mkDefaultFoldSegFunction itp f def input segments)
 
-  mkScan        :: Direction
+  mkScan        :: Maybe Direction
                 -> Arg env (Fun' (e -> e -> e))
                 -> Maybe (Arg env (Exp' e))
                 -> Arg env (In  (sh, Int) e)
@@ -230,14 +230,14 @@ class NFData' op => DesugarAcc (op :: Type -> Type) where
     = let
         shOut' = weakenVars kTmp shOut
 
-        argG = ArgFun $ mkDefaultScanPrepend dir (weaken kTmp def) (weaken kTmp argIn)
+        argG = ArgFun $ mkDefaultScanPrepend (fromMaybe LeftToRight dir) (weaken kTmp def) (weaken kTmp argIn)
         argTmp' = ArgArray Out (ArrayR shr tp) shOut' (valueTmp weakenId)
         argTmp  = ArgArray In  (ArrayR shr tp) shOut' (valueTmp weakenId)
       in
         aletUnique lhsTmp (desugarAlloc (ArrayR shr tp) $ groundToExpVar (shapeType shr) shOut)
           $ alet (LeftHandSideWildcard TupRunit) (mkGenerate argG argTmp')
           $ mkScan dir (weaken kTmp f) Nothing argTmp (weaken kTmp argOut)
-  mkScan dir f Nothing (ArgArray _ (ArrayR shr tp) sh input) argOut
+  mkScan mdir f Nothing (ArgArray _ (ArrayR shr tp) sh input) argOut
   -- (inc, tmp) = awhile (\(inc, _) -> inc < (n+1) / 2) (\(inc, a) -> (inc*2, generate {\i -> reduce i and i +/- inc in a})) input
   -- generate {\i -> reduce i and i +/- inc in tmp}
   -- 
@@ -245,6 +245,7 @@ class NFData' op => DesugarAcc (op :: Type -> Type) where
   -- instead of a temporary array.
     | DeclareVars lhsTmp   kTmp   valueTmp   <- declareVars $ buffersR tp
     , DeclareVars lhsAlloc kAlloc valueAlloc <- declareVars $ buffersR tp
+    , dir <- fromMaybe LeftToRight mdir
     = let
         lhs = LeftHandSidePair (LeftHandSideSingle $ GroundRscalar scalarTypeInt) lhsTmp
         argTmp = ArgArray In (ArrayR shr tp) (weakenVars (weakenSucc $ weakenSucc kTmp) sh) (valueTmp weakenId)
@@ -278,16 +279,17 @@ class NFData' op => DesugarAcc (op :: Type -> Type) where
           $ alet lhs (Awhile (shared $ lhsToTupR lhs) c g (TupRsingle (Var (GroundRscalar scalarTypeInt) ZeroIdx) `TupRpair` weakenVars (weakenSucc weakenId) input))
           $ mkGenerate reduce (weaken (weakenSucc $ weakenSucc kTmp) argOut)
 
-  mkScan'       :: Direction
+  mkScan'       :: Maybe Direction
                 -> Arg env (Fun' (e -> e -> e))
                 -> Arg env (Exp' e)
                 -> Arg env (In  (sh, Int) e)
                 -> Arg env (Out (sh, Int) e)
                 -> Arg env (Out sh        e)
                 -> OperationAcc op env ()
-  mkScan' dir f def input@(ArgArray _ (ArrayR shr@(ShapeRsnoc shr') tp) sh _) out1 out2
+  mkScan' mdir f def input@(ArgArray _ (ArrayR shr@(ShapeRsnoc shr') tp) sh _) out1 out2
     | DeclareVars lhsTmp kTmp valueTmp <- declareVars $ buffersR tp -- Allocate buffers for the output of scan
     , DeclareVars lhsSh  _    valueSh  <- declareVars $ shapeType shr' -- Used in the function in backpermute
+    , dir <- fromMaybe LeftToRight mdir
     = let
         (x, y) = case sh of
           TupRpair x' y' -> (x', y')
@@ -314,7 +316,7 @@ class NFData' op => DesugarAcc (op :: Type -> Type) where
       in
         alet (LeftHandSideSingle $ GroundRscalar scalarTypeInt) (Compute $ mkBinary (PrimAdd numType) (paramsIn (TupRsingle scalarTypeInt) y) $ mkConstant (TupRsingle scalarTypeInt) 1)
           $ aletUnique lhsTmp (desugarAlloc (ArrayR shr tp) $ groundToExpVar (shapeType shr) shTmp')
-          $ alet (LeftHandSideWildcard TupRunit) (mkScan dir (weaken k f) (Just $ weaken k def) (weaken k input) argTmp')
+          $ alet (LeftHandSideWildcard TupRunit) (mkScan mdir (weaken k f) (Just $ weaken k def) (weaken k input) argTmp')
           $ alet (LeftHandSideWildcard TupRunit) (case dir of
               LeftToRight -> mkShrink argTmp $ weaken k out1
               RightToLeft -> mkBackpermute argH argTmp $ weaken k out1

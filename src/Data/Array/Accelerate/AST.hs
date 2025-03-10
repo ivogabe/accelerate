@@ -382,7 +382,7 @@ data PreOpenAcc (acc :: Type -> Type -> Type) aenv a where
   -- (which does not need to be the neutral of the associative operations)
   -- If no initial value is given, this is a scan1
   --
-  Scan        :: Direction
+  Scan        :: Maybe Direction
               -> Fun            aenv (e -> e -> e)              -- combination function
               -> Maybe     (Exp aenv e)                         -- initial value
               -> acc            aenv (Array (sh, Int) e)
@@ -392,7 +392,7 @@ data PreOpenAcc (acc :: Type -> Type -> Type) aenv a where
   -- fold value and an array with the same length as the input array (the
   -- fold value would be the rightmost element in a Haskell-style scan)
   --
-  Scan'       :: Direction
+  Scan'       :: Maybe Direction
               -> Fun            aenv (e -> e -> e)              -- combination function
               -> Exp            aenv e                          -- initial value
               -> acc            aenv (Array (sh, Int) e)
@@ -738,8 +738,8 @@ liftPreOpenAcc liftA pacc =
     ZipWith tp f a b          -> [|| ZipWith $$(liftTypeR tp) $$(liftF f) $$(liftA a) $$(liftA b) ||]
     Fold f z a                -> [|| Fold $$(liftF f) $$(liftMaybe liftE z) $$(liftA a) ||]
     FoldSeg i f z a s         -> [|| FoldSeg $$(liftIntegralType i) $$(liftF f) $$(liftMaybe liftE z) $$(liftA a) $$(liftA s) ||]
-    Scan d f z a              -> [|| Scan  $$(liftDirection d) $$(liftF f) $$(liftMaybe liftE z) $$(liftA a) ||]
-    Scan' d f z a             -> [|| Scan' $$(liftDirection d) $$(liftF f) $$(liftE z) $$(liftA a) ||]
+    Scan d f z a              -> [|| Scan  $$(liftMaybe liftDirection d) $$(liftF f) $$(liftMaybe liftE z) $$(liftA a) ||]
+    Scan' d f z a             -> [|| Scan' $$(liftMaybe liftDirection d) $$(liftF f) $$(liftE z) $$(liftA a) ||]
     Permute f d a             -> [|| Permute $$(liftMF f) $$(liftA d) $$(liftA a) ||]
     Backpermute shr sh p a    -> [|| Backpermute $$(liftShapeR shr) $$(liftE sh) $$(liftF p) $$(liftA a) ||]
     Stencil sr tp f b a       ->
@@ -792,6 +792,12 @@ formatDirection = later $ \case
   LeftToRight -> singleton 'l'
   RightToLeft -> singleton 'r'
 
+formatMaybeDirection :: Format r (Maybe Direction -> r)
+formatMaybeDirection = later $ \case
+  Just LeftToRight -> singleton 'l'
+  Just RightToLeft -> singleton 'r'
+  Nothing -> "Unordered"
+
 formatPreAccOp :: Format r (PreOpenAcc acc aenv arrs -> r)
 formatPreAccOp = later $ \case
   Alet{}            -> "Alet"
@@ -814,8 +820,8 @@ formatPreAccOp = later $ \case
   ZipWith{}         -> "ZipWith"
   Fold _ z _        -> bformat ("Fold" % maybed "1" (fconst mempty)) z
   FoldSeg _ _ z _ _ -> bformat ("Fold" % maybed "1" (fconst mempty) % "Seg") z
-  Scan d _ z _      -> bformat ("Scan" % formatDirection % maybed "1" (fconst mempty)) d z
-  Scan' d _ _ _     -> bformat ("Scan" % formatDirection % "\'") d
+  Scan d _ z _      -> bformat ("Scan" % formatMaybeDirection % maybed "1" (fconst mempty)) d z
+  Scan' d _ _ _     -> bformat ("Scan" % formatMaybeDirection % "\'") d
   Permute{}         -> "Permute"
   Backpermute{}     -> "Backpermute"
   Stencil{}         -> "Stencil"
