@@ -454,13 +454,17 @@ library
         Data.Array.Accelerate.Trafo.Operation.LiveVars
         Data.Array.Accelerate.Trafo.Partitioning.ILP
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.DataFlow
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.GraphNew
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.LabelsNew
         -- Data.Array.Accelerate.Trafo.Partitioning.ILP.HiGHS
         Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP
         Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.Symbols
         Data.Array.Accelerate.Trafo.Partitioning.Stream
         Data.Array.Accelerate.Trafo.Schedule.Partial
         Data.Array.Accelerate.Trafo.Schedule.Uniform
