@@ -245,7 +245,7 @@ module Data.Array.Accelerate (
 
   -- *** Permutations
   -- **** Forward permutation (scatter)
-  permute,
+  permute, permute', permuteUnique, permuteUnique',
   scatter,
 
   -- **** Backward permutation (gather)
@@ -374,7 +374,7 @@ module Data.Array.Accelerate (
   sfoldl,
 
   -- *** Logical operations
-  (&&), (||), not,
+  (&&), (&&!), (||), (||!), not,
 
   -- *** Numeric operations
   subtract, even, odd, gcd, lcm, (^), (^^),

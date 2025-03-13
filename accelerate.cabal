@@ -405,6 +405,7 @@ library
         Data.Array.Accelerate.AST.Schedule.Sequential
         Data.Array.Accelerate.AST.Schedule.Uniform
         Data.Array.Accelerate.AST.Var
+        Data.Array.Accelerate.Analysis.Exp
         Data.Array.Accelerate.Analysis.Hash
         Data.Array.Accelerate.Analysis.Hash.Exp
         Data.Array.Accelerate.Analysis.Hash.Operation
@@ -418,7 +419,6 @@ library
         Data.Array.Accelerate.Async
         Data.Array.Accelerate.Backend
         Data.Array.Accelerate.Error
-        Data.Array.Accelerate.Eval
         Data.Array.Accelerate.Debug.Internal
         Data.Array.Accelerate.Lifetime
         Data.Array.Accelerate.Pretty
@@ -618,7 +618,7 @@ library
   cxx-options:
         -O3
         -Wall
-        -std=c++11
+        -std=c++20
 
   ghc-options:
         -O2
@@ -636,7 +636,7 @@ library
     ghc-options:
         -optcxx=-O3
         -optcxx=-Wall
-        -optcxx=-std=c++11
+        -optcxx=-std=c++20
 
   ghc-prof-options:
         -caf-all

@@ -152,6 +152,7 @@ memoryRelease = undefined
 --
 runQ $ do
   addForeignFilePath LangC "cbits/memory.c"
+  addForeignFilePath LangCxx "cbits/alloc.cpp"
   return []
 
 data ScalarArrayDict a where

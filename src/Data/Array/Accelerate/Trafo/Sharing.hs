@@ -355,8 +355,8 @@ convertSharingAcc config alyt aenv (ScopedAcc lams (AccSharing _ preAcc))
       FoldSeg i tp f e acc1 acc2  -> AST.FoldSeg i (cvtF2 tp tp f) (cvtE <$> e) (cvtA acc1) (cvtA acc2)
       Scan  d tp f e acc          -> AST.Scan  d (cvtF2 tp tp f) (cvtE <$> e) (cvtA acc)
       Scan' d tp f e acc          -> AST.Scan' d (cvtF2 tp tp f) (cvtE e)     (cvtA acc)
-      Permute (ArrayR shr tp) f dftAcc perm acc
-                                  -> AST.Permute (cvtF2 tp tp f) (cvtA dftAcc) (cvtF1 (shapeType shr) perm) (cvtA acc)
+      Permute (ArrayR shr tp) f dftAcc acc
+                                  -> AST.Permute (cvtF2 tp tp <$> f) (cvtA dftAcc) (cvtA acc)
       Backpermute shr newDim perm acc
                                   -> AST.Backpermute shr (cvtE newDim) (cvtF1 (shapeType shr) perm) (cvtA acc)
       Stencil stencil tp f boundary acc
@@ -1559,14 +1559,19 @@ makeOccMapSharingAcc config accOccMap = traverseAcc
                                                      h1 `max` h2 `max` h3 `max` h4 + 1)
             Scan  d tp f e acc          -> travF2MEA (Scan  d tp) tp tp f e acc
             Scan' d tp f e acc          -> travF2EA (Scan' d tp) tp tp f e acc
-            Permute repr@(ArrayR shr tp) c acc1 p acc2
+            Permute repr@(ArrayR shr tp) (Just c) acc1 acc2
                                         -> do
                                              (c'   , h1) <- traverseFun2 lvl tp tp c
-                                             (p'   , h2) <- traverseFun1 lvl (shapeType shr) p
-                                             (acc1', h3) <- traverseAcc lvl acc1
-                                             (acc2', h4) <- traverseAcc lvl acc2
-                                             return (Permute repr c' acc1' p' acc2',
-                                                     h1 `max` h2 `max` h3 `max` h4 + 1)
+                                             (acc1', h2) <- traverseAcc lvl acc1
+                                             (acc2', h3) <- traverseAcc lvl acc2
+                                             return (Permute repr (Just c') acc1' acc2',
+                                                     h1 `max` h2 `max` h3 + 1)
+            Permute repr@(ArrayR shr tp) Nothing acc1 acc2
+                                        -> do
+                                             (acc1', h2) <- traverseAcc lvl acc1
+                                             (acc2', h3) <- traverseAcc lvl acc2
+                                             return (Permute repr Nothing acc1' acc2',
+                                                     h2 `max` h3 + 1)
             Backpermute shr e p acc     -> do
                                              (e'  , h1) <- traverseExp lvl e
                                              (p'  , h2) <- traverseFun1 lvl (shapeType shr) p
@@ -2426,15 +2431,21 @@ determineScopesSharingAcc config accOccMap = scopesAcc
                                        (accCount1 +++ accCount2 +++ accCount3 +++ accCount4)
           Scan d tp f z acc       -> travF2MEA (Scan d tp) f z acc
           Scan' d tp f z acc      -> travF2EA (Scan' d tp) f z acc
-          Permute repr fc acc1 fp acc2
+          Permute repr (Just fc) acc1 acc2
                                   -> let
                                        (fc'  , accCount1) = scopesFun2 fc
                                        (acc1', accCount2) = scopesAcc  acc1
-                                       (fp'  , accCount3) = scopesFun1 fp
-                                       (acc2', accCount4) = scopesAcc  acc2
+                                       (acc2', accCount3) = scopesAcc  acc2
                                      in
-                                     reconstruct (Permute repr fc' acc1' fp' acc2')
-                                       (accCount1 +++ accCount2 +++ accCount3 +++ accCount4)
+                                     reconstruct (Permute repr (Just fc') acc1' acc2')
+                                       (accCount1 +++ accCount2 +++ accCount3)
+          Permute repr Nothing acc1 acc2
+                                  -> let
+                                       (acc1', accCount2) = scopesAcc  acc1
+                                       (acc2', accCount3) = scopesAcc  acc2
+                                     in
+                                     reconstruct (Permute repr Nothing acc1' acc2')
+                                       (accCount2 +++ accCount3)
           Backpermute shr sh fp acc
                                   -> let
                                        (sh' , accCount1) = scopesExp  sh

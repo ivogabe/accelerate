@@ -7,9 +7,12 @@
 #include "align.h"
 #include "flags.h"
 
+void* accelerate_raw_alloc(uint64_t size, uint64_t align);
+void accelerate_raw_free(void *ptr);
+
 struct ObjectHeader {
   _Atomic uint64_t reference_count;
-  uint64_t byte_size;
+  uint64_t byte_size; // Size of the array. Does not include the header, and is not necessarily a multiple of the alignment.
 } CACHE_ALIGNED;
 
 void* accelerate_buffer_alloc(uint64_t byte_size) {
@@ -18,7 +21,7 @@ void* accelerate_buffer_alloc(uint64_t byte_size) {
   // Note: it is apparently a requirement on macOS that the size is a multiple
   // of the alignment, but it is not required on Linux.
   size = (size + CACHE_LINE_SIZE - 1) / CACHE_LINE_SIZE * CACHE_LINE_SIZE;
-  void* ptr = aligned_alloc(CACHE_LINE_SIZE, size);
+  void *ptr = accelerate_raw_alloc(size, CACHE_LINE_SIZE);
 
   // TODO: call ___tracy_emit_memory_alloc
 
@@ -52,7 +55,7 @@ void accelerate_buffer_release_by(void* interior, uint64_t amount) {
   uint64_t old = atomic_fetch_add_explicit(&header->reference_count, -amount, memory_order_acq_rel);
   if (old == amount) {
     // TODO: call ___tracy_emit_memory_free
-    free(header);
+    accelerate_raw_free(header);
   }
   if (old < amount) {
     printf("Reference count underflow\n");
