@@ -454,7 +454,7 @@ library
         Data.Array.Accelerate.Trafo.Operation.LiveVars
         Data.Array.Accelerate.Trafo.Partitioning.ILP
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
-        Data.Array.Accelerate.Trafo.Partitioning.ILP.DataFlow
+        -- Data.Array.Accelerate.Trafo.Partitioning.ILP.DataFlow
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
         Data.Array.Accelerate.Trafo.Partitioning.ILP.GraphNew
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels

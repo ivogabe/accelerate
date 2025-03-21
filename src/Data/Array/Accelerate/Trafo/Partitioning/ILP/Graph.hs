@@ -114,10 +114,10 @@ data Var (op :: Type -> Type)
   | InDir Label
   -- ^ -3 can't fuse with anything, -2 for 'left to right', -1 for 'right to left', n for 'unpredictable, see computation n' (currently only backpermute)
   | OutDir Label -- ^ as InDir, but for the output of this label
-  | InFoldSize Label 
+  | InFoldSize Label
     -- ^ Keeps track of the fold that's one dimension larger than this operation, and is fused in the same cluster.
     -- This prevents something like `zipWith f (fold g xs) (fold g ys)` from illegally fusing
-  | OutFoldSize Label 
+  | OutFoldSize Label
     -- ^ Keeps track of the fold that's one dimension larger than this operation, and is fused in the same cluster.
     -- This prevents something like `zipWith f (fold g xs) (fold g ys)` from illegally fusing
   | Other String
@@ -206,20 +206,20 @@ finalizeNoFusion = foldMap $ \l -> manifest l .==. int 0 -- each array is manife
   -- -- two edges from the same source that have different Ints in this map.
   -- -- this default implementation just uses InDir, a backend may choose to change it if other variables are also relevant.
   -- horizontalFusionPreventingIdentifiers :: Solution op -> M.Map Edge Int
-  -- horizontalFusionPreventingIdentifiers s 
-  --   = M.fromList 
-  --   . concatMap mkedgepairs 
+  -- horizontalFusionPreventingIdentifiers s
+  --   = M.fromList
+  --   . concatMap mkedgepairs
   --   . filter (\case
   --     (InDir _,_) -> True
-  --     _ -> False) 
+  --     _ -> False)
   --   $ M.toList s
   --   where
-  --     mkedgepairs (InDir l, i) 
-  --       = map (\p -> (p:->l,i)) 
-  --       $ map (\(Fused p _) -> p) 
+  --     mkedgepairs (InDir l, i)
+  --       = map (\p -> (p:->l,i))
+  --       $ map (\(Fused p _) -> p)
   --       $ filter (\case
   --         Fused _ c -> c==l
-  --         _ -> False) 
+  --         _ -> False)
   --       $ M.keys s
 
 
@@ -371,7 +371,7 @@ makeLenses ''Graph
 makeLenses ''Information
 
 -- The below functions use the combination of lenses and the state monad, it seemed the most clear and maintainable
--- solution. Stare at Lens.Micro.Mtl for a while if it doesn't make sense. 
+-- solution. Stare at Lens.Micro.Mtl for a while if it doesn't make sense.
 
 makeFullGraph :: (MakesILP op)
               => PreOpenAcc op () a
@@ -524,7 +524,7 @@ mkFullGraphF (Abody acc) = do
   res <- mkFullGraph acc
   let output = res ^. l_res
   currL.parent .= l ^. parent
-  return $ res 
+  return $ res
          & info . constr <>~ maybe (error "what to do here?") (\l' -> manifest l' .==. int 0) output
          & l_res    ?~ l
          & info.graphI.graphNodes %~ S.insert l
@@ -572,7 +572,7 @@ zoomState lhs l f = do
     -- It's not a lawful lens (violates `view l (set l v s) ≡ v`), but the only information that is lost
     -- is the part of `LabelEnv env'` that falls outside of `LabelEnv env`. This information is only locally
     -- relevant for the state computations, so the top-level function 'zoomState' is safe.
-    -- In other words: this lens is an implementation detail, and I think it's less error prone than manually 
+    -- In other words: this lens is an implementation detail, and I think it's less error prone than manually
     -- wrapping/unwrapping the State (where you can e.g. accidentally use the old environment).
     zoomStateLens :: LabelEnv env' -> Lens' (FullGraphState env) (FullGraphState env')
     zoomStateLens env' changeToScpState bndState = (lenv %~ weakLhsEnv lhs) <$> changeToScpState (bndState & lenv .~ env')
