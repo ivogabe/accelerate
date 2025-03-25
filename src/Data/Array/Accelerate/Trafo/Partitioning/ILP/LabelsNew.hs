@@ -48,12 +48,21 @@ parent :: Lens' (Label t) (Maybe (Label Comp))
 parent f (CLabel i p) = fmap (CLabel i) (f p)
 parent f (BLabel i p) = fmap (BLabel i) (f p)
 
+-- | Lens for interpreting any label as a computation label.
+asCLabel :: Lens' (Label t) (Label Comp)
+asCLabel f l@CLabel{} = f l
+asCLabel f l = fmap (\(CLabel i p) -> l & labelId .~ i & parent .~ p)
+                    (f (CLabel (l ^. labelId) (l ^. parent)))
+
+-- | Lens for interpreting any label as a buffer label.
+asBLabel :: Lens' (Label t) (Label Buff)
+asBLabel f l@BLabel{} = f l
+asBLabel f l = fmap (\(BLabel i p) -> l & labelId .~ i & parent .~ p)
+                    (f (BLabel (l ^. labelId) (l ^. parent)))
+
 instance Show (Label t) where
   show :: Label t -> String
   show l = "L" <> show (l ^. labelId) <> "{" <> show (l ^. parent) <> "}"
-
-parentMismatch :: Label t -> Label t -> a
-parentMismatch l1 l2 = error $ "parent mismatch: " <> show l1 <> " " <> show l2
 
 instance Eq (Label t) where
   (==) :: Label t -> Label t -> Bool
@@ -98,3 +107,9 @@ instance Show (LabelEnv env) where
   show :: LabelEnv env -> String
   show LabelEnvNil = "Nil"
   show (bs :>>: env) = show bs <> " :>>: " <> show env
+
+
+
+-- | Error message for when parent computation labels do not match.
+parentMismatch :: Label t -> Label t -> a
+parentMismatch l1 l2 = error $ "parent mismatch: " <> show l1 <> " " <> show l2

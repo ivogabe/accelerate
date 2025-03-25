@@ -105,7 +105,7 @@ newtype ELabel = ELabel { runELabel :: Int }
 data LabelledArg  env a = L (Arg env a) (ALabels a)
 type LabelledArgs env = PreArgs (LabelledArg env)
 
--- instance Show (LabelledArgs env args) where 
+-- instance Show (LabelledArgs env args) where
 --   show ArgsNil = "ArgsNil"
 --   show (L arg a :>: args) = "L " ++ x ++ " " ++ show a ++ " :>: " ++ show args
 --     where x = case arg of
@@ -202,7 +202,7 @@ getLabelsArg (ArgArray _ (ArrayR _ tp) shVars buVars) env =
   let
     (Arr x,             buLabs         ) = getLabelsTup buVars env
     (Arr y,                      shLabs) = getLabelsTup shVars env
-  in ( --Debug.Trace.trace ("\n\ngetLabelsArg: buffer alabel:" <> show x <> "\nshape alabel:" <> show y <> "\nbuf labels:" <> show buLabs <> "\nshape labels:" <> show shLabs) $ 
+  in ( --Debug.Trace.trace ("\n\ngetLabelsArg: buffer alabel:" <> show x <> "\nshape alabel:" <> show y <> "\nbuf labels:" <> show buLabs <> "\nshape labels:" <> show shLabs) $
     unBuffers tp $ Arr x, buLabs <> shLabs)
 
 getLabelsTup :: TupR (Var a env) b -> LabelEnv env -> ALabels (m sh b)

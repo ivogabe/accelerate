@@ -25,7 +25,7 @@ import {-# SOURCE #-} Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph ( Var, 
 -- Currently the only instance is for MIP, which gives bindings to a couple of solvers.
 -- Still, this way we minimise the surface that has to interact with MIP, can more easily
 -- adapt if it changes, and we could easily add more bindings.
-class (MakesILP op) => ILPSolver ilp op where 
+class (MakesILP op) => ILPSolver ilp op where
   solvePartial :: ilp -> ILP op -> IO (Maybe (Solution op))
 
 -- MakesILP op implies Ord (Var op), but not through Graph.hs-boot
@@ -104,6 +104,7 @@ timesN :: Expression op -> Expression op
 timesN (Constant (Number f)) = Constant (Number (\n -> n * f n))
 timesN ((:+) e1 e2) = (:+) (timesN e1) (timesN e2)
 timesN ((:*) (Number f) v) = (:*) (Number (\n -> n * f n)) v
+-- | Convert 'Var' to 'Expression' (multiplies with 1).
 c :: Var op -> Expression op
 c = (Number (const 1) :*)
 int :: Int -> Expression op
