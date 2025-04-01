@@ -1,4 +1,4 @@
-
+{-# LANGUAGE MultiWayIf #-}
 module Main where
 
 import Distribution.Extra.Doctest
@@ -30,7 +30,7 @@ preConfHook args config_flags = do
       debugging = fromMaybe False $ lookupFlagAssignment (mkFlagName "debug") (configConfigurationsFlags config_flags)
 
   when debugging $ do
-    yes <- doesFileExist "cbits/tracy/TracyClient.cpp"
+    yes <- doesFileExist "cbits/tracy/public/TracyClient.cpp"
     if yes
       then
         -- Nix (and apparently future versions of stack) automatically update
@@ -43,7 +43,7 @@ preConfHook args config_flags = do
            then rawSystemExit verbosity "git" ["submodule", "update", "--init", "--recursive"]
            else do
              -- XXX: This must be kept up to date with the git submodule revision
-             let archive = "v0.9.1.tar.gz"
+             let archive = "v0.11.1.tar.gz"
              createDirectoryIfMissing True "cbits/tracy"
              rawSystemExit verbosity "curl" ["-LO", "https://github.com/wolfpld/tracy/archive/refs/tags/" ++ archive]
              rawSystemExit verbosity "tar" ["-xzf", archive, "-C", "cbits/tracy", "--strip-components", "1"]
@@ -59,37 +59,46 @@ postBuildHook args build_flags pkg_desc lbi = do
       Platform _ os = hostPlatform lbi
       verbosity     = fromFlagOrDefault normal $ buildVerbosity build_flags
       debugging     = fromMaybe False $ lookupFlagAssignment (mkFlagName "debug") (configConfigurationsFlags config_flags)
-      targets       = [ ("tracy-capture", "capture",  "capture-release")
-                      , ("tracy",         "profiler", "Tracy-release") ]
+      targets       = [ ("tracy-capture", "capture",  "tracy-capture")
+                      , ("tracy",         "profiler", "tracy-profiler") ]
 
   when debugging $ do
     case os of
       Windows -> return ()  -- XXX TODO: Windows users get the dummy executable that just throws an error
       _       ->
         forM_ targets $ \(hs_exe, c_dir, c_exe) -> do
-          let c_builddir  = "cbits/tracy" </> c_dir </> "build/unix"
+          let c_projdir  = "cbits/tracy" </> c_dir
               hs_builddir = buildDir lbi </> hs_exe
-              c_tmpdir    = c_builddir </> "obj"
               hs_tmpdir   = hs_builddir </> hs_exe ++ "-tmp"
 
-          setupMessage verbosity (printf "Building executable '%s' for" hs_exe) (package pkg_desc)
+          -- TODO: This creates a separate build directory for each tracy
+          -- executable (of which we build two, at the time of writing). This
+          -- means that some duplicate work is done (building capstone twice).
+          -- Could we share a build directory between the two?
 
-          -- symlink the C build directory into the HS build directories
-          exists <- doesDirectoryExist c_tmpdir
-          unless exists $ createDirectoryLink ("../../../../.." </> hs_tmpdir) c_tmpdir
+          -- Existence of the hs_exe doesn't mean anything because before we
+          -- overwrite it it's just a dummy executable. So check existence (and
+          -- mtime) of the c_exe instead.
+          c_exe_exists <- doesFileExist (hs_tmpdir </> c_exe)
+          tracy_newer <- if c_exe_exists
+                           then do c_exe_modtime <- getModificationTime (hs_tmpdir </> c_exe)
+                                   tracy_modtime <- getModificationTime "cbits/tracy"
+                                   return (tracy_modtime > c_exe_modtime)
+                           else return True
 
-          -- prevent having to re-link every time we build the library
-          executable <- doesFileExist (hs_builddir </> hs_exe)
-          when executable $ renameFile (hs_builddir </> hs_exe) (c_builddir </> c_exe)
+          when tracy_newer $ do
+            setupMessage verbosity (printf "Building executable '%s' from Tracy C++ sources for" hs_exe) (package pkg_desc)
 
-          -- build
-          rawSystemExit verbosity "make" ["-C", c_builddir]
+            -- We set LEGACY=1 so that tracy builds with X11 instead of Wayland.
+            rawSystemExit verbosity "cmake" ["-B", hs_tmpdir, "-S", c_projdir, "-DCMAKE_BUILD_TYPE=Release", "-DLEGACY=1"]
 
-          -- move executable to the final destination
-          renameFile (c_builddir </> c_exe) (hs_builddir </> hs_exe)
+            -- Build in parallel with 2 jobs because likely, accelerate is one of
+            -- the last dependencies in a build, so we aren't stealing CPU time
+            -- from other packages, and tracy takes way too long to build
+            rawSystemExit verbosity "cmake" ["--build", hs_tmpdir, "--config", "Release", "-j", "2"]
 
-          -- clean up after ourselves
-          unless exists $ removeDirectoryLink c_tmpdir
+            -- Copy, not rename, to prevent cmake from linking again on the next
+            -- reconfigure
+            copyFile (hs_tmpdir </> c_exe) (hs_builddir </> hs_exe)
 
   postBuild simpleUserHooks args build_flags pkg_desc lbi
-
