@@ -36,3 +36,6 @@ union (Multimap m1) (Multimap m2) = Multimap $ M.unionWith S.union m1 m2
 
 insert :: (Ord k, Ord v) => k -> v -> Multimap k v -> Multimap k v
 insert k v (Multimap m) = Multimap $ M.insertWith S.union k (S.singleton v) m
+
+lookup :: (Ord k, Ord v) => k -> Multimap k v -> Set v
+lookup k (Multimap m) = M.findWithDefault S.empty k m
