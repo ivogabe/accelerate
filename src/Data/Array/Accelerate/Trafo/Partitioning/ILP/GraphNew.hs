@@ -39,13 +39,18 @@ import Control.Monad.State (State)
 import Data.Foldable
 import Control.Monad
 import Data.Coerce
+import Data.Maybe
 
 
+
+--------------------------------------------------------------------------------
+-- Graph
+--------------------------------------------------------------------------------
 
 -- | Fusible computations @c1 -> b -> c2@.
-type   Fusible = (Label Comp, Label Buff, Label Comp)  -- Probaly not needed
--- | Infusible computations @c1 -> b -> c2@.
-type Infusible = (Label Comp, Label Buff, Label Comp)
+type Fusible   = (Label Comp, Label Buff, Label Comp)
+-- | Infusible computations @c1 -> c2@.
+type Infusible = (Label Comp, Label Comp)
 -- | In-place updateable buffers @b1 -> c1 -> ... -> c2 -> b2@.
 type Inplace   = (Label Buff, Label Comp, Label Comp, Label Buff)
 
@@ -63,7 +68,7 @@ data Graph = Graph   -- TODO: Maybe use hashmaps and hashsets in production?
   ,      _readEdges' :: Multimap (Label Comp) (Label Buff)  -- ^ Complement of '_readEdges'.
   ,     _writeEdges  :: Multimap (Label Comp) (Label Buff)  -- ^ Edges from computations to buffers.
   ,     _writeEdges' :: Multimap (Label Buff) (Label Comp)  -- ^ Complement of '_writeEdges'.
-  ,   _fusibleEdges  :: Set Fusible    -- ^ Set of fusible computations. (Unused)
+  ,   _fusibleEdges  :: Set Fusible    -- ^ Set of fusible computations.
   , _infusibleEdges  :: Set Infusible  -- ^ Set of infusible computations.
   ,   _inplaceEdges  :: Set Inplace    -- ^ Set of in-place updateable buffers.
   }
@@ -81,33 +86,25 @@ makeLenses ''Graph
 
 -- | Add a read edge from a buffer to a computation in the graph.
 --
--- The buffer needs to be in scope, i.e. its parent must be an ancestor of the
--- computation.
--- An edge is added to all ancestors of the computation until the buffer becomes
--- out of scope.
---
+-- See 'canAccess' for the scoping rules. This condition may be removed in the
+-- future, but for now it is required to ensure that the graph is well-formed.
 --
 reads :: Label Comp -> Label Buff -> Graph -> Graph
-reads c b g = if c ^. parent == b ^. parent
-  then g & readEdges  %~ MM.insert b c
-         & readEdges' %~ MM.insert c b
-  else case c ^. parent of
-    Just p  -> reads p b g & readEdges  %~ MM.insert b p
-                           & readEdges' %~ MM.insert p b
-    Nothing -> error "reads: Buffer is out of scope."
+reads c b g
+  | c `canAccess` b = g & readEdges  %~ MM.insert b c
+                        & readEdges' %~ MM.insert c b
+  | otherwise       = error "reads: Buffer is out of scope."
 
 -- | Add a write edge from a computation to a buffer.
 --
--- See 'reads' for the scoping rules.
+-- See 'canAccess' for the scoping rules. This condition may be removed in the
+-- future, but for now it is required to ensure that the graph is well-formed.
 --
 writes :: Label Comp -> Label Buff -> Graph -> Graph
-writes c b g = if c ^. parent == b ^. parent
-  then g & writeEdges  %~ MM.insert c b
-         & writeEdges' %~ MM.insert b c  -- TODO: Add check for sole writer?
-  else case c ^. parent of
-    Just p  -> writes p b g & writeEdges  %~ MM.insert p b
-                            & writeEdges' %~ MM.insert b p
-    Nothing -> error "writes: Buffer is out of scope."
+writes c b g
+  | c `canAccess` b = g & writeEdges  %~ MM.insert c b
+                        & writeEdges' %~ MM.insert b c
+  | otherwise       = error "writes: Buffer is out of scope."
 
 -- | Lens for getting the set of readers of a buffer.
 --
@@ -137,9 +134,68 @@ inputs c = lens (\g -> MM.lookup c (g ^. readEdges')) const
 outputs :: Label Comp -> Lens' Graph (Labels Buff)
 outputs c = lens (\g -> MM.lookup c (g ^. writeEdges)) const
 
+{- | Add an infusible edge between two computations.
+
+Infusible edges represent computations that cannot be fused together and
+enforces a strict ordering between them.
+
+These edges represent the fact that two computations are not allowed to be in
+the same cluster and that one should happen before the other. This is usually
+to avoid race-conditions when two computations write to the same buffer.
+-}
+before :: Label Comp -> Label Comp -> Graph -> Graph
+before c1 c2 g
+  | c1 == c2 = error "before: Cannot add infusible edge to self."
+  | S.member (c2, c1) (g ^. infusibleEdges)  -- Very rudimentary cycle check.
+    = error "before: c2 Already happens before c1."
+  | otherwise = g & infusibleEdges %~ S.insert (c1, c2)
+
+{- | Multiple computations must happen before a computation.
+
+This is a convenience function for adding multiple infusible edges at once.
+(See 'before'.)
+-}
+allBefore :: Labels Comp -> Label Comp -> Graph -> Graph
+allBefore cs c2 g
+  | S.null cs = g
+  | otherwise = foldl' (\g' c1 -> (c1 `before` c2) g') g cs
+
+{- | Add a fusible edge between two computations over a buffer.
+
+Fusible edges represent computations that can be fused together but enforces
+a strict ordering between them if they are not fused.
+
+These edges represent the flow of data between computations. Since multiple
+computations can write to the same buffer, it is not necessarily the case that
+all reader of a buffer read the same value. This depends on which computation
+wrote to the buffer last.
+-}
+fusible :: Label Comp -> Label Buff -> Label Comp -> Graph -> Graph
+fusible  c1 b c2 g
+  | c1 == c2 = error "fusible: Cannot add fusible edge to self."
+  | any (\(c1', _, c2') -> c1' == c2 && c2' == c1) (g ^. fusibleEdges)  -- Very rudimentary cycle check.
+    = error "fusible: c2 Already happens before c1."
+  | S.notMember c1 (g ^. writers b)  -- Check if c1 is a writer of b.
+    = error "fusible: c1 is not a writer of b."
+  | S.notMember c2 (g ^. readers b)  -- Check if c2 is a reader of b.
+    = error "fusible: c2 is not a reader of b."
+  | otherwise = g & fusibleEdges %~ S.insert (c1, b, c2)
+
+{- | Synonym for 'fusible' that is supposed to be used with '||->'.
+-}
+(--|) :: Label Comp -> Label Buff -> Label Comp -> Graph -> Graph
+(--|) = fusible
+
+{- | Synonym for function application that is supposed to be used with '||->'.
+-}
+(|->) :: (Label Comp -> Graph -> Graph) -> Label Comp -> Graph -> Graph
+(|->) = ($)
 
 
 
+--------------------------------------------------------------------------------
+-- Information for ILP construction
+--------------------------------------------------------------------------------
 
 -- | All information required for making an ILP.
 --
@@ -168,10 +224,18 @@ makeLenses ''ILPInfo
 
 
 
+--------------------------------------------------------------------------------
+-- Backend specific definitions
+--------------------------------------------------------------------------------
+
 class (ShrinkArg (BackendClusterArg op), Eq (BackendVar op), Ord (BackendVar op), Eq (BackendArg op), Show (BackendArg op), Ord (BackendArg op), Show (BackendVar op)) => MakesILP op where
-  mkGraph :: op args -> a -> Graph
+  mkGraph :: op args -> LabelledArgs env args -> Label Comp -> State (FullGraphState op env) ()
 
 
+
+--------------------------------------------------------------------------------
+-- Graph construction
+--------------------------------------------------------------------------------
 
 -- | State for the full graph construction.
 --
@@ -198,15 +262,41 @@ class (ShrinkArg (BackendClusterArg op), Eq (BackendVar op), Ord (BackendVar op)
 data FullGraphState op env = FullGraphState
   { _ilpInfo :: ILPInfo op       -- ^ The ILP information.
   , _lenv    :: LabelEnv env     -- ^ The label environment.
+  , _prods   :: Producers        -- ^ Mapping from buffers to producers.
   , _symbols :: Symbols Comp op  -- ^ The symbols for the ILP.
-  , _currCL  :: Label Comp       -- ^ The current computation label.
+  , _currL   :: Label Void       -- ^ The current label.
   }
+
+type Producers = Map (Label Buff) (Label Comp)
 
 makeLenses ''FullGraphState
 
--- | Lens for interpreting the current computation label as a buffer label.
+{- | Lens for getting and setting the producer of a buffer.
+
+The default value for the producer of a buffer is the buffer itself casted to
+a computation label. This actually has some meaning, in that a buffer which
+has yet to be written to is "produced" by @malloc@.
+-}
+producer :: Label Buff -> Lens' (FullGraphState op env) (Label Comp)
+producer b f s = fmap
+  (\c -> s & prods %~ M.insert b c)
+  (f (M.findWithDefault (b ^. asCLabel) b (s ^. prods)))
+
+{- | Lens for locally adding new variables to the environment.
+
+Any changes to the environment are local to the computation and will be
+discarded after the computation is finished.
+-}
+local :: GLeftHandSide x env env' -> Labels Buff -> Lens' (FullGraphState op env) (FullGraphState op env')
+local lhs bs f s = s <$ f (s & lenv %~ consLHS lhs bs)
+
+-- | Lens for interpreting the currenenv %= setProducert label as a computation label.
+currCL :: Lens' (FullGraphState op env) (Label Comp)
+currCL = currL . asCLabel
+
+-- | Lens for interpreting the current  label as a buffer label.
 currBL :: Lens' (FullGraphState op env) (Label Buff)
-currBL = currCL . asBLabel
+currBL = currL . asBLabel
 
 -- | Fresh computation label.
 freshCL :: State (FullGraphState op env) (Label Comp)
@@ -218,59 +308,139 @@ freshBL = currBL <%= (labelId +~ 1)
 
 
 
+
 mkFullGraph :: forall op env a. (MakesILP op)
             => PreOpenAcc op env a
             -> State (FullGraphState op env) (Maybe (Label Buff))
 mkFullGraph (Exec op args) = do
-  cl  <- freshCL   -- Fresh computation label.
+  c   <- freshCL   -- Fresh computation label.
   env <- use lenv  -- Current label environment.
-  (labelMap :: Map (Label Buff) (Label Buff), labelledArgs)
-    <- forAccumLArgsM M.empty (labelArgs args env) \cases
-      lmap larg@(LArg (ArgArray In _ _ _) bs) -> do
-        -- If the argument is an input we add a read edge from the buffer to the
-        -- computation.
-        forM_ (S.elems bs) (\b -> ilpInfo.graph %= cl `reads` b)
-        return (lmap, larg)
-      lmap (LArg arg@(ArgArray Out _ _ _) bs) -> do
-        -- If the argument is an output we also need to check if the buffer has
-        -- previously been written to.
-        -- If so, we need to make a copy of the buffer and use the copy instead.
-        (lmap', elems) <- forAccumM lmap (S.elems bs) \lmap' b -> do
-          ws <- use (ilpInfo.graph.writers b)
-          b' <- if S.null ws then return b else copyBuffer b
-          ilpInfo.graph %= cl `writes` b'
-          return (M.insert b b' lmap', b')
-        return (lmap', LArg arg (S.fromList elems))
-      lmap larg@(LArg (ArgArray Mut _ _ _) bs) -> do
-        -- If the argument is mutable we don't need to make a copy, but we do
-        -- need to add read and write edges and mark them infusible.
-        forM_ (S.elems bs) \b -> do
-          ilpInfo.graph %= cl `reads` b
-          ilpInfo.graph %= cl `writes` b
-          -- TODO: Mark writers of b as infusible.
-        return (lmap, larg)
-
-      lmap larg@(LArg _ bs) -> do
-        -- If the argument is not an array, but instead depends on arrays, then
-        -- we need to add read edges and mark them as infusible.
-        forM_ (S.elems bs) \b -> do
-          ilpInfo.graph %= cl `reads` b
-          -- TODO: Mark writers of b as infusible.
-        return (lmap, larg)
-
-
-
-  undefined
-
+  let labelledArgs = labelArgs args env
+  forLArgsM_ labelledArgs \cases
+    (LArg (ArgArray In  _ _ _) bs) -> do
+      -- Can fuse with the producer of the buffer.
+      forM_ bs \b -> do
+        p <- use $ producer b
+        ilpInfo.graph %= c `reads` b
+        ilpInfo.graph %= p --|b|-> c
+    (LArg (ArgArray Out _ _ _) bs) -> do
+      -- All readers and writers must happen before this computation.
+      -- We become the new producer of the buffer.
+      forM_ bs \b -> do
+        rs <- use $ ilpInfo.graph.readers b
+        ws <- use $ ilpInfo.graph.writers b
+        ilpInfo.graph %= (rs <> ws) `allBefore` c
+        ilpInfo.graph %= c `writes` b
+        producer b .= c
+    (LArg (ArgArray Mut _ _ _) bs) -> do
+      -- All readers and writers must happen before this computation.
+      -- Could fuse with the producer if the backend allows it.
+      -- We become the new producer of the buffer.
+      forM_ bs \b -> do
+        p  <- use $ producer b
+        rs <- use $ ilpInfo.graph.readers b
+        ws <- use $ ilpInfo.graph.writers b
+        ilpInfo.graph %= (rs <> ws) `allBefore` c
+        ilpInfo.graph %= c `reads`  b
+        ilpInfo.graph %= c `writes` b
+        ilpInfo.graph %= p --|b|->  c
+        producer b .= c
+    (LArg _ bs) -> do
+      -- For now these arguments can only read, not write, so:
+      -- Can't fuse with the producer of the buffer.
+      forM_ bs \b -> do
+        p  <- use $ producer b
+        ws <- use $ ilpInfo.graph.writers b
+        ilpInfo.graph %= ws `allBefore` c
+        ilpInfo.graph %= c `reads` b
+        ilpInfo.graph %= p --|b|-> c
+  -- TODO: Here we query the backend for the constraints and bounds.
+  return Nothing
 
 mkFullGraph (Alet LeftHandSideUnit _ bnd scp) =
   mkFullGraph bnd >> mkFullGraph scp
 
+mkFullGraph (Alet lhs _ bnd scp) = do
+  bs <- maybe S.empty S.singleton <$> mkFullGraph bnd
+  zoom (local lhs bs) (mkFullGraph scp)
+  -- TODO: Come up with a way to add LHS to the the graph.
+  -- The original mkFullGraph does so by creating the following subgraph:
+  -- Alloc (or sth else) ==> Alet ==> ...
+  -- Here Alet is basically a computation that does nothing other than insert
+  -- itself between the two computations.
+
+
 mkFullGraph _ = undefined
 
 
-copyBuffer :: Label Buff -> State (FullGraphState op env) (Label Buff)
-copyBuffer b = undefined
+{-
+I probably want to not duplicate a buffer that is used as both input
+and output. Doing so is extremely tricky because doing so requires that the
+environment is updated to point to the new buffer. Because of this we can't
+simply put the old environment back after a let binding.
+
+Doing this isn't the worst, we just need to weaken the environment instead. What
+is a problem is how to handle the backend. The backend needs to know which
+buffers are its inputs and outputs and it needs to be able to query the graph.
+Problem is, it needs to do these queries on the old graph which doesn't contain
+the new buffer yet.
+
+So avoinding duplicating buffers is probably best. In this case it's not
+necessary to keep the environment in the state, but I'll do so regardless
+because in most cases the environment isn't touched. I could in this case
+move the graph out of the state since it might cause confusion as to whether I
+am working on the full graph or some temporary subgraph that will be merged
+later.
+
+Bonus, this approach still allows for the duplication of input and ouput buffers
+in a separate pass before fusion. Doing it like that won't have any of the
+aforementioned problems since the buffer will be a proper part of the graph
+and the environment before some operation is executed.
+-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- | Map a monadic action over the keys and values of a map.
+mapWithKeyM :: (Monad m, Ord k) => (k -> a -> m b) -> Map k a -> m (Map k b)
+mapWithKeyM f m =
+  let ks = M.keys m
+  in  M.fromList . zip ks <$> mapM (\k -> f k (m M.! k)) ks
+{-# INLINE mapWithKeyM #-}
+
+-- | Flipped version of 'mapWithKeyM'.
+forWithKeyM :: (Monad m, Ord k) => Map k a -> (k -> a -> m b) -> m (Map k b)
+forWithKeyM = flip mapWithKeyM
+{-# INLINE forWithKeyM #-}
+
+-- | Map a monadic action over the keys and values of a map, discarding the
+-- results.
+mapWithKeyM_ :: (Monad m, Ord k) => (k -> a -> m b) -> Map k a -> m ()
+mapWithKeyM_ f m = mapM_ (\k -> f k (m M.! k)) (M.keys m)
+{-# INLINE mapWithKeyM_ #-}
+
+-- | Flipped version of 'mapWithKeyM_'.
+forWithKeyM_ :: (Monad m, Ord k) => Map k a -> (k -> a -> m b) -> m ()
+forWithKeyM_ = flip mapWithKeyM_
+{-# INLINE forWithKeyM_ #-}
 
 
 

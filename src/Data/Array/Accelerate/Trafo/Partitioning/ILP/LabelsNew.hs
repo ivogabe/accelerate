@@ -33,6 +33,7 @@ import qualified Data.Map as M
 import Data.Hashable (Hashable, hashWithSalt)
 import Data.Array.Accelerate.AST.Idx
 import Prelude hiding (exp)
+import Data.Array.Accelerate.AST.LeftHandSide
 
 
 
@@ -41,32 +42,41 @@ import Prelude hiding (exp)
 --------------------------------------------------------------------------------
 
 -- | The types a label can have.
-data LabelType = Comp | Buff
+data LabelType = Comp | Buff | Void
 
 -- | Labels for referencing nodes.
 --
 -- A label uniquely identifies a node and optionally specifies the parent it
 -- belongs to. A buffer node can never be a parent.
 --
--- @CLabel x Nothing@ means that label @x@ is top-level.
--- @CLabel x (Just y)@ means that label @x@ is a sub-computation of label @y@.
+-- A label of type 'Void' is used to represent anything that is relevant for
+-- reconstruction but not for the fusion/in-place updates ILP. These are mostly
+-- scopes of some kind.
+--
+-- @VLabel x Nothing@ means that label @x@ is top-level.
+-- @VLabel x (Just y)@ means that label @x@ is a sub-computation of label @y@.
 data Label (t :: LabelType) where
   CLabel  :: Int                  -- ^ The computation label.
-          -> Maybe (Label Comp)   -- ^ The parent computation.
+          -> Maybe (Label Void)   -- ^ The parent computation.
           -> Label Comp
   BLabel  :: Int                  -- ^ The buffer label.
-          -> Maybe (Label Comp)   -- ^ The parent computation.
+          -> Maybe (Label Void)   -- ^ The parent computation.
           -> Label Buff
+  VLabel  :: Int                  -- ^ The void label.
+          -> Maybe (Label Void)   -- ^ The parent computation.
+          -> Label Void
 
 -- | Lens for getting and setting the label id.
 labelId :: Lens' (Label t) Int
 labelId f (CLabel i p) = fmap (`CLabel` p) (f i)
 labelId f (BLabel i p) = fmap (`BLabel` p) (f i)
+labelId f (VLabel i p) = fmap (`VLabel` p) (f i)
 
 -- | Lens for getting and setting the parent label.
-parent :: Lens' (Label t) (Maybe (Label Comp))
+parent :: Lens' (Label t) (Maybe (Label Void))
 parent f (CLabel i p) = fmap (CLabel i) (f p)
 parent f (BLabel i p) = fmap (BLabel i) (f p)
+parent f (VLabel i p) = fmap (VLabel i) (f p)
 
 -- | Lens for interpreting any label as a computation label.
 asCLabel :: Lens' (Label t) (Label Comp)
@@ -79,6 +89,12 @@ asBLabel :: Lens' (Label t) (Label Buff)
 asBLabel f l@BLabel{} = f l
 asBLabel f l = fmap (\(BLabel i p) -> l & labelId .~ i & parent .~ p)
                     (f (BLabel (l ^. labelId) (l ^. parent)))
+
+-- | Lens for interpreting any label as a void label.
+asVLabel :: Lens' (Label t) (Label Void)
+asVLabel f l@VLabel{} = f l
+asVLabel f l = fmap (\(VLabel i p) -> l & labelId .~ i & parent .~ p)
+                    (f (VLabel (l ^. labelId) (l ^. parent)))
 
 instance Show (Label t) where
   show :: Label t -> String
@@ -108,8 +124,25 @@ level l = case l ^. parent of
   Nothing -> 0
   Just p  -> 1 + level p
 
+-- | Checks whether a computation can access a buffer. I.e. checks if the buffer
+-- is in scope.
+--
+-- A buffer is in scope when the parent of the buffer is an ancestor of the
+-- computation.
+--
+canAccess :: Label Comp -> Label Buff -> Bool
+canAccess l b = (l ^. parent == b ^. parent) || case l ^. parent of
+  Nothing -> False
+  Just p  -> canAccess (p ^. asCLabel) b
+
 -- | Set of labels.
 type Labels t = Set (Label t)
+
+-- | Replace a label in a set of labels with another.
+updateLabels :: Label t -> Label t -> Labels t -> Labels t
+updateLabels b b' bs
+  | b /= b' && S.member b bs = S.insert b' (S.delete b bs)
+  | otherwise                = bs
 
 -- Some useful type synonyms
 type Buffer       = Label Buff
@@ -128,12 +161,19 @@ type Computations = Labels Comp
 -- The environment is basically just a fixed length list of buffers with some
 -- associated type information.
 --
+-- The buffers are stored as a map, mapping the buffer to its current producer.
+-- We need to know which computation produces the buffer to make sure we don't
+-- create fusible edges when a buffer has multiple writes. In such a case it
+-- could be that we write, then read, then write again. Without this information
+-- a fusible edge would be created between the reader and the last writer, even
+-- though the reader is reading the data of the first writer, not the second.
+--
 data LabelEnv env where
   -- | The empty environment.
   EnvNil :: LabelEnv ()
   -- | The non-empty environment.
-  (:>>:) :: Buffers   -- ^ The value
-         -> LabelEnv env       -- ^ The rest of the environment
+  (:>>:) :: Buffers       -- ^ The buffers and their producers
+         -> LabelEnv env  -- ^ The rest of the environment
          -> LabelEnv (env, t)
 
 -- | Map a function over the labels in the environment.
@@ -174,9 +214,14 @@ forLEnvM_ :: Monad m => LabelEnv env -> (Buffers -> m ()) -> m ()
 forLEnvM_ env f = mapLEnvM_ f env
 {-# INLINE forLEnvM_ #-}
 
--- | Updates the labels in the environment with the given function.
-updateLEnv :: Map Buffer Buffer  -> LabelEnv env -> LabelEnv env
-updateLEnv m = mapLEnv (S.map (\b -> M.findWithDefault b b m))
+
+{- | Constructs a new 'LabelEnv' by prepending labels for each element in the
+left-hand side.
+-}
+consLHS :: LeftHandSide s v env env' -> Buffers -> LabelEnv env -> LabelEnv env'
+consLHS LeftHandSideWildcard{} _  = id
+consLHS LeftHandSideSingle{}   bs = (bs :>>:)
+consLHS (LeftHandSidePair l r) bs = consLHS r bs . consLHS l bs
 
 
 
@@ -200,7 +245,7 @@ can therefore not be fused.
 -}
 
 -- | An argument to a function paired with some value.
-data LabelledArg env t = LArg { unlabel :: Arg env t, unarg :: Buffers}
+data LabelledArg env t = LArg { unlabel :: Arg env t, unarg :: Buffers }
   deriving Show
 
 -- | Labelled arguments to be passed to a function.
@@ -262,11 +307,6 @@ mapAccumLArgsM f a (larg :>: largs) = do
 forAccumLArgsM :: Monad m => a -> LabelledArgs env t -> (forall s. a -> LabelledArg env s -> m (a, LabelledArg env s)) -> m (a, LabelledArgs env t)
 forAccumLArgsM a largs f = mapAccumLArgsM f a largs
 {-# INLINE forAccumLArgsM #-}
-
--- | Update the labels of the labelled arguments using the given function.
-updateLArgs :: Map Buffer Buffer -> LabelledArgs env t -> LabelledArgs env t
-updateLArgs m = mapLArgs (\(LArg arg bs) -> LArg arg (S.map (\b -> M.findWithDefault b b m) bs))
-{-# INLINE updateLArgs #-}
 
 -- | Select labels from labeled arguments that satisfy the given predicate.
 selectLArgs :: (forall s. Arg env s -> Bool) -> LabelledArgs env t -> Buffers
