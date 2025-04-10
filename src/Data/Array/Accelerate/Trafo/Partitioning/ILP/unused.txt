@@ -1,0 +1,92 @@
+--------------------------------------------------------------------------------
+-- mapAccumM from base-4.18.0
+--------------------------------------------------------------------------------
+
+-- | The `mapAccumM` function behaves like a combination of `mapM` and
+-- `mapAccumL` that traverses the structure while evaluating the actions
+-- and passing an accumulating parameter from left to right.
+-- It returns a final value of this accumulator together with the new structure.
+-- The accumulator is often used for caching the intermediate results of a computation.
+--
+-- @since base-4.18.0.0
+mapAccumM
+  :: forall m t s a b. (Monad m, Traversable t)
+  => (s -> a -> m (s, b)) -> s -> t a -> m (s, t b)
+mapAccumM f s t = coerce (mapM (StateT #. flip f) t) s
+{-# INLINE mapAccumM #-}
+
+-- | 'forAccumM' is 'mapAccumM' with the arguments rearranged.
+--
+-- @since base-4.18.0.0
+forAccumM
+  :: forall m t s a b. (Monad m, Traversable t)
+  => s -> t a -> (s -> a -> m (s, b)) -> m (s, t b)
+forAccumM s t f = mapAccumM f s t
+{-# INLINE forAccumM #-}
+
+
+
+--------------------------------------------------------------------------------
+-- Flipped StateT from ghc-internals for `mapAccumM`
+--------------------------------------------------------------------------------
+
+newtype StateT s m a = StateT { runStateT :: s -> m (s, a) }
+
+instance Monad m => Functor (StateT s m) where
+    fmap :: Monad m => (a -> b) -> StateT s m a -> StateT s m b
+    fmap = liftM
+    {-# INLINE fmap #-}
+
+instance Monad m => Applicative (StateT s m) where
+    pure :: Monad m => a -> StateT s m a
+    pure a = StateT $ \ s -> return (s, a)
+    {-# INLINE pure #-}
+    (<*>) :: Monad m => StateT s m (a -> b) -> StateT s m a -> StateT s m b
+    StateT mf <*> StateT mx = StateT $ \ s -> do
+        (s', f) <- mf s
+        (s'', x) <- mx s'
+        return (s'', f x)
+    {-# INLINE (<*>) #-}
+    (*>) :: Monad m => StateT s m a -> StateT s m b -> StateT s m b
+    m *> k = m >> k
+    {-# INLINE (*>) #-}
+
+instance (Monad m) => Monad (StateT s m) where
+    (>>=) :: Monad m => StateT s m a -> (a -> StateT s m b) -> StateT s m b
+    m >>= k  = StateT $ \ s -> do
+        (s', a) <- runStateT m s
+        runStateT (k a) s'
+    {-# INLINE (>>=) #-}
+
+(#.) :: Coercible b c => (b -> c) -> (a -> b) -> (a -> c)
+(#.) _f = coerce
+{-# INLINE (#.) #-}
+
+
+
+--------------------------------------------------------------------------------
+-- GraphNew.hs
+--------------------------------------------------------------------------------
+
+-- | Map a monadic action over the keys and values of a map.
+mapWithKeyM :: (Monad m, Ord k) => (k -> a -> m b) -> Map k a -> m (Map k b)
+mapWithKeyM f m =
+  let ks = M.keys m
+  in  M.fromList . zip ks <$> mapM (\k -> f k (m M.! k)) ks
+{-# INLINE mapWithKeyM #-}
+
+-- | Flipped version of 'mapWithKeyM'.
+forWithKeyM :: (Monad m, Ord k) => Map k a -> (k -> a -> m b) -> m (Map k b)
+forWithKeyM = flip mapWithKeyM
+{-# INLINE forWithKeyM #-}
+
+-- | Map a monadic action over the keys and values of a map, discarding the
+-- results.
+mapWithKeyM_ :: (Monad m, Ord k) => (k -> a -> m b) -> Map k a -> m ()
+mapWithKeyM_ f m = mapM_ (\k -> f k (m M.! k)) (M.keys m)
+{-# INLINE mapWithKeyM_ #-}
+
+-- | Flipped version of 'mapWithKeyM_'.
+forWithKeyM_ :: (Monad m, Ord k) => Map k a -> (k -> a -> m b) -> m ()
+forWithKeyM_ = flip mapWithKeyM_
+{-# INLINE forWithKeyM_ #-}

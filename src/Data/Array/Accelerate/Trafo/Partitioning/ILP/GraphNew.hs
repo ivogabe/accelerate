@@ -26,7 +26,6 @@ import Prelude hiding (reads)
 import Lens.Micro
 import Lens.Micro.TH
 import Lens.Micro.Mtl
-import Lens.Micro.Extras
 
 import Data.Set (Set)
 import qualified Data.Set as S
@@ -37,9 +36,6 @@ import qualified Data.Map as M
 
 import Control.Monad.State (State)
 import Data.Foldable
-import Control.Monad
-import Data.Coerce
-import Data.Maybe
 
 
 
@@ -134,46 +130,50 @@ inputs c = lens (\g -> MM.lookup c (g ^. readEdges')) const
 outputs :: Label Comp -> Lens' Graph (Labels Buff)
 outputs c = lens (\g -> MM.lookup c (g ^. writeEdges)) const
 
-{- | Add an infusible edge between two computations.
-
-Infusible edges represent computations that cannot be fused together and
-enforces a strict ordering between them.
-
-These edges represent the fact that two computations are not allowed to be in
-the same cluster and that one should happen before the other. This is usually
-to avoid race-conditions when two computations write to the same buffer.
--}
+-- | Add an infusible edge between two computations.
+--
+-- Infusible edges represent computations that cannot be fused together and
+-- enforces a strict ordering between them.
+--
+-- These edges represent the fact that two computations are not allowed to be in
+-- the same cluster and that one should happen before the other. This is usually
+-- to avoid race-conditions when two computations write to the same buffer.
+--
 before :: Label Comp -> Label Comp -> Graph -> Graph
 before c1 c2 g
   | c1 == c2 = error "before: Cannot add infusible edge to self."
   | S.member (c2, c1) (g ^. infusibleEdges)  -- Very rudimentary cycle check.
     = error "before: c2 Already happens before c1."
+  | any (\(c1', _, c2') -> c1' == c2 && c2' == c1) (g ^. fusibleEdges)  -- Also check the fusible edges.
+    = error "before: c2 Already happens before c1."
   | otherwise = g & infusibleEdges %~ S.insert (c1, c2)
 
-{- | Multiple computations must happen before a computation.
-
-This is a convenience function for adding multiple infusible edges at once.
-(See 'before'.)
--}
+-- | Multiple computations must happen before a computation.
+--
+-- This is a convenience function for adding multiple infusible edges at once.
+-- (See 'before'.)
+--
 allBefore :: Labels Comp -> Label Comp -> Graph -> Graph
 allBefore cs c2 g
   | S.null cs = g
   | otherwise = foldl' (\g' c1 -> (c1 `before` c2) g') g cs
 
-{- | Add a fusible edge between two computations over a buffer.
-
-Fusible edges represent computations that can be fused together but enforces
-a strict ordering between them if they are not fused.
-
-These edges represent the flow of data between computations. Since multiple
-computations can write to the same buffer, it is not necessarily the case that
-all reader of a buffer read the same value. This depends on which computation
-wrote to the buffer last.
--}
+-- | Add a fusible edge between two computations over a buffer.
+--
+-- Fusible edges represent computations that can be fused together but enforces
+-- a strict ordering between them if they are not fused.
+--
+-- These edges represent the flow of data between computations. Since multiple
+-- computations can write to the same buffer, it is not necessarily the case that
+-- all reader of a buffer read the same value. This depends on which computation
+-- wrote to the buffer last.
+--
 fusible :: Label Comp -> Label Buff -> Label Comp -> Graph -> Graph
 fusible  c1 b c2 g
   | c1 == c2 = error "fusible: Cannot add fusible edge to self."
   | any (\(c1', _, c2') -> c1' == c2 && c2' == c1) (g ^. fusibleEdges)  -- Very rudimentary cycle check.
+    = error "fusible: c2 Already happens before c1."
+  | S.member (c2, c1) (g ^. infusibleEdges)  -- Also check the infusible edges.
     = error "fusible: c2 Already happens before c1."
   | S.notMember c1 (g ^. writers b)  -- Check if c1 is a writer of b.
     = error "fusible: c1 is not a writer of b."
@@ -181,15 +181,25 @@ fusible  c1 b c2 g
     = error "fusible: c2 is not a reader of b."
   | otherwise = g & fusibleEdges %~ S.insert (c1, b, c2)
 
-{- | Synonym for 'fusible' that is supposed to be used with '||->'.
--}
+-- | Same as 'fusible', except also calls 'before' on the two computations.
+infusible :: Label Comp -> Label Buff -> Label Comp -> Graph -> Graph
+infusible c1 b c2 = before c1 c2 . fusible c1 b c2
+
+-- | See 'fusible'.
 (--|) :: Label Comp -> Label Buff -> Label Comp -> Graph -> Graph
 (--|) = fusible
 
-{- | Synonym for function application that is supposed to be used with '||->'.
--}
+-- | '($)' Specialized to '(|->)'.
 (|->) :: (Label Comp -> Graph -> Graph) -> Label Comp -> Graph -> Graph
 (|->) = ($)
+
+-- | See 'infusible'.
+(==|) :: Label Comp -> Label Buff -> Label Comp -> Graph -> Graph
+(==|) = infusible
+
+-- | '($)' Specialized to '(|=>)'.
+(|=>) :: (Label Comp -> Graph -> Graph) -> Label Comp -> Graph -> Graph
+(|=>) = ($)
 
 
 
@@ -271,106 +281,166 @@ type Producers = Map (Label Buff) (Label Comp)
 
 makeLenses ''FullGraphState
 
-{- | Lens for getting and setting the producer of a buffer.
-
-The default value for the producer of a buffer is the buffer itself casted to
-a computation label. This actually has some meaning, in that a buffer which
-has yet to be written to is "produced" by @malloc@.
--}
+-- | Lens for getting and setting the producer of a buffer.
+--
+-- The default value for the producer of a buffer is the buffer itself casted to
+-- a computation label. This actually has some meaning, in that a buffer which
+-- has yet to be written to is "produced" by @malloc@.
+--
 producer :: Label Buff -> Lens' (FullGraphState op env) (Label Comp)
 producer b f s = fmap
   (\c -> s & prods %~ M.insert b c)
   (f (M.findWithDefault (b ^. asCLabel) b (s ^. prods)))
 
-{- | Lens for locally adding new variables to the environment.
-
-Any changes to the environment are local to the computation and will be
-discarded after the computation is finished.
--}
-local :: GLeftHandSide x env env' -> Labels Buff -> Lens' (FullGraphState op env) (FullGraphState op env')
+-- | Lens for locally adding new variables to the environment.
+--
+-- Any changes to the environment are local to the computation and will be
+-- discarded after the computation is finished.
+--
+local :: GLeftHandSide v env env' -> LabelTup Buff v -> Lens' (FullGraphState op env) (FullGraphState op env')
 local lhs bs f s = s <$ f (s & lenv %~ consLHS lhs bs)
 
 -- | Lens for interpreting the currenenv %= setProducert label as a computation label.
-currCL :: Lens' (FullGraphState op env) (Label Comp)
-currCL = currL . asCLabel
+currC :: Lens' (FullGraphState op env) (Label Comp)
+currC = currL . asCLabel
 
 -- | Lens for interpreting the current  label as a buffer label.
-currBL :: Lens' (FullGraphState op env) (Label Buff)
-currBL = currL . asBLabel
+currB :: Lens' (FullGraphState op env) (Label Buff)
+currB = currL . asBLabel
 
 -- | Fresh computation label.
-freshCL :: State (FullGraphState op env) (Label Comp)
-freshCL = currCL <%= (labelId +~ 1)
+freshC :: State (FullGraphState op env) (Label Comp)
+freshC = zoom currC freshL'
 
--- | Fresh buffer label.
-freshBL :: State (FullGraphState op env) (Label Buff)
-freshBL = currBL <%= (labelId +~ 1)
+-- | Fresh buffer (and computation) label.
+--
+-- Buffers are by default their own producer so we don't need to set it, but we
+-- do need to add a read edge between them.
+freshB :: State (FullGraphState op env) (Label Buff, Label Comp)
+freshB = do
+  c <- freshC
+  b <- use currB
+  ilpInfo.graph %= c `writes` b
+  return (b, c)
 
+-- | Read from a buffer and maybe fuse with its producer.
+(--->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
+(--->) b c = do
+  p <- use $ producer b
+  ilpInfo.graph %= c `reads` b
+  ilpInfo.graph %= p --|b|-> c
+
+-- | Read from a buffer and don't fuse with its producer.
+(===>) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
+(===>) b c = do
+    p <- use $ producer b
+    ilpInfo.graph %= c `reads` b
+    ilpInfo.graph %= p ==|b|=> c
+
+-- | Write to a buffer.
+--
+-- For a write to be safe we need to enforce the following:
+-- * All (current) readers run before the writer.
+-- * The producer runs before the writer.
+(<===) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
+(<===) b c = do
+  p  <- use $ producer b
+  rs <- use $ ilpInfo.graph.readers b
+  ilpInfo.graph %= rs `allBefore` c
+  ilpInfo.graph %= p `before` c
+  ilpInfo.graph %= c `writes` b
+  producer b .= c
+
+-- | Mutate a buffer.
+--
+-- For a mutation to be safe we need to enforce the following:
+-- * All (current) readers run before the writer.
+-- * The producer runs before the writer.
+-- * We can't fuse with the producer.
+(<==>) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
+(<==>) b c = do
+        p  <- use $ producer b
+        rs <- use $ ilpInfo.graph.readers b
+        ilpInfo.graph %= rs `allBefore` c
+        ilpInfo.graph %= c `reads`  b
+        ilpInfo.graph %= c `writes` b
+        ilpInfo.graph %= p ==|b|=>  c
+        producer b .= c
+
+-- | Mutate a buffer with the identity function, preventing fusion.
+--
+-- This is a special case of mutation where the buffer is not actually changed.
+-- As a result, we only need to enforce the following:
+-- * The producer runs before the writer.
+-- * We can't fuse with the producer.
+(<-->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
+(<-->) b c = do
+    p <- use $ producer b
+    ilpInfo.graph %= c `reads`  b
+    ilpInfo.graph %= c `writes` b
+    ilpInfo.graph %= p ==|b|=>  c
+    producer b .= c
 
 
 
 mkFullGraph :: forall op env a. (MakesILP op)
             => PreOpenAcc op env a
-            -> State (FullGraphState op env) (Maybe (Label Buff))
+            -> State (FullGraphState op env) (LabelTup Buff a)
 mkFullGraph (Exec op args) = do
-  c   <- freshCL   -- Fresh computation label.
+  c <- freshC      -- Fresh computation label.
   env <- use lenv  -- Current label environment.
   let labelledArgs = labelArgs args env
-  forLArgsM_ labelledArgs \cases
-    (LArg (ArgArray In  _ _ _) bs) -> do
-      -- Can fuse with the producer of the buffer.
-      forM_ bs \b -> do
-        p <- use $ producer b
-        ilpInfo.graph %= c `reads` b
-        ilpInfo.graph %= p --|b|-> c
-    (LArg (ArgArray Out _ _ _) bs) -> do
-      -- All readers and writers must happen before this computation.
-      -- We become the new producer of the buffer.
-      forM_ bs \b -> do
-        rs <- use $ ilpInfo.graph.readers b
-        ws <- use $ ilpInfo.graph.writers b
-        ilpInfo.graph %= (rs <> ws) `allBefore` c
-        ilpInfo.graph %= c `writes` b
-        producer b .= c
-    (LArg (ArgArray Mut _ _ _) bs) -> do
-      -- All readers and writers must happen before this computation.
-      -- Could fuse with the producer if the backend allows it.
-      -- We become the new producer of the buffer.
-      forM_ bs \b -> do
-        p  <- use $ producer b
-        rs <- use $ ilpInfo.graph.readers b
-        ws <- use $ ilpInfo.graph.writers b
-        ilpInfo.graph %= (rs <> ws) `allBefore` c
-        ilpInfo.graph %= c `reads`  b
-        ilpInfo.graph %= c `writes` b
-        ilpInfo.graph %= p --|b|->  c
-        producer b .= c
-    (LArg _ bs) -> do
-      -- For now these arguments can only read, not write, so:
-      -- Can't fuse with the producer of the buffer.
-      forM_ bs \b -> do
-        p  <- use $ producer b
-        ws <- use $ ilpInfo.graph.writers b
-        ilpInfo.graph %= ws `allBefore` c
-        ilpInfo.graph %= c `reads` b
-        ilpInfo.graph %= p --|b|-> c
-  -- TODO: Here we query the backend for the constraints and bounds.
-  return Nothing
+  forLArgsM_ labelledArgs \case
+    (LArg (ArgArray In  _ _ _) bs) -> forM_ bs (---> c)
+    (LArg (ArgArray Out _ _ _) bs) -> forM_ bs (<=== c)
+    (LArg (ArgArray Mut _ _ _) bs) -> forM_ bs (<==> c)
+    (LArg _                    bs) -> forM_ bs (===> c)
+  _ -- TODO: Query the backend.
+  _ -- TODO: Create symbol.
+  return TupRunit_
 
 mkFullGraph (Alet LeftHandSideUnit _ bnd scp) =
   mkFullGraph bnd >> mkFullGraph scp
 
 mkFullGraph (Alet lhs _ bnd scp) = do
-  bs <- maybe S.empty S.singleton <$> mkFullGraph bnd
-  zoom (local lhs bs) (mkFullGraph scp)
-  -- TODO: Come up with a way to add LHS to the the graph.
-  -- The original mkFullGraph does so by creating the following subgraph:
-  -- Alloc (or sth else) ==> Alet ==> ...
-  -- Here Alet is basically a computation that does nothing other than insert
-  -- itself between the two computations.
+  c <- freshC
+  bndRes <- mkFullGraph bnd
+  forM_ bndRes (<--> c)
+  _ -- TODO: Create symbol.
+  zoom (local lhs bndRes) (mkFullGraph scp)
+
+mkFullGraph (Return vars) = do
+  c <- freshC
+  bs <- getVarsLTup vars <$> use lenv
+  forM_ bs (<--> c)
+  _ -- TODO: Create symbol.
+  return bs
+
+mkFullGraph (Compute expr) = do
+  (b, c) <- freshB
+  let bs = tupRlike_ (expType expr) b
+  _ -- TODO: Create symbol.
+  return bs
+
+mkFullGraph (Alloc shr e sh) = do
+  (b, c) <- freshB
+  _ -- TODO: Create symbol.
+  return (TupRsingle_ b)
+
+mkFullGraph (Unit var) = do
+  (b, c) <- freshB
+  _ -- TODO: Create symbol.
+  return (TupRsingle_ b)
+
+mkFullGraph (Use sctype n buff) = do
+  (b, c) <- freshB
+  _ -- TODO: Create symbol.
+  return (TupRsingle_ b)
 
 
 mkFullGraph _ = undefined
+
+
 
 
 {-
@@ -397,113 +467,3 @@ in a separate pass before fusion. Doing it like that won't have any of the
 aforementioned problems since the buffer will be a proper part of the graph
 and the environment before some operation is executed.
 -}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
--- | Map a monadic action over the keys and values of a map.
-mapWithKeyM :: (Monad m, Ord k) => (k -> a -> m b) -> Map k a -> m (Map k b)
-mapWithKeyM f m =
-  let ks = M.keys m
-  in  M.fromList . zip ks <$> mapM (\k -> f k (m M.! k)) ks
-{-# INLINE mapWithKeyM #-}
-
--- | Flipped version of 'mapWithKeyM'.
-forWithKeyM :: (Monad m, Ord k) => Map k a -> (k -> a -> m b) -> m (Map k b)
-forWithKeyM = flip mapWithKeyM
-{-# INLINE forWithKeyM #-}
-
--- | Map a monadic action over the keys and values of a map, discarding the
--- results.
-mapWithKeyM_ :: (Monad m, Ord k) => (k -> a -> m b) -> Map k a -> m ()
-mapWithKeyM_ f m = mapM_ (\k -> f k (m M.! k)) (M.keys m)
-{-# INLINE mapWithKeyM_ #-}
-
--- | Flipped version of 'mapWithKeyM_'.
-forWithKeyM_ :: (Monad m, Ord k) => Map k a -> (k -> a -> m b) -> m ()
-forWithKeyM_ = flip mapWithKeyM_
-{-# INLINE forWithKeyM_ #-}
-
-
-
---------------------------------------------------------------------------------
--- mapAccumM from base-4.18.0
---------------------------------------------------------------------------------
-
--- | The `mapAccumM` function behaves like a combination of `mapM` and
--- `mapAccumL` that traverses the structure while evaluating the actions
--- and passing an accumulating parameter from left to right.
--- It returns a final value of this accumulator together with the new structure.
--- The accumulator is often used for caching the intermediate results of a computation.
---
--- @since base-4.18.0.0
-mapAccumM
-  :: forall m t s a b. (Monad m, Traversable t)
-  => (s -> a -> m (s, b)) -> s -> t a -> m (s, t b)
-mapAccumM f s t = coerce (mapM (StateT #. flip f) t) s
-{-# INLINE mapAccumM #-}
-
--- | 'forAccumM' is 'mapAccumM' with the arguments rearranged.
---
--- @since base-4.18.0.0
-forAccumM
-  :: forall m t s a b. (Monad m, Traversable t)
-  => s -> t a -> (s -> a -> m (s, b)) -> m (s, t b)
-forAccumM s t f = mapAccumM f s t
-{-# INLINE forAccumM #-}
-
-
-
---------------------------------------------------------------------------------
--- Flipped StateT from ghc-internals for `mapAccumM`
---------------------------------------------------------------------------------
-
-newtype StateT s m a = StateT { runStateT :: s -> m (s, a) }
-
-instance Monad m => Functor (StateT s m) where
-    fmap :: Monad m => (a -> b) -> StateT s m a -> StateT s m b
-    fmap = liftM
-    {-# INLINE fmap #-}
-
-instance Monad m => Applicative (StateT s m) where
-    pure :: Monad m => a -> StateT s m a
-    pure a = StateT $ \ s -> return (s, a)
-    {-# INLINE pure #-}
-    (<*>) :: Monad m => StateT s m (a -> b) -> StateT s m a -> StateT s m b
-    StateT mf <*> StateT mx = StateT $ \ s -> do
-        (s', f) <- mf s
-        (s'', x) <- mx s'
-        return (s'', f x)
-    {-# INLINE (<*>) #-}
-    (*>) :: Monad m => StateT s m a -> StateT s m b -> StateT s m b
-    m *> k = m >> k
-    {-# INLINE (*>) #-}
-
-instance (Monad m) => Monad (StateT s m) where
-    (>>=) :: Monad m => StateT s m a -> (a -> StateT s m b) -> StateT s m b
-    m >>= k  = StateT $ \ s -> do
-        (s', a) <- runStateT m s
-        runStateT (k a) s'
-    {-# INLINE (>>=) #-}
-
-(#.) :: Coercible b c => (b -> c) -> (a -> b) -> (a -> c)
-(#.) _f = coerce
-{-# INLINE (#.) #-}

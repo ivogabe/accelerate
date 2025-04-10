@@ -14,6 +14,12 @@ either be a computation or a buffer.
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.LabelsNew where
 
 import Data.Array.Accelerate.AST.Operation
@@ -34,6 +40,10 @@ import Data.Hashable (Hashable, hashWithSalt)
 import Data.Array.Accelerate.AST.Idx
 import Prelude hiding (exp)
 import Data.Array.Accelerate.AST.LeftHandSide
+
+import qualified Data.Functor.Const as C
+import Data.Coerce
+import Control.Monad.State
 
 
 
@@ -102,12 +112,12 @@ instance Show (Label t) where
 
 instance Eq (Label t) where
   (==) :: Label t -> Label t -> Bool
-  (==) l1 l2  = (l1 ^. labelId == l2 ^. labelId) && ((l1 ^. parent == l2 ^. parent) || parentMismatch l1 l2)
+  (==) l1 l2  = l1 ^. labelId == l2 ^. labelId && (l1 ^. parent == l2 ^. parent || parentMismatch l1 l2)
 
 instance Ord (Label t) where
   compare :: Label t -> Label t -> Ordering
   compare l1 l2 = case compare (l1 ^. labelId) (l2 ^. labelId) of
-    EQ -> if (l1 ^. parent) == (l2 ^. parent) then EQ else parentMismatch l1 l2
+    EQ -> if l1 ^. parent == l2 ^. parent then EQ else parentMismatch l1 l2
     x  -> x
 
 -- | Error message for when parent computation labels do not match.
@@ -131,7 +141,7 @@ level l = case l ^. parent of
 -- computation.
 --
 canAccess :: Label Comp -> Label Buff -> Bool
-canAccess l b = (l ^. parent == b ^. parent) || case l ^. parent of
+canAccess l b = l ^. parent == b ^. parent || case l ^. parent of
   Nothing -> False
   Just p  -> canAccess (p ^. asCLabel) b
 
@@ -144,11 +154,63 @@ updateLabels b b' bs
   | b /= b' && S.member b bs = S.insert b' (S.delete b bs)
   | otherwise                = bs
 
--- Some useful type synonyms
-type Buffer       = Label Buff
-type Computation  = Label Comp
-type Buffers      = Labels Buff
-type Computations = Labels Comp
+freshL' :: State (Label t) (Label t)
+freshL' = id <%= (labelId +~ 1)
+
+
+
+--------------------------------------------------------------------------------
+-- Tupled Labels
+--------------------------------------------------------------------------------
+
+{- | Variant of 'TupR' that ignores the type information. -}
+data TupR_ t a where
+  TupRunit_   ::                           TupR_ () a
+  TupRsingle_ :: a                      -> TupR_ t  a
+  TupRpair_   :: TupR_ s a -> TupR_ t a -> TupR_ (s, t) a
+
+deriving instance Show a => Show (TupR_ t a)
+
+instance Functor (TupR_ t) where
+  fmap :: (a -> b) -> TupR_ t a -> TupR_ t b
+  fmap _ TupRunit_       = TupRunit_
+  fmap f (TupRsingle_ a) = TupRsingle_ (f a)
+  fmap f (TupRpair_ l r) = TupRpair_ (fmap f l) (fmap f r)
+
+instance Foldable (TupR_ t) where
+  foldMap :: Monoid m => (a -> m) -> TupR_ t a -> m
+  foldMap _ TupRunit_       = mempty
+  foldMap f (TupRsingle_ a) = f a
+  foldMap f (TupRpair_ l r) = foldMap f l <> foldMap f r
+
+instance Traversable (TupR_ t) where
+  traverse :: Applicative f => (a -> f b) -> TupR_ t a -> f (TupR_ t b)
+  traverse _ TupRunit_       = pure TupRunit_
+  traverse f (TupRsingle_ a) = TupRsingle_ <$> f a
+  traverse f (TupRpair_ l r) = TupRpair_ <$> traverse f l <*> traverse f r
+
+-- | Create a 'TupR_' containing a single value in the same shape as a 'TupR'.
+tupRlike_ :: TupR s t -> b -> TupR_ t b
+tupRlike_ TupRunit       _ = TupRunit_
+tupRlike_ (TupRsingle _) b = TupRsingle_ b
+tupRlike_ (TupRpair l r) b = TupRpair_ (tupRlike_ l b) (tupRlike_ r b)
+
+type LabelTup t s = TupR_ s (Label t)
+
+-- | Get the values associated with 'Vars' in 'LabelEnv'.
+getVarsLTup :: Vars s env t -> LabelEnv env -> LabelTup Buff t
+getVarsLTup TupRunit         _   = TupRunit_
+getVarsLTup (TupRsingle var) env = getVarLTup var env
+getVarsLTup (TupRpair l r)   env = TupRpair_ (getVarsLTup l env) (getVarsLTup r env)
+
+-- | Get the value associated with a 'Var' in 'LabelEnv'.
+getVarLTup :: Var s env t -> LabelEnv env -> LabelTup Buff t
+getVarLTup (varIdx -> idx) = getIdxLTup idx
+
+-- | Get the value associated with an 'Idx' in 'LabelEnv'.
+getIdxLTup :: Idx env t -> LabelEnv env -> LabelTup Buff t
+getIdxLTup ZeroIdx       (bs :>>: _)   = bs
+getIdxLTup (SuccIdx idx) (_  :>>: env) = getIdxLTup idx env
 
 
 
@@ -172,27 +234,27 @@ data LabelEnv env where
   -- | The empty environment.
   EnvNil :: LabelEnv ()
   -- | The non-empty environment.
-  (:>>:) :: Buffers       -- ^ The buffers and their producers
-         -> LabelEnv env  -- ^ The rest of the environment
+  (:>>:) :: (LabelTup Buff t)  -- ^ The buffers
+         -> LabelEnv env       -- ^ The rest of the environment
          -> LabelEnv (env, t)
 
 -- | Map a function over the labels in the environment.
-mapLEnv :: (Buffers -> Buffers) -> LabelEnv env -> LabelEnv env
+mapLEnv :: (forall t. LabelTup Buff t -> LabelTup Buff t) -> LabelEnv env -> LabelEnv env
 mapLEnv _ EnvNil = EnvNil
 mapLEnv f (bs :>>: env) = f bs :>>: mapLEnv f env
 
 -- | Flipped version of 'mapLEnv'.
-forLEnv :: LabelEnv env -> (Buffers -> Buffers) -> LabelEnv env
-forLEnv = flip mapLEnv
+forLEnv :: LabelEnv env -> (forall t. LabelTup Buff t -> LabelTup Buff t) -> LabelEnv env
+forLEnv env f = mapLEnv f env
 {-# INLINE forLEnv #-}
 
 -- | Fold over the labels in the environment.
-foldMapLEnv :: Monoid m => (Buffers -> m) -> LabelEnv env -> m
+foldMapLEnv :: Monoid m => (forall t. LabelTup Buff t -> m) -> LabelEnv env -> m
 foldMapLEnv _ EnvNil = mempty
 foldMapLEnv f (bs :>>: env) = f bs <> foldMapLEnv f env
 
 -- | Map a monadic function over the labels in the environment.
-mapLEnvM :: Monad m => (Buffers -> m Buffers) -> LabelEnv env -> m (LabelEnv env)
+mapLEnvM :: Monad m => (forall t. LabelTup Buff t -> m (LabelTup Buff t)) -> LabelEnv env -> m (LabelEnv env)
 mapLEnvM _ EnvNil = return EnvNil
 mapLEnvM f (bs :>>: env) = do
   bs'  <- f bs
@@ -200,28 +262,33 @@ mapLEnvM f (bs :>>: env) = do
   return (bs' :>>: env')
 
 -- | Flipped version of 'mapLEnvM'.
-forLEnvM :: Monad m => LabelEnv env -> (Buffers -> m Buffers) -> m (LabelEnv env)
-forLEnvM = flip mapLEnvM
+forLEnvM :: Monad m => LabelEnv env -> (forall t. LabelTup Buff t -> m (LabelTup Buff t)) -> m (LabelEnv env)
+forLEnvM env f = mapLEnvM f env
 {-# INLINE forLEnvM #-}
 
 -- | Map a monadic action over the labels in the environment and discard the result.
-mapLEnvM_ :: Monad m => (Buffers -> m ()) -> LabelEnv env -> m ()
+mapLEnvM_ :: Monad m => (forall t. LabelTup Buff t -> m ()) -> LabelEnv env -> m ()
 mapLEnvM_ _ EnvNil = return ()
 mapLEnvM_ f (bs :>>: env) = f bs >> mapLEnvM_ f env
 
 -- | Flipped version of 'mapLEnvM_'.
-forLEnvM_ :: Monad m => LabelEnv env -> (Buffers -> m ()) -> m ()
+forLEnvM_ :: Monad m => LabelEnv env -> (forall t. LabelTup Buff t -> m ()) -> m ()
 forLEnvM_ env f = mapLEnvM_ f env
 {-# INLINE forLEnvM_ #-}
 
 
-{- | Constructs a new 'LabelEnv' by prepending labels for each element in the
-left-hand side.
--}
-consLHS :: LeftHandSide s v env env' -> Buffers -> LabelEnv env -> LabelEnv env'
+-- | Constructs a new 'LabelEnv' by prepending labels for each element in the
+--   left-hand side.
+--
+-- The case where the left-hand side and the right-hand side are incompatible
+-- should neven happen. But in case it does happen I already have an
+-- implementation prepared that will duplicate the 'TupRsingle_'.
+consLHS :: LeftHandSide s v env env' -> LabelTup Buff v -> LabelEnv env -> LabelEnv env'
 consLHS LeftHandSideWildcard{} _  = id
 consLHS LeftHandSideSingle{}   bs = (bs :>>:)
-consLHS (LeftHandSidePair l r) bs = consLHS r bs . consLHS l bs
+consLHS (LeftHandSidePair l r) (TupRpair_ lbs rbs) = consLHS r rbs . consLHS l lbs
+consLHS LeftHandSidePair{} TupRsingle_{} = error "consLHS: Inaccesible left-hand side."
+-- consLHS (LeftHandSidePair l r) (TupRsingle_ b) = consLHS r (TupRsingle_ b) . consLHS l (TupRsingle_ b)
 
 
 
@@ -245,7 +312,7 @@ can therefore not be fused.
 -}
 
 -- | An argument to a function paired with some value.
-data LabelledArg env t = LArg { unlabel :: Arg env t, unarg :: Buffers }
+data LabelledArg env t = LArg { unlabel :: Arg env t, unarg :: Labels Buff }
   deriving Show
 
 -- | Labelled arguments to be passed to a function.
@@ -309,10 +376,9 @@ forAccumLArgsM a largs f = mapAccumLArgsM f a largs
 {-# INLINE forAccumLArgsM #-}
 
 -- | Select labels from labeled arguments that satisfy the given predicate.
-selectLArgs :: (forall s. Arg env s -> Bool) -> LabelledArgs env t -> Buffers
+selectLArgs :: (forall s. Arg env s -> Bool) -> LabelledArgs env t -> Labels Buff
 selectLArgs f = foldMapLArgs (\(LArg arg bs) -> if f arg then bs else mempty)
 {-# INLINE selectLArgs #-}
-
 
 
 --------------------------------------------------------------------------------
@@ -320,37 +386,27 @@ selectLArgs f = foldMapLArgs (\(LArg arg bs) -> if f arg then bs else mempty)
 --------------------------------------------------------------------------------
 
 -- | Get the dependencies of an argument.
-getArgDeps :: Arg env t -> LabelEnv env -> Buffers
-getArgDeps (ArgVar tup)         env = getTupDeps tup env
-getArgDeps (ArgExp exp)         env = getExpDeps exp env
-getArgDeps (ArgFun fun)         env = getFunDeps fun env
-getArgDeps (ArgArray _ _ sh bu) env = getTupDeps sh env <> getTupDeps bu env
+getArgDeps :: Arg env t -> LabelEnv env -> Labels Buff
+getArgDeps (ArgVar tup)         env = getVarsDeps tup env
+getArgDeps (ArgExp exp)         env = getExpDeps  exp env
+getArgDeps (ArgFun fun)         env = getFunDeps  fun env
+getArgDeps (ArgArray _ _ sh bu) env = getVarsDeps sh env <> getVarsDeps bu env
 
--- | Get the dependencies of a tuple of arguments.
---
--- A tuple argument is always a single array transformed from AoS to SoA.
---
-getTupDeps :: TupR (Var s env) t -> LabelEnv env -> Buffers
-getTupDeps  TupRunit _          = mempty
-getTupDeps (TupRsingle var) env = getVarDeps var env
-getTupDeps (TupRpair l r)   env = getTupDeps l env <> getTupDeps r env
+-- | Get the dependencies of a tuple of variables.
+getVarsDeps :: Vars s env t -> LabelEnv env -> Labels Buff
+getVarsDeps vars env = toSet (getVarsLTup vars env)
 
 -- | Get the dependencies of a variable.
-getVarDeps :: Var s env t -> LabelEnv env -> Buffers
-getVarDeps (varIdx -> idx) = getIdxDeps idx
-
--- | Get the dependencies of an index.
-getIdxDeps :: Idx env t -> LabelEnv env -> Buffers
-getIdxDeps  ZeroIdx      (bs :>>: _)   = bs
-getIdxDeps (SuccIdx idx) (_  :>>: env) = getIdxDeps idx env
+getVarDeps :: Var s env t -> LabelEnv env -> Labels Buff
+getVarDeps vars env = toSet (getVarLTup vars env)
 
 -- | Get the dependencies of an expression.
-getExpDeps :: OpenExp x env y -> LabelEnv env -> Buffers
+getExpDeps :: OpenExp x env y -> LabelEnv env -> Labels Buff
 getExpDeps (ArrayInstr (Index     var) poe) env = getVarDeps var  env <> getExpDeps poe  env
 getExpDeps (ArrayInstr (Parameter var) poe) env = getVarDeps var  env <> getExpDeps poe  env
 getExpDeps (Let _ poe1 poe2)                env = getExpDeps poe1 env <> getExpDeps poe2 env
 getExpDeps (Evar _)                         _   = mempty
-getExpDeps (Foreign {})                     _   = mempty
+getExpDeps  Foreign{}                       _   = mempty
 getExpDeps (Pair  poe1 poe2)                env = getExpDeps poe1 env <> getExpDeps poe2 env
 getExpDeps  Nil                             _   = mempty
 getExpDeps (VecPack _ poe)                  env = getExpDeps poe  env
@@ -373,9 +429,19 @@ getExpDeps (PrimConst _)                    _   = mempty
 getExpDeps (PrimApp   _ poe)                env = getExpDeps poe  env
 getExpDeps (ShapeSize _ poe)                env = getExpDeps poe  env
 getExpDeps (Undef _)                        _   = mempty
-getExpDeps (Coerce {})                      _   = mempty
+getExpDeps  Coerce{}                        _   = mempty
 
 -- | Get the dependencies of a function.
-getFunDeps :: OpenFun x env y -> LabelEnv env -> Buffers
+getFunDeps :: OpenFun x env y -> LabelEnv env -> Labels Buff
 getFunDeps (Body  poe) env = getExpDeps poe env
 getFunDeps (Lam _ fun) env = getFunDeps fun env
+
+
+
+--------------------------------------------------------------------------------
+-- Helpers
+--------------------------------------------------------------------------------
+
+-- | Convert a foldable structure to a set.
+toSet :: (Foldable f, Ord a) => f a -> Set a
+toSet = foldMap S.singleton
