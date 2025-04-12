@@ -10,6 +10,8 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE ViewPatterns #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.GraphNew where
 
 import Data.Array.Accelerate.AST.LeftHandSide
@@ -19,9 +21,8 @@ import Data.Array.Accelerate.Trafo.Partitioning.ILP.LabelsNew
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap (Multimap)
 import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap as MM
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (c)
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Symbols
 
-import Prelude hiding (reads)
+import Prelude hiding (init, reads)
 
 import Lens.Micro
 import Lens.Micro.TH
@@ -36,6 +37,10 @@ import qualified Data.Map as M
 
 import Control.Monad.State (State)
 import Data.Foldable
+import Data.Kind (Type)
+import Data.Array.Accelerate.Type
+import Data.Array.Accelerate.Array.Buffer
+import Data.Array.Accelerate.Representation.Shape
 
 
 
@@ -244,6 +249,35 @@ class (ShrinkArg (BackendClusterArg op), Eq (BackendVar op), Ord (BackendVar op)
 
 
 --------------------------------------------------------------------------------
+-- Symbol table
+--------------------------------------------------------------------------------
+
+data LabelledArgOp  op env a = LArgOp (Arg env a) (Labels Buff) (BackendArg op)
+type LabelledArgsOp op env   = PreArgs (LabelledArgOp op env)
+
+instance Show (LabelledArgOp op env a) where
+  show :: LabelledArgOp op env a -> String
+  show (LArgOp _ bs _) = show bs
+
+data Symbol (op :: Type -> Type) where  -- Empty for now.
+  SExe' :: LabelEnv env -> LabelledArgs      env args -> op args                              -> Symbol op
+  SExe  :: LabelEnv env -> LabelledArgsOp op env args                                         -> Symbol op
+  SUse  ::                 ScalarType e -> Int -> Buffer e                                    -> Symbol op
+  SITE  :: LabelEnv env -> ExpVar env PrimBool -> Label Comp -> Label Comp                    -> Symbol op
+  SWhl  :: LabelEnv env -> Label Comp -> Label Comp -> GroundVars env a     -> Uniquenesses a -> Symbol op
+  SLet  ::                 GLeftHandSide bnd env env' -> LabelsTup Buff bnd -> Uniquenesses a -> Symbol op
+  SFun  ::                 GLeftHandSide bnd env env' -> LabelsTup Buff bnd                   -> Symbol op
+  SBod  ::                 Label Comp                                                         -> Symbol op
+  SRet  :: LabelEnv env -> GroundVars env a                                                   -> Symbol op
+  SCmp  :: LabelEnv env -> Exp env a                                                          -> Symbol op
+  SAlc  :: LabelEnv env -> ShapeR sh -> ScalarType e -> ExpVars env sh                        -> Symbol op
+  SUnt  :: LabelEnv env -> ExpVar env e                                                       -> Symbol op
+
+-- | Mapping from labels to symbols.
+type Symbols t op = Map (Label t) (Symbol op)
+
+
+--------------------------------------------------------------------------------
 -- Graph construction
 --------------------------------------------------------------------------------
 
@@ -274,7 +308,7 @@ data FullGraphState op env = FullGraphState
   , _lenv    :: LabelEnv env     -- ^ The label environment.
   , _prods   :: Producers        -- ^ Mapping from buffers to producers.
   , _symbols :: Symbols Comp op  -- ^ The symbols for the ILP.
-  , _currL   :: Label Void       -- ^ The current label.
+  , _currL   :: Label Comp       -- ^ The current label.
   }
 
 type Producers = Map (Label Buff) (Label Comp)
@@ -297,7 +331,7 @@ producer b f s = fmap
 -- Any changes to the environment are local to the computation and will be
 -- discarded after the computation is finished.
 --
-local :: GLeftHandSide v env env' -> LabelTup Buff v -> Lens' (FullGraphState op env) (FullGraphState op env')
+local :: GLeftHandSide v env env' -> LabelsTup Buff v -> Lens' (FullGraphState op env) (FullGraphState op env')
 local lhs bs f s = s <$ f (s & lenv %~ consLHS lhs bs)
 
 -- | Lens for interpreting the currenenv %= setProducert label as a computation label.
@@ -312,16 +346,16 @@ currB = currL . asBLabel
 freshC :: State (FullGraphState op env) (Label Comp)
 freshC = zoom currC freshL'
 
--- | Fresh buffer (and computation) label.
+-- | Fresh buffer as a singleton set and the corresponding computation label.
 --
 -- Buffers are by default their own producer so we don't need to set it, but we
 -- do need to add a read edge between them.
-freshB :: State (FullGraphState op env) (Label Buff, Label Comp)
+freshB :: State (FullGraphState op env) (Labels Buff, Label Comp)
 freshB = do
   c <- freshC
   b <- use currB
   ilpInfo.graph %= c `writes` b
-  return (b, c)
+  return (S.singleton b, c)
 
 -- | Read from a buffer and maybe fuse with its producer.
 (--->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
@@ -373,6 +407,7 @@ freshB = do
 -- As a result, we only need to enforce the following:
 -- * The producer runs before the writer.
 -- * We can't fuse with the producer.
+-- Put simply, this is '(<==>)' without 'allBefore'.
 (<-->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<-->) b c = do
     p <- use $ producer b
@@ -385,60 +420,78 @@ freshB = do
 
 mkFullGraph :: forall op env a. (MakesILP op)
             => PreOpenAcc op env a
-            -> State (FullGraphState op env) (LabelTup Buff a)
+            -> State (FullGraphState op env) (LabelsTup Buff a)
 mkFullGraph (Exec op args) = do
   c <- freshC      -- Fresh computation label.
   env <- use lenv  -- Current label environment.
   let labelledArgs = labelArgs args env
+  _ -- TODO: Query the backend.
   forLArgsM_ labelledArgs \case
     (LArg (ArgArray In  _ _ _) bs) -> forM_ bs (---> c)
     (LArg (ArgArray Out _ _ _) bs) -> forM_ bs (<=== c)
     (LArg (ArgArray Mut _ _ _) bs) -> forM_ bs (<==> c)
     (LArg _                    bs) -> forM_ bs (===> c)
-  _ -- TODO: Query the backend.
-  _ -- TODO: Create symbol.
+  _ -- TODO: Add backend specific information.
+  symbols %= M.insert c (SExe' env labelledArgs op)
   return TupRunit_
 
 mkFullGraph (Alet LeftHandSideUnit _ bnd scp) =
   mkFullGraph bnd >> mkFullGraph scp
 
-mkFullGraph (Alet lhs _ bnd scp) = do
+mkFullGraph (Alet lhs u bnd scp) = do
   c <- freshC
   bndRes <- mkFullGraph bnd
-  forM_ bndRes (<--> c)
-  _ -- TODO: Create symbol.
+  forM_ bndRes $ mapM_ (<--> c)
+  symbols %= M.insert c (SLet lhs bndRes u)
   zoom (local lhs bndRes) (mkFullGraph scp)
 
 mkFullGraph (Return vars) = do
   c <- freshC
-  bs <- getVarsLTup vars <$> use lenv
-  forM_ bs (<--> c)
-  _ -- TODO: Create symbol.
+  env <- use lenv
+  let bs = getVarsLTup vars env
+  forM_ bs $ mapM_ (<--> c)
+  symbols %= M.insert c (SRet env vars)
   return bs
 
 mkFullGraph (Compute expr) = do
   (b, c) <- freshB
-  let bs = tupRlike_ (expType expr) b
-  _ -- TODO: Create symbol.
-  return bs
+  env <- use lenv
+  forM_ (getExpDeps expr env) (===> c)
+  symbols %= M.insert c (SCmp env expr)
+  return (tupRlike_ (expType expr) b)
 
 mkFullGraph (Alloc shr e sh) = do
   (b, c) <- freshB
-  _ -- TODO: Create symbol.
+  env <- use lenv
+  forM_ (getVarsDeps sh env) (===> c)
+  symbols %= M.insert c (SAlc env shr e sh)
   return (TupRsingle_ b)
 
 mkFullGraph (Unit var) = do
   (b, c) <- freshB
-  _ -- TODO: Create symbol.
+  env <- use lenv
+  forM_ (getVarDeps var env) (===> c)
+  symbols %= M.insert c (SUnt env var)
   return (TupRsingle_ b)
 
 mkFullGraph (Use sctype n buff) = do
   (b, c) <- freshB
-  _ -- TODO: Create symbol.
+  symbols %= M.insert c (SUse sctype n buff)
   return (TupRsingle_ b)
 
 
-mkFullGraph _ = undefined
+mkFullGraph (Acond cond tacc facc) = undefined
+
+
+mkFullGraph (Awhile u cond body init) = undefined
+
+
+
+mkFullGraphF :: (MakesILP op)
+            => PreOpenAfun op env a
+            -> State (FullGraphState op env) (LabelsTup Buff a)
+mkFullGraphF (Abody acc) = undefined
+mkFullGraphF (Alam lhs f) = undefined
 
 
 

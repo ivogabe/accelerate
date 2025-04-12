@@ -464,7 +464,6 @@ library
         Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
-        Data.Array.Accelerate.Trafo.Partitioning.ILP.Symbols
         Data.Array.Accelerate.Trafo.Partitioning.Stream
         Data.Array.Accelerate.Trafo.Schedule.Partial
         Data.Array.Accelerate.Trafo.Schedule.Uniform

@@ -44,6 +44,7 @@ import Data.Array.Accelerate.AST.LeftHandSide
 import qualified Data.Functor.Const as C
 import Data.Coerce
 import Control.Monad.State
+import Data.Foldable
 
 
 
@@ -52,41 +53,37 @@ import Control.Monad.State
 --------------------------------------------------------------------------------
 
 -- | The types a label can have.
-data LabelType = Comp | Buff | Void
+data LabelType = Comp | Buff
 
 -- | Labels for referencing nodes.
 --
 -- A label uniquely identifies a node and optionally specifies the parent it
--- belongs to. A buffer node can never be a parent.
+-- belongs to. Only 'Comp' labels may be parents.
 --
--- A label of type 'Void' is used to represent anything that is relevant for
--- reconstruction but not for the fusion/in-place updates ILP. These are mostly
--- scopes of some kind.
+-- A label of type 'Comp' is used to represent anything that is relevant for
+-- reconstruction but not for the fusion/in-place updates ILP. This type mostly
+-- represents the labels for bodies of functions, if-then-else branches, and
+-- while loops.
 --
 -- @VLabel x Nothing@ means that label @x@ is top-level.
 -- @VLabel x (Just y)@ means that label @x@ is a sub-computation of label @y@.
 data Label (t :: LabelType) where
   CLabel  :: Int                  -- ^ The computation label.
-          -> Maybe (Label Void)   -- ^ The parent computation.
+          -> Maybe (Label Comp)   -- ^ The parent computation.
           -> Label Comp
   BLabel  :: Int                  -- ^ The buffer label.
-          -> Maybe (Label Void)   -- ^ The parent computation.
+          -> Maybe (Label Comp)   -- ^ The parent computation.
           -> Label Buff
-  VLabel  :: Int                  -- ^ The void label.
-          -> Maybe (Label Void)   -- ^ The parent computation.
-          -> Label Void
 
 -- | Lens for getting and setting the label id.
 labelId :: Lens' (Label t) Int
 labelId f (CLabel i p) = fmap (`CLabel` p) (f i)
 labelId f (BLabel i p) = fmap (`BLabel` p) (f i)
-labelId f (VLabel i p) = fmap (`VLabel` p) (f i)
 
 -- | Lens for getting and setting the parent label.
-parent :: Lens' (Label t) (Maybe (Label Void))
+parent :: Lens' (Label t) (Maybe (Label Comp))
 parent f (CLabel i p) = fmap (CLabel i) (f p)
 parent f (BLabel i p) = fmap (BLabel i) (f p)
-parent f (VLabel i p) = fmap (VLabel i) (f p)
 
 -- | Lens for interpreting any label as a computation label.
 asCLabel :: Lens' (Label t) (Label Comp)
@@ -99,12 +96,6 @@ asBLabel :: Lens' (Label t) (Label Buff)
 asBLabel f l@BLabel{} = f l
 asBLabel f l = fmap (\(BLabel i p) -> l & labelId .~ i & parent .~ p)
                     (f (BLabel (l ^. labelId) (l ^. parent)))
-
--- | Lens for interpreting any label as a void label.
-asVLabel :: Lens' (Label t) (Label Void)
-asVLabel f l@VLabel{} = f l
-asVLabel f l = fmap (\(VLabel i p) -> l & labelId .~ i & parent .~ p)
-                    (f (VLabel (l ^. labelId) (l ^. parent)))
 
 instance Show (Label t) where
   show :: Label t -> String
@@ -189,26 +180,38 @@ instance Traversable (TupR_ t) where
   traverse f (TupRsingle_ a) = TupRsingle_ <$> f a
   traverse f (TupRpair_ l r) = TupRpair_ <$> traverse f l <*> traverse f r
 
+instance Semigroup a => Semigroup (TupR_ t a) where
+  (<>) :: TupR_ t a -> TupR_ t a -> TupR_ t a
+  (<>) TupRunit_         TupRunit_         = TupRunit_
+  (<>) (TupRsingle_ a)   (TupRsingle_ b)   = TupRsingle_ (a <> b)
+  (<>) (TupRpair_ l1 r1) (TupRpair_ l2 r2) = TupRpair_ (l1 <> l2) (r1 <> r2)
+  (<>) _ _ = error "TupR_: Inaccessible left-hand side?"
+
 -- | Create a 'TupR_' containing a single value in the same shape as a 'TupR'.
 tupRlike_ :: TupR s t -> b -> TupR_ t b
 tupRlike_ TupRunit       _ = TupRunit_
 tupRlike_ (TupRsingle _) b = TupRsingle_ b
 tupRlike_ (TupRpair l r) b = TupRpair_ (tupRlike_ l b) (tupRlike_ r b)
 
-type LabelTup t s = TupR_ s (Label t)
+-- | Tuple of 'Labels'.
+--
+-- We use a tuple of labels instead of a single label because after an
+-- if-then-else there are now two labels that could be referenced depending
+-- on the branch taken.
+type LabelsTup t s = TupR_ s (Labels t)
 
 -- | Get the values associated with 'Vars' in 'LabelEnv'.
-getVarsLTup :: Vars s env t -> LabelEnv env -> LabelTup Buff t
+getVarsLTup :: Vars s env t -> LabelEnv env -> LabelsTup Buff t
 getVarsLTup TupRunit         _   = TupRunit_
 getVarsLTup (TupRsingle var) env = getVarLTup var env
 getVarsLTup (TupRpair l r)   env = TupRpair_ (getVarsLTup l env) (getVarsLTup r env)
 
 -- | Get the value associated with a 'Var' in 'LabelEnv'.
-getVarLTup :: Var s env t -> LabelEnv env -> LabelTup Buff t
+getVarLTup :: Var s env t -> LabelEnv env -> LabelsTup Buff t
 getVarLTup (varIdx -> idx) = getIdxLTup idx
 
 -- | Get the value associated with an 'Idx' in 'LabelEnv'.
-getIdxLTup :: Idx env t -> LabelEnv env -> LabelTup Buff t
+getIdxLTup :: Idx env t -> LabelEnv env -> LabelsTup Buff t
 getIdxLTup ZeroIdx       (bs :>>: _)   = bs
 getIdxLTup (SuccIdx idx) (_  :>>: env) = getIdxLTup idx env
 
@@ -234,27 +237,32 @@ data LabelEnv env where
   -- | The empty environment.
   EnvNil :: LabelEnv ()
   -- | The non-empty environment.
-  (:>>:) :: (LabelTup Buff t)  -- ^ The buffers
+  (:>>:) :: LabelsTup Buff t   -- ^ The buffers
          -> LabelEnv env       -- ^ The rest of the environment
          -> LabelEnv (env, t)
 
+instance Semigroup (LabelEnv env) where
+  (<>) :: LabelEnv env -> LabelEnv env -> LabelEnv env
+  (<>) EnvNil EnvNil = EnvNil
+  (<>) (bs1 :>>: env1) (bs2 :>>: env2) = (bs1 <> bs2) :>>: (env1 <> env2)
+
 -- | Map a function over the labels in the environment.
-mapLEnv :: (forall t. LabelTup Buff t -> LabelTup Buff t) -> LabelEnv env -> LabelEnv env
+mapLEnv :: (forall t. LabelsTup Buff t -> LabelsTup Buff t) -> LabelEnv env -> LabelEnv env
 mapLEnv _ EnvNil = EnvNil
 mapLEnv f (bs :>>: env) = f bs :>>: mapLEnv f env
 
 -- | Flipped version of 'mapLEnv'.
-forLEnv :: LabelEnv env -> (forall t. LabelTup Buff t -> LabelTup Buff t) -> LabelEnv env
+forLEnv :: LabelEnv env -> (forall t. LabelsTup Buff t -> LabelsTup Buff t) -> LabelEnv env
 forLEnv env f = mapLEnv f env
 {-# INLINE forLEnv #-}
 
 -- | Fold over the labels in the environment.
-foldMapLEnv :: Monoid m => (forall t. LabelTup Buff t -> m) -> LabelEnv env -> m
+foldMapLEnv :: Monoid m => (forall t. LabelsTup Buff t -> m) -> LabelEnv env -> m
 foldMapLEnv _ EnvNil = mempty
 foldMapLEnv f (bs :>>: env) = f bs <> foldMapLEnv f env
 
 -- | Map a monadic function over the labels in the environment.
-mapLEnvM :: Monad m => (forall t. LabelTup Buff t -> m (LabelTup Buff t)) -> LabelEnv env -> m (LabelEnv env)
+mapLEnvM :: Monad m => (forall t. LabelsTup Buff t -> m (LabelsTup Buff t)) -> LabelEnv env -> m (LabelEnv env)
 mapLEnvM _ EnvNil = return EnvNil
 mapLEnvM f (bs :>>: env) = do
   bs'  <- f bs
@@ -262,17 +270,17 @@ mapLEnvM f (bs :>>: env) = do
   return (bs' :>>: env')
 
 -- | Flipped version of 'mapLEnvM'.
-forLEnvM :: Monad m => LabelEnv env -> (forall t. LabelTup Buff t -> m (LabelTup Buff t)) -> m (LabelEnv env)
+forLEnvM :: Monad m => LabelEnv env -> (forall t. LabelsTup Buff t -> m (LabelsTup Buff t)) -> m (LabelEnv env)
 forLEnvM env f = mapLEnvM f env
 {-# INLINE forLEnvM #-}
 
 -- | Map a monadic action over the labels in the environment and discard the result.
-mapLEnvM_ :: Monad m => (forall t. LabelTup Buff t -> m ()) -> LabelEnv env -> m ()
+mapLEnvM_ :: Monad m => (forall t. LabelsTup Buff t -> m ()) -> LabelEnv env -> m ()
 mapLEnvM_ _ EnvNil = return ()
 mapLEnvM_ f (bs :>>: env) = f bs >> mapLEnvM_ f env
 
 -- | Flipped version of 'mapLEnvM_'.
-forLEnvM_ :: Monad m => LabelEnv env -> (forall t. LabelTup Buff t -> m ()) -> m ()
+forLEnvM_ :: Monad m => LabelEnv env -> (forall t. LabelsTup Buff t -> m ()) -> m ()
 forLEnvM_ env f = mapLEnvM_ f env
 {-# INLINE forLEnvM_ #-}
 
@@ -283,7 +291,7 @@ forLEnvM_ env f = mapLEnvM_ f env
 -- The case where the left-hand side and the right-hand side are incompatible
 -- should neven happen. But in case it does happen I already have an
 -- implementation prepared that will duplicate the 'TupRsingle_'.
-consLHS :: LeftHandSide s v env env' -> LabelTup Buff v -> LabelEnv env -> LabelEnv env'
+consLHS :: LeftHandSide s v env env' -> LabelsTup Buff v -> LabelEnv env -> LabelEnv env'
 consLHS LeftHandSideWildcard{} _  = id
 consLHS LeftHandSideSingle{}   bs = (bs :>>:)
 consLHS (LeftHandSidePair l r) (TupRpair_ lbs rbs) = consLHS r rbs . consLHS l lbs
@@ -312,7 +320,7 @@ can therefore not be fused.
 -}
 
 -- | An argument to a function paired with some value.
-data LabelledArg env t = LArg { unlabel :: Arg env t, unarg :: Labels Buff }
+data LabelledArg env t = LArg (Arg env t) (Labels Buff)
   deriving Show
 
 -- | Labelled arguments to be passed to a function.
@@ -394,11 +402,11 @@ getArgDeps (ArgArray _ _ sh bu) env = getVarsDeps sh env <> getVarsDeps bu env
 
 -- | Get the dependencies of a tuple of variables.
 getVarsDeps :: Vars s env t -> LabelEnv env -> Labels Buff
-getVarsDeps vars env = toSet (getVarsLTup vars env)
+getVarsDeps vars env = fold (getVarsLTup vars env)
 
 -- | Get the dependencies of a variable.
 getVarDeps :: Var s env t -> LabelEnv env -> Labels Buff
-getVarDeps vars env = toSet (getVarLTup vars env)
+getVarDeps vars env = fold (getVarLTup vars env)
 
 -- | Get the dependencies of an expression.
 getExpDeps :: OpenExp x env y -> LabelEnv env -> Labels Buff
@@ -435,13 +443,3 @@ getExpDeps  Coerce{}                        _   = mempty
 getFunDeps :: OpenFun x env y -> LabelEnv env -> Labels Buff
 getFunDeps (Body  poe) env = getExpDeps poe env
 getFunDeps (Lam _ fun) env = getFunDeps fun env
-
-
-
---------------------------------------------------------------------------------
--- Helpers
---------------------------------------------------------------------------------
-
--- | Convert a foldable structure to a set.
-toSet :: (Foldable f, Ord a) => f a -> Set a
-toSet = foldMap S.singleton
