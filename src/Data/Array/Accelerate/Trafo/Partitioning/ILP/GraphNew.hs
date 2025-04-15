@@ -12,6 +12,13 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE PatternSynonyms #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.GraphNew where
 
 import Data.Array.Accelerate.AST.LeftHandSide
@@ -42,19 +49,14 @@ import Data.Kind (Type)
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Array.Buffer
 import Data.Array.Accelerate.Representation.Shape
+import Data.Typeable
+import Data.Maybe
 
 
 
 --------------------------------------------------------------------------------
 -- Graph
 --------------------------------------------------------------------------------
-
--- -- | Fusible computations @c1 -> b -> c2@.
-type Fusible   = (Label Comp, Label Buff, Label Comp)  -- To be replaced with Multimap2d
--- | Infusible computations @c1 -> c2@.
-type Infusible = (Label Comp, Label Comp)
--- | In-place updateable buffers @b1 -> c1 -> ... -> c2 -> b2@.
-type Inplace   = (Label Buff, Label Comp, Label Comp, Label Buff)
 
 -- | Program graph in adjacency list representation.
 --
@@ -65,72 +67,51 @@ type Inplace   = (Label Buff, Label Comp, Label Comp, Label Buff)
 -- infusible- and in-place updateable edges. These sets are used to guide the
 -- clustering process.
 --
-data Graph = Graph   -- TODO: Maybe use hashmaps and hashsets in production?
-  {      _readEdges  :: Multimap   (Label Buff) (Label Comp)  -- ^ Edges from buffers to computations.
-  ,      _readEdges' :: Multimap   (Label Comp) (Label Buff)  -- ^ Complement of '_readEdges'.
-  ,     _writeEdges  :: Multimap   (Label Comp) (Label Buff)  -- ^ Edges from computations to buffers.
-  ,     _writeEdges' :: Multimap   (Label Buff) (Label Comp)  -- ^ Complement of '_writeEdges'.
-  ,   _fusibleEdges  :: Set Fusible    -- ^ Edges used in fusion.
-  , _infusibleEdges  :: Set Infusible  -- ^ Set of infusible computations.
-  ,   _inplaceEdges  :: Set Inplace    -- ^ Set of in-place updateable buffers.
+data Graph = Graph   -- TODO: Use hashmaps and hashsets in production.
+  {      _readEdges  :: Multimap (Label Buff) (Label Comp)  -- ^ Edges from buffers to computations.
+  ,      _readEdges' :: Multimap (Label Comp) (Label Buff)  -- ^ Complement of '_readEdges'.
+  ,     _writeEdges  :: Multimap (Label Comp) (Label Buff)  -- ^ Edges from computations to buffers.
+  ,     _writeEdges' :: Multimap (Label Buff) (Label Comp)  -- ^ Complement of '_writeEdges'.
+  ,   _fusibleEdges  :: Multimap (Label Comp, Label Buff) (Label Comp)  -- ^ Edges that can be fused.
+  , _infusibleEdges  :: Set (Label Comp, Label Comp)  -- ^ Edges that cannot be fused.
   }
 
 instance Semigroup Graph where
   (<>) :: Graph -> Graph -> Graph
-  (<>) (Graph r1 r1' w1 w1' f1 i1 u1) (Graph r2 r2' w2 w2' f2 i2 u2) = Graph
-    (r1 <> r2) (r1' <> r2') (w1 <> w2) (w1' <> w2') (f1 <> f2) (i1 <> i2) (u1 <> u2)
+  (<>) (Graph r1 r1' w1 w1' f1 o1) (Graph r2 r2' w2 w2' f2 o2) = Graph
+    (r1 <> r2) (r1' <> r2') (w1 <> w2) (w1' <> w2') (f1 <> f2) (o1 <> o2)
 
 instance Monoid Graph where
   mempty :: Graph
-  mempty = Graph mempty mempty mempty mempty mempty mempty mempty
+  mempty = Graph mempty mempty mempty mempty mempty mempty
 
 makeLenses ''Graph
 
 -- | Add a read edge from a buffer to a computation in the graph.
---
--- See 'canAccess' for the scoping rules. This condition may be removed in the
--- future, but for now it is required to ensure that the graph is well-formed.
---
 reads :: Label Comp -> Label Buff -> Graph -> Graph
 reads c b g = g & readEdges  %~ MM.insert b c
                 & readEdges' %~ MM.insert c b
 
 -- | Add a write edge from a computation to a buffer.
---
--- See 'canAccess' for the scoping rules. This condition may be removed in the
--- future, but for now it is required to ensure that the graph is well-formed.
---
 writes :: Label Comp -> Label Buff -> Graph -> Graph
 writes c b g = g & writeEdges  %~ MM.insert c b
                  & writeEdges' %~ MM.insert b c
 
--- | Lens for getting the set of readers of a buffer.
---
--- This is a getter for now since modifying the set is a bit tricky.
---
-readers :: Label Buff -> Lens' Graph (Labels Comp)
-readers b = lens (\g -> MM.lookup b (g ^. readEdges)) const
+-- | Getter for the set of readers of a buffer.
+readers :: Label Buff -> SimpleGetter Graph (Labels Comp)
+readers b = to (\g -> MM.lookup b (g^.readEdges))
 
--- | Lens for getting the set of writers of a buffer.
---
--- This is a getter for now since modifying the set is a bit tricky.
---
-writers :: Label Buff -> Lens' Graph (Labels Comp)
-writers b = lens (\g -> MM.lookup b (g ^. writeEdges')) const
+-- | Getter for the set of writers of a buffer.
+writers :: Label Buff -> SimpleGetter Graph (Labels Comp)
+writers b = to (\g -> MM.lookup b (g^.writeEdges'))
 
--- | Lens for getting the set of inputs of a computation.
---
--- This is a getter for now since modifying the set is a bit tricky.
---
-inputs :: Label Comp -> Lens' Graph (Labels Buff)
-inputs c = lens (\g -> MM.lookup c (g ^. readEdges')) const
+-- | Getter for the set of inputs of a computation.
+inputs :: Label Comp -> SimpleGetter Graph (Labels Buff)
+inputs c = to (\g -> MM.lookup c (g^.readEdges'))
 
--- | Lens for getting the set of outputs of a computation.
---
--- This is a getter for now since modifying the set is a bit tricky.
---
-outputs :: Label Comp -> Lens' Graph (Labels Buff)
-outputs c = lens (\g -> MM.lookup c (g ^. writeEdges)) const
+-- | Getter for the set of outputs of a computation.
+outputs :: Label Comp -> SimpleGetter Graph (Labels Buff)
+outputs c = to (\g -> MM.lookup c (g^.writeEdges))
 
 -- | Add an infusible edge between two computations.
 --
@@ -140,7 +121,6 @@ outputs c = lens (\g -> MM.lookup c (g ^. writeEdges)) const
 -- These edges represent the fact that two computations are not allowed to be in
 -- the same cluster and that one should happen before the other. This is usually
 -- to avoid race-conditions when two computations write to the same buffer.
---
 before :: Label Comp -> Label Comp -> Graph -> Graph
 before c1 c2 g
   | c1 == c2 = error "before: Cannot add infusible edge to self."
@@ -173,7 +153,7 @@ fusible  c1 b c2 g
   | guard2Cycle c1 c2 g = error "fusible: c2 Already happens before c1."
   | S.notMember c1 (g ^. writers b) = error "fusible: c1 is not a writer of b."
   | S.notMember c2 (g ^. readers b) = error "fusible: c2 is not a reader of b."
-  | otherwise = g & fusibleEdges  %~ S.insert (c1, b, c2)
+  | otherwise = g & fusibleEdges %~ MM.insert (c1, b) c2
 
 -- | Multiple computations can fuse with another over a buffer.
 allFusible :: Labels Comp -> Label Buff -> Label Comp -> Graph -> Graph
@@ -207,8 +187,8 @@ allInfusible cs1 b c2 = allBefore cs1 c2 . allFusible cs1 b c2
 
 -- | Guard against 2-cycles in the graph.
 guard2Cycle :: Label Comp -> Label Comp -> Graph -> Bool
-guard2Cycle c1 c2 g = S.member (c2, c1) (g ^. infusibleEdges)
-  || any (\(c1', _, c2') -> (c1', c2') == (c2, c1)) (g ^. fusibleEdges)
+guard2Cycle c1 c2 g = S.member (c2, c1) (g^.infusibleEdges)
+  || any (\((c1', _), c2') -> (c1', c2') == (c2, c1)) MM.toList (g^.fusibleEdges)
 
 
 
@@ -336,16 +316,15 @@ makeLenses ''FullGraphState
 -- has yet to be written to is "produced" by @malloc@.
 --
 producers :: Label Buff -> Lens' (FullGraphState op env) (Labels Comp)
-producers b f s = fmap
-  (\c -> s & producersEnv %~ M.insert b c)
-  (f (M.findWithDefault (S.singleton (b^.asCLabel)) b (s^.producersEnv)))
+producers b f s = (\c -> s & producersEnv %~ M.insert b c)
+  <$> f (M.findWithDefault (S.singleton (b^.asCLabel)) b (s^.producersEnv))
 
 -- | Lens for locally adding new variables to the environment.
 --
 -- Any changes to the environment are local to the computation and will be
 -- discarded after the computation is finished.
 local :: GLeftHandSide v env env' -> LabelsTup Buff v -> Lens' (FullGraphState op env) (FullGraphState op env')
-local lhs bs f s = s <$ f (s & labelsEnv %~ consLHS lhs bs)
+local lhs bs f s = s <$ f (s & labelsEnv %~ weakenEnv lhs bs)
 
 -- | Lens for working under the scope of a computation.
 --
@@ -440,9 +419,9 @@ freshB = do
 
 
 
-mkFullGraph :: forall op env a. (MakesILP op)
-            => PreOpenAcc op env a
-            -> State (FullGraphState op env) (LabelsTup Buff a)
+mkFullGraph :: forall op env t. (MakesILP op)
+            => PreOpenAcc op env t
+            -> State (FullGraphState op env) (LabelsTup Buff t)
 mkFullGraph (Exec op args) = do
   lenv <- use labelsEnv
   penv <- use producersEnv
@@ -467,7 +446,6 @@ mkFullGraph (Alet lhs u bnd scp) = do
   forM_ bndRes $ mapM_ (<--> c)
   symbols %= M.insert c (SLet lhs bndRes u)
   zoom (local lhs bndRes) (mkFullGraph scp)
-  -- TODO: How to handle @l -?> scpResL@?
 
 mkFullGraph (Return vars) = do
   lenv <- use labelsEnv
@@ -503,10 +481,10 @@ mkFullGraph (Use sctype n buff) = do
   symbols %= M.insert c (SUse sctype n buff)
   return (TupRsingle_ b)
 
-
 mkFullGraph (Acond cond tacc facc) = do
   lenv <- use labelsEnv
   c_cond <- freshC
+  forM_ (getVarDeps cond lenv) (===> c_cond)
   zoom (scope c_cond) do
     c_true  <- freshC
     c_false <- freshC
@@ -522,18 +500,37 @@ mkFullGraph (Acond cond tacc facc) = do
     producersEnv .= t_penv <> f_penv
     return (t_res <> f_res)
 
-
-
-mkFullGraph (Awhile u cond body init) = undefined
+mkFullGraph (Awhile u cond body init) = do
+  lenv <- use labelsEnv
+  c_while <- freshC
+  forM_ (getVarsDeps init lenv) (===> c_while)
+  zoom (scope c_while) do
+    c_cond <- freshC
+    c_body <- freshC
+    symbols %= M.insert c_while (SWhl lenv c_cond c_body init u)
+    cond_penv <- zoom (scope c_cond . protected producersEnv) do
+      _ <- mkFullGraphF cond
+      use producersEnv
+    (body_res, body_penv) <- zoom (scope c_body . protected producersEnv) do
+      res  <- mkFullGraphF body
+      penv <- use producersEnv
+      return (res, penv)
+    producersEnv .= cond_penv <> body_penv
+    return body_res
 
 
 
 mkFullGraphF :: (MakesILP op)
-            => PreOpenAfun op env a
-            -> State (FullGraphState op env) (LabelsTup Buff a)
-mkFullGraphF (Abody acc) = undefined
+            => PreOpenAfun op env t
+            -> State (FullGraphState op env) (LabelsTup Buff (Result t))
+mkFullGraphF (Abody _) = undefined
 mkFullGraphF (Alam lhs f) = undefined
 
+
+type Result :: Type -> Type
+type family Result t = r where
+  Result (s -> t) = t
+  Result t        = t
 
 
 

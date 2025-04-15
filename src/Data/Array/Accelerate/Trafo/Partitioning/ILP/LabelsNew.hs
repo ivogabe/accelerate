@@ -20,6 +20,7 @@ either be a computation or a buffer.
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE PatternSynonyms #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.LabelsNew where
 
 import Data.Array.Accelerate.AST.Operation
@@ -125,6 +126,10 @@ level l = case l ^. parent of
   Nothing -> 0
   Just p  -> 1 + level p
 
+-- | Create a new label.
+freshL' :: State (Label t) (Label t)
+freshL' = id <%= (labelId +~ 1)
+
 -- | Set of labels.
 type Labels t = Set (Label t)
 
@@ -133,9 +138,6 @@ updateLabels :: Label t -> Label t -> Labels t -> Labels t
 updateLabels b b' bs
   | b /= b' && S.member b bs = S.insert b' (S.delete b bs)
   | otherwise                = bs
-
-freshL' :: State (Label t) (Label t)
-freshL' = id <%= (labelId +~ 1)
 
 
 
@@ -280,11 +282,11 @@ forLEnvM_ env f = mapLEnvM_ f env
 -- The case where the left-hand side and the right-hand side are incompatible
 -- should neven happen. But in case it does happen I already have an
 -- implementation prepared that will duplicate the 'TupRsingle_'.
-consLHS :: LeftHandSide s v env env' -> LabelsTup Buff v -> LabelsEnv env -> LabelsEnv env'
-consLHS LeftHandSideWildcard{} _  = id
-consLHS LeftHandSideSingle{}   bs = (bs :>>:)
-consLHS (LeftHandSidePair l r) (TupRpair_ lbs rbs) = consLHS r rbs . consLHS l lbs
-consLHS LeftHandSidePair{} TupRsingle_{} = error "consLHS: Inaccesible left-hand side."
+weakenEnv :: LeftHandSide s v env env' -> LabelsTup Buff v -> LabelsEnv env -> LabelsEnv env'
+weakenEnv LeftHandSideWildcard{} _  = id
+weakenEnv LeftHandSideSingle{}   bs = (bs :>>:)
+weakenEnv (LeftHandSidePair l r) (TupRpair_ lbs rbs) = weakenEnv r rbs . weakenEnv l lbs
+weakenEnv LeftHandSidePair{} TupRsingle_{} = error "consLHS: Inaccesible left-hand side."
 -- consLHS (LeftHandSidePair l r) (TupRsingle_ b) = consLHS r (TupRsingle_ b) . consLHS l (TupRsingle_ b)
 
 
