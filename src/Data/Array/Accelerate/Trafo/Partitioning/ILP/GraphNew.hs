@@ -15,8 +15,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE PatternSynonyms #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.GraphNew where
@@ -26,7 +24,7 @@ import Data.Array.Accelerate.AST.Operation
 import Data.Array.Accelerate.Backend hiding (MakesILP)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LabelsNew
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap (Multimap(..), Multimap2D(..))
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap (Multimap)
 import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap as MM
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (c)
 
@@ -49,8 +47,10 @@ import Data.Kind (Type)
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Array.Buffer
 import Data.Array.Accelerate.Representation.Shape
-import Data.Typeable
-import Data.Maybe
+import Data.Void
+import Unsafe.Coerce (unsafeCoerce)
+import Data.Coerce
+import Data.Functor.Identity
 
 
 
@@ -188,7 +188,7 @@ allInfusible cs1 b c2 = allBefore cs1 c2 . allFusible cs1 b c2
 -- | Guard against 2-cycles in the graph.
 guard2Cycle :: Label Comp -> Label Comp -> Graph -> Bool
 guard2Cycle c1 c2 g = S.member (c2, c1) (g^.infusibleEdges)
-  || any (\((c1', _), c2') -> (c1', c2') == (c2, c1)) MM.toList (g^.fusibleEdges)
+  || any (\((c1', _), c2') -> (c1', c2') == (c2, c1)) (MM.toList (g^.fusibleEdges))
 
 
 
@@ -243,7 +243,7 @@ instance Show (LabelledArgOp op env a) where
   show :: LabelledArgOp op env a -> String
   show (LArgOp _ bs _) = show bs
 
-data Symbol (op :: Type -> Type) where  -- Empty for now.
+data Symbol (op :: Type -> Type) where
   SExe' :: LabelsEnv env -> LabelledArgs      env args -> op args                              -> Symbol op
   SExe  :: LabelsEnv env -> LabelledArgsOp op env args                                         -> Symbol op
   SUse  ::                  ScalarType e -> Int -> Buffer e                                    -> Symbol op
@@ -251,7 +251,7 @@ data Symbol (op :: Type -> Type) where  -- Empty for now.
   SWhl  :: LabelsEnv env -> Label Comp -> Label Comp -> GroundVars env a     -> Uniquenesses a -> Symbol op
   SLet  ::                  GLeftHandSide bnd env env' -> LabelsTup Buff bnd -> Uniquenesses a -> Symbol op
   SFun  ::                  GLeftHandSide bnd env env' -> LabelsTup Buff bnd                   -> Symbol op
-  SBod  ::                  Label Comp                                                         -> Symbol op
+  SBod  ::                  LabelsTup Buff bnd                                                 -> Symbol op
   SRet  :: LabelsEnv env -> GroundVars env a                                                   -> Symbol op
   SCmp  :: LabelsEnv env -> Exp env a                                                          -> Symbol op
   SAlc  :: LabelsEnv env -> ShapeR sh -> ScalarType e -> ExpVars env sh                        -> Symbol op
@@ -420,18 +420,17 @@ freshB = do
 
 
 mkFullGraph :: forall op env t. (MakesILP op)
-            => PreOpenAcc op env t
-            -> State (FullGraphState op env) (LabelsTup Buff t)
+            => FullGraphMaker PreOpenAcc op env t (LabelsTup Buff t)
 mkFullGraph (Exec op args) = do
   lenv <- use labelsEnv
   penv <- use producersEnv
   c <- freshC
   let labelledArgs = labelArgs args lenv
   forLArgsM_ labelledArgs \case
-    (LArg (ArgArray In  _ _ _) bs) -> forM_ bs (---> c)
-    (LArg (ArgArray Out _ _ _) bs) -> forM_ bs (<=== c)
-    (LArg (ArgArray Mut _ _ _) bs) -> forM_ bs (<==> c)
-    (LArg _                    bs) -> forM_ bs (===> c)
+    (LArg (ArgArray In  _ _ _) bs) -> for_ bs (---> c)
+    (LArg (ArgArray Out _ _ _) bs) -> for_ bs (<=== c)
+    (LArg (ArgArray Mut _ _ _) bs) -> for_ bs (<==> c)
+    (LArg _                    bs) -> for_ bs (===> c)
   _ <- zoom (with producersEnv penv . unprotected ilpInfo)
     _ -- Query the backend
   symbols %= M.insert c (SExe' lenv labelledArgs op)
@@ -443,7 +442,7 @@ mkFullGraph (Alet LeftHandSideUnit _ bnd scp) =
 mkFullGraph (Alet lhs u bnd scp) = do
   c <- freshC
   bndRes <- mkFullGraph bnd
-  forM_ bndRes $ mapM_ (<--> c)
+  for_ bndRes $ traverse_ (<--> c)
   symbols %= M.insert c (SLet lhs bndRes u)
   zoom (local lhs bndRes) (mkFullGraph scp)
 
@@ -451,28 +450,28 @@ mkFullGraph (Return vars) = do
   lenv <- use labelsEnv
   c <- freshC
   let bs = getVarsLTup vars lenv
-  forM_ bs $ mapM_ (<--> c)
+  for_ bs $ traverse_ (<--> c)
   symbols %= M.insert c (SRet lenv vars)
   return bs
 
 mkFullGraph (Compute expr) = do
   lenv <- use labelsEnv
   (b, c) <- freshB
-  forM_ (getExpDeps expr lenv) (===> c)
+  for_ (getExpDeps expr lenv) (===> c)
   symbols %= M.insert c (SCmp lenv expr)
   return (tupRlike_ (expType expr) b)
 
 mkFullGraph (Alloc shr e sh) = do
   lenv <- use labelsEnv
   (b, c) <- freshB
-  forM_ (getVarsDeps sh lenv) (===> c)
+  for_ (getVarsDeps sh lenv) (===> c)
   symbols %= M.insert c (SAlc lenv shr e sh)
   return (TupRsingle_ b)
 
 mkFullGraph (Unit var) = do
   lenv <- use labelsEnv
   (b, c) <- freshB
-  forM_ (getVarDeps var lenv) (===> c)
+  for_ (getVarDeps var lenv) (===> c)
   symbols %= M.insert c (SUnt lenv var)
   return (TupRsingle_ b)
 
@@ -483,54 +482,82 @@ mkFullGraph (Use sctype n buff) = do
 
 mkFullGraph (Acond cond tacc facc) = do
   lenv <- use labelsEnv
-  c_cond <- freshC
-  forM_ (getVarDeps cond lenv) (===> c_cond)
-  zoom (scope c_cond) do
-    c_true  <- freshC
-    c_false <- freshC
-    symbols %= M.insert c_cond (SITE lenv cond c_true c_false)
-    (t_res, t_penv) <- zoom (scope c_true . protected producersEnv) do
-      res  <- mkFullGraph tacc
-      penv <- use producersEnv
-      return (res, penv)
-    (f_res, f_penv) <- zoom (scope c_false . protected producersEnv) do
-      res  <- mkFullGraph facc
-      penv <- use producersEnv
-      return (res, penv)
-    producersEnv .= t_penv <> f_penv
-    return (t_res <> f_res)
+  c_cond  <- freshC
+  c_true  <- freshC
+  c_false <- freshC
+  for_ (getVarDeps cond lenv) (===> c_cond)
+  symbols %= M.insert c_cond (SITE lenv cond c_true c_false)
+  (t_res, t_penv) <- block c_true  mkFullGraph tacc
+  (f_res, f_penv) <- block c_false mkFullGraph facc
+  producersEnv .= t_penv <> f_penv
+  let res = t_res <> f_res
+  for_ res $ traverse_ (<--> c_cond)
+  return res
 
 mkFullGraph (Awhile u cond body init) = do
   lenv <- use labelsEnv
   c_while <- freshC
-  forM_ (getVarsDeps init lenv) (===> c_while)
-  zoom (scope c_while) do
-    c_cond <- freshC
-    c_body <- freshC
-    symbols %= M.insert c_while (SWhl lenv c_cond c_body init u)
-    cond_penv <- zoom (scope c_cond . protected producersEnv) do
-      _ <- mkFullGraphF cond
-      use producersEnv
-    (body_res, body_penv) <- zoom (scope c_body . protected producersEnv) do
-      res  <- mkFullGraphF body
-      penv <- use producersEnv
-      return (res, penv)
-    producersEnv .= cond_penv <> body_penv
-    return body_res
+  c_cond  <- freshC
+  c_body  <- freshC
+  for_ (getVarsDeps init lenv) (===> c_while)
+  symbols %= M.insert c_while (SWhl lenv c_cond c_body init u)
+  (_                , cond_penv) <- block c_cond mkFullGraphF cond
+  (fromResult -> res, body_penv) <- block c_body mkFullGraphF body
+  producersEnv .= cond_penv <> body_penv
+  for_ res $ traverse_ (<--> c_while)
+  return res
 
 
 
-mkFullGraphF :: (MakesILP op)
-            => PreOpenAfun op env t
-            -> State (FullGraphState op env) (LabelsTup Buff (Result t))
-mkFullGraphF (Abody _) = undefined
-mkFullGraphF (Alam lhs f) = undefined
+mkFullGraphF :: forall op env t. (MakesILP op)
+             => FullGraphMaker PreOpenAfun op env t (LabelsTup Buff (Result t))
+mkFullGraphF (Abody acc) = do
+  c <- freshC
+  zoom (scope c) do
+    res <- mkFullGraph acc
+    symbols %= M.insert c (SBod res)
+    for_ res $ traverse_ (<--> c)
+    return (toResult res)
 
+
+mkFullGraphF (Alam lhs f) = do
+  (b, c) <- freshB
+  zoom (local lhs (tupRlike_ (lhsToTupR lhs) b)) do
+    res <- mkFullGraphF f
+    symbols %= M.insert c (SFun lhs (fromResult res))
+    return res
+
+
+
+block :: Label Comp -> FullGraphMaker f op env t (LabelsTup Buff r)
+      -> FullGraphMaker f op env t (LabelsTup Buff r, ProducersEnv)
+block c f x = zoom (scope c . unprotected producersEnv) do
+  res <- f x
+  for_ res $ traverse_ (<--> c)
+  penv <- use producersEnv
+  return (res, penv)
+
+
+
+type FullGraphMaker f op env t r = f op env t -> State (FullGraphState op env) r
 
 type Result :: Type -> Type
-type family Result t = r where
-  Result (s -> t) = t
+type family Result t where
+  Result (s -> t) = Result t
   Result t        = t
+
+-- | Trust me, I'm an engineer.
+fromResult :: LabelsTup Buff (Result t) -> LabelsTup Buff t
+fromResult = unsafeCoerce
+
+-- | With epic skill and epic gear.
+toResult :: LabelsTup Buff t -> LabelsTup Buff (Result t)
+toResult = unsafeCoerce
+
+
+type family Func args res where
+  Func (arg -> args) res = arg -> Func args res
+  Func arg           res = arg -> res
 
 
 

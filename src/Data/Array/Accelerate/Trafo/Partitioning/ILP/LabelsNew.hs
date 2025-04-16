@@ -189,7 +189,7 @@ tupRlike_ (TupRpair l r) b = TupRpair_ (tupRlike_ l b) (tupRlike_ r b)
 -- We use a tuple of labels instead of a single label because after an
 -- if-then-else there are now two labels that could be referenced depending
 -- on the branch taken.
-type LabelsTup t s = TupR_ s (Labels t)
+type LabelsTup s t = TupR_ t (Labels s)
 
 -- | Get the values associated with 'Vars' in 'LabelsEnv'.
 getVarsLTup :: Vars s env t -> LabelsEnv env -> LabelsTup Buff t
