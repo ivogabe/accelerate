@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP              #-}
 {-# LANGUAGE TemplateHaskell  #-}
 {-# LANGUAGE TypeApplications #-}
 -- |
@@ -25,7 +26,6 @@ import Data.Array.Accelerate.Sugar.Elt
 import Data.Array.Accelerate.Type
 
 import Control.Monad
-import Data.Bits
 import Data.Char
 import Data.List                                                    ( (\\), foldl' )
 import Language.Haskell.TH.Extra                                    hiding ( Exp, Match, match )
@@ -74,10 +74,10 @@ mkDec dec =
     NewtypeD _ nm tv _ c  _ -> mkNewtypeD nm tv c
     _                       -> fail "mkPatterns: expected the name of a newtype or datatype"
 
-mkNewtypeD :: Name -> [TyVarBndr ()] -> Con -> DecsQ
+mkNewtypeD :: Name -> [TyVarBndr a] -> Con -> DecsQ
 mkNewtypeD tn tvs c = mkDataD tn tvs [c]
 
-mkDataD :: Name -> [TyVarBndr ()] -> [Con] -> DecsQ
+mkDataD :: Name -> [TyVarBndr a] -> [Con] -> DecsQ
 mkDataD tn tvs cs = do
   (pats, decs) <- unzip <$> go cs
   comp         <- pragCompleteD pats Nothing
@@ -87,7 +87,7 @@ mkDataD tn tvs cs = do
     -- type directly in terms of Pattern
     go []  = fail "mkPatterns: empty data declarations not supported"
     go [c] = return <$> mkConP tn tvs c
-    go _   = go' [] (map fieldTys cs) ctags cs
+    go _   = go' [] (map fieldTys cs) [0 .. fromIntegral (length cs - 1)] cs
 
     -- For sum-types, when creating the pattern for an individual
     -- constructor we need to know about the types of the fields all other
@@ -104,25 +104,8 @@ mkDataD tn tvs cs = do
     fieldTys (InfixC a _ b) = [snd a, snd b]
     fieldTys _              = fail "mkPatterns: only constructors for \"vanilla\" syntax are supported"
 
-    -- TODO: The GTags class demonstrates a way to generate the tags for
-    -- a given constructor, rather than backwards-engineering the structure
-    -- as we've done here. We should use that instead!
-    --
-    ctags =
-      let n = length cs
-          m = n `quot` 2
-          l = take m     (iterate (True:) [False])
-          r = take (n-m) (iterate (True:) [True])
-          --
-          bitsToTag = foldl' f 0
-            where
-              f i False =         i `shiftL` 1
-              f i True  = setBit (i `shiftL` 1) 0
-      in
-      map bitsToTag (l ++ r)
 
-
-mkConP :: Name -> [TyVarBndr ()] -> Con -> Q (Name, [Dec])
+mkConP :: Name -> [TyVarBndr a] -> Con -> Q (Name, [Dec])
 mkConP tn' tvs' con' = do
   checkExts [ PatternSynonyms ]
   case con' of
@@ -181,7 +164,13 @@ mkConP tn' tvs' con' = do
                      ]
       r' <- case mf of
               Nothing -> return r
+-- Since template-haskell 2.22, NamespaceSpecifier has been added
+-- https://hackage.haskell.org/package/template-haskell-2.22.0.0/changelog
+#if MIN_VERSION_template_haskell(2,22,0)
+              Just f  -> return (InfixD f NoNamespaceSpecifier pat : r)
+#else
               Just f  -> return (InfixD f pat : r)
+#endif
       return (pat, r')
       where
         pat = mkName (':' : nameBase cn)
@@ -192,7 +181,7 @@ mkConP tn' tvs' con' = do
                        [t| Exp $(foldl' appT (conT tn) (map varT tvs)) |]
                        (map (\t -> [t| Exp $(return t) |]) fs))
 
-mkConS :: Name -> [TyVarBndr ()] -> [[Type]] -> [[Type]] -> Word8 -> Con -> Q (Name, [Dec])
+mkConS :: Name -> [TyVarBndr a] -> [[Type]] -> [[Type]] -> Word8 -> Con -> Q (Name, [Dec])
 mkConS tn' tvs' prev' next' tag' con' = do
   checkExts [GADTs, PatternSynonyms, ScopedTypeVariables, TypeApplications, ViewPatterns]
   case con' of
@@ -273,7 +262,13 @@ mkConS tn' tvs' prev' next' tag' con' = do
                      ]
       r' <- case mf of
               Nothing -> return r
+-- Since template-haskell 2.22, NamespaceSpecifier has been added
+-- https://hackage.haskell.org/package/template-haskell-2.22.0.0/changelog
+#if MIN_VERSION_template_haskell(2,22,0)
+              Just f  -> return (InfixD f NoNamespaceSpecifier pat : r)
+#else
               Just f  -> return (InfixD f pat : r)
+#endif
       return r'
       where
         sig = forallT
