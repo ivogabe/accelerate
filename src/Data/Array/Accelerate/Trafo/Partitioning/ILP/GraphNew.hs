@@ -19,38 +19,35 @@
 {-# LANGUAGE PatternSynonyms #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.GraphNew where
 
+import Prelude hiding ( init, reads )
+
+-- Accelerate imports
+import Data.Array.Accelerate.Array.Buffer
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Operation
-import Data.Array.Accelerate.Backend hiding (MakesILP)
+import Data.Array.Accelerate.Trafo.Operation.LiveVars
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LabelsNew
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding ( c )
+import Data.Array.Accelerate.Representation.Shape
+import Data.Array.Accelerate.Type
+import Data.Array.Accelerate.Analysis.Hash.Exp
 
+-- Data structures (including custom Multimap)
+import Data.Set (Set)
+import Data.Map (Map)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap (Multimap)
+import qualified Data.Set as S
+import qualified Data.Map as M
 import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap as MM
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (c)
-
-import Prelude hiding (init, reads)
 
 import Lens.Micro
 import Lens.Micro.TH
 import Lens.Micro.Mtl
 
-import Data.Set (Set)
-import qualified Data.Set as S
-
-import Data.Map (Map)
-import qualified Data.Map as M
-
-
 import Control.Monad.State (State)
 import Data.Foldable
 import Data.Kind (Type)
-import Data.Array.Accelerate.Type
-import Data.Array.Accelerate.Array.Buffer
-import Data.Array.Accelerate.Representation.Shape
-import Data.Void
 import Unsafe.Coerce (unsafeCoerce)
-import Data.Coerce
-import Data.Functor.Identity
 
 
 
@@ -228,7 +225,39 @@ makeLenses ''ILPInfo
 --------------------------------------------------------------------------------
 
 class (ShrinkArg (BackendClusterArg op), Eq (BackendVar op), Ord (BackendVar op), Eq (BackendArg op), Show (BackendArg op), Ord (BackendArg op), Show (BackendVar op)) => MakesILP op where
-  mkGraph :: op args -> LabelledArgs env args -> Label Comp -> State (FullGraphState op env) ()
+  -- Vars needed to express backend-specific fusion rules.
+  type BackendVar op
+  -- Information that the backend attaches to the argument for reconstruction,
+  -- i.e. to identify when two instances of an array are to be fused.
+  type BackendArg op
+  defaultBA :: BackendArg op -- anything that's equal to itself
+
+  -- Information that the backend attaches to the cluster, for use in interpreting/code generation.
+  data BackendClusterArg op arg
+  combineBackendClusterArg :: BackendClusterArg op (Out sh e) -> BackendClusterArg op (In sh e) -> BackendClusterArg op (Var' sh)
+  encodeBackendClusterArg :: BackendClusterArg op arg -> Builder
+
+
+  -- | This function defines per-operation backend-specific fusion rules.
+  --
+  -- When this function gets called, the majority of edges have already been
+  -- added to the graph. That is, we have already added read-, write-, fusible-
+  -- and infusible-edges such that no race conditions exist.
+  -- The backend is responsible for adding (or removing) edges to (or from) the
+  -- graph to enforce any additional constraints the implementation may have.
+  --
+  mkBackendGraph
+    :: op args                -- ^ The operation.
+    -> Label Comp             -- ^ The label of the operation.
+    -> LabelledArgs env args  -- ^ The arguments to the operation.
+    -> State (FullGraphState op env) ()
+
+  -- using the ILP solution, attach the required information to each argument
+  labelLabelledArg :: Solution op -> Label t -> LabelledArg env a -> LabelledArgOp op env a
+  getClusterArg :: LabelledArgOp op env a -> BackendClusterArg op a
+
+  -- allow the backend to add constraints/bounds for every node
+  finalize :: [Label t] -> Constraint op
 
 
 
@@ -251,7 +280,7 @@ data Symbol (op :: Type -> Type) where
   SWhl  :: LabelsEnv env -> Label Comp -> Label Comp -> GroundVars env a     -> Uniquenesses a -> Symbol op
   SLet  ::                  GLeftHandSide bnd env env' -> LabelsTup Buff bnd -> Uniquenesses a -> Symbol op
   SFun  ::                  GLeftHandSide bnd env env' -> LabelsTup Buff bnd                   -> Symbol op
-  SBod  ::                  LabelsTup Buff bnd                                                 -> Symbol op
+  SBod  ::                  LabelsTup Buff res                                                 -> Symbol op
   SRet  :: LabelsEnv env -> GroundVars env a                                                   -> Symbol op
   SCmp  :: LabelsEnv env -> Exp env a                                                          -> Symbol op
   SAlc  :: LabelsEnv env -> ShapeR sh -> ScalarType e -> ExpVars env sh                        -> Symbol op
@@ -419,6 +448,10 @@ freshB = do
 
 
 
+--------------------------------------------------------------------------------
+-- Graph construction
+--------------------------------------------------------------------------------
+
 mkFullGraph :: forall op env t. (MakesILP op)
             => FullGraphMaker PreOpenAcc op env t (LabelsTup Buff t)
 mkFullGraph (Exec op args) = do
@@ -431,8 +464,8 @@ mkFullGraph (Exec op args) = do
     (LArg (ArgArray Out _ _ _) bs) -> for_ bs (<=== c)
     (LArg (ArgArray Mut _ _ _) bs) -> for_ bs (<==> c)
     (LArg _                    bs) -> for_ bs (===> c)
-  _ <- zoom (with producersEnv penv . unprotected ilpInfo)
-    _ -- Query the backend
+  zoom (with producersEnv penv . unprotected ilpInfo) $
+    mkBackendGraph op c labelledArgs
   symbols %= M.insert c (SExe' lenv labelledArgs op)
   return TupRunit_
 
@@ -501,8 +534,8 @@ mkFullGraph (Awhile u cond body init) = do
   c_body  <- freshC
   for_ (getVarsDeps init lenv) (===> c_while)
   symbols %= M.insert c_while (SWhl lenv c_cond c_body init u)
-  (_                , cond_penv) <- block c_cond mkFullGraphF cond
-  (fromResult -> res, body_penv) <- block c_body mkFullGraphF body
+  (_                  , cond_penv) <- block c_cond mkFullGraphF cond
+  (unsafeCoerce -> res, body_penv) <- block c_body mkFullGraphF body  -- Safe
   producersEnv .= cond_penv <> body_penv
   for_ res $ traverse_ (<--> c_while)
   return res
@@ -517,18 +550,19 @@ mkFullGraphF (Abody acc) = do
     res <- mkFullGraph acc
     symbols %= M.insert c (SBod res)
     for_ res $ traverse_ (<--> c)
-    return (toResult res)
-
+    return (unsafeCoerce res)  -- Safe
 
 mkFullGraphF (Alam lhs f) = do
   (b, c) <- freshB
-  zoom (local lhs (tupRlike_ (lhsToTupR lhs) b)) do
+  let bnd = tupRlike_ (lhsToTupR lhs) b
+  zoom (local lhs bnd) do
     res <- mkFullGraphF f
-    symbols %= M.insert c (SFun lhs (fromResult res))
+    symbols %= M.insert c (SFun lhs bnd)
     return res
 
 
-
+-- | A block is a subcomputation that is executed under the scope of a
+--   computation
 block :: Label Comp -> FullGraphMaker f op env t (LabelsTup Buff r)
       -> FullGraphMaker f op env t (LabelsTup Buff r, ProducersEnv)
 block c f x = zoom (scope c . unprotected producersEnv) do
@@ -539,27 +573,20 @@ block c f x = zoom (scope c . unprotected producersEnv) do
 
 
 
+-- | Type of functions that take an AST and produce a graph.
 type FullGraphMaker f op env t r = f op env t -> State (FullGraphState op env) r
 
+-- | Type-level function to get the result type of a function.
+--
+-- Note that to make this work I needed 'unsafeCoerce', because the constructors
+-- of data types we encounter use either @t@ or @s -> t@. Unfortunately GHC
+-- can't distinguish between these two cases since both are of kind 'Type'.
+-- The current types used in Accelerate are simply too permissive to allow for
+-- rigorous proofs.
 type Result :: Type -> Type
 type family Result t where
-  Result (s -> t) = Result t
+  Result (_ -> t) = Result t
   Result t        = t
-
--- | Trust me, I'm an engineer.
-fromResult :: LabelsTup Buff (Result t) -> LabelsTup Buff t
-fromResult = unsafeCoerce
-
--- | With epic skill and epic gear.
-toResult :: LabelsTup Buff t -> LabelsTup Buff (Result t)
-toResult = unsafeCoerce
-
-
-type family Func args res where
-  Func (arg -> args) res = arg -> Func args res
-  Func arg           res = arg -> res
-
-
 
 {-
 I probably want to not duplicate a buffer that is used as both input
