@@ -62,7 +62,7 @@ import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Trafo.Var
 import Data.Array.Accelerate.Trafo.Exp.Substitution
 import Data.Array.Accelerate.Trafo.Substitution
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Labels, LabelledArgs, LabelledArg (..), ALabel (..), ELabel (..), Label(..), ELabelTup)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Labels, LabelledArgs, LabelledArg (..), Label(..))
 import Data.List (sortOn, partition, groupBy, nubBy)
 import qualified Data.Functor.Const as C
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (LabelledArgOp (..), BackendClusterArg, MakesILP (..), LabelledArgsOp, BackendCluster)
@@ -1056,7 +1056,7 @@ flatOpsSetIndices fusedR fusedLHS fusedVars ops = go ShapeRz
     localBuffersR _ TupRunit _ = TupRunit
     localBuffersR ops'' (TupRsingle tp) (TupRsingle var)
       | Refl <- reprIsSingle @ScalarType @e @Buffer tp
-      = TupRsingle $ LocalBufferR tp $ fromMaybe 0 $ findBufferDepth ops'' $ varIdx var 
+      = TupRsingle $ LocalBufferR tp $ fromMaybe 0 $ findBufferDepth ops'' $ varIdx var
     localBuffersR ops'' (TupRpair t1 t2) (TupRpair v1 v2)
       = localBuffersR ops'' t1 v1 `TupRpair` localBuffersR ops'' t2 v2
     localBuffersR _ _ _ = internalError "Tuple mismatch"

@@ -41,7 +41,7 @@ finalize ilp@(ILP dir obj constr bnds n) =
   ILP dir obj (constr <> extraconstr) (bnds <> extrabnds) n
   where
     extraconstr = foldMap (\v -> int (-5) .<=. c v) (allVars ilp)
-    extrabnds   = foldMap (\v -> Lower (-5) v)      (allVars ilp)
+    extrabnds   = foldMap (Lower (-5))              (allVars ilp)
 
 data OptDir = Maximise | Minimise
   deriving Show
@@ -172,16 +172,19 @@ isEqualRange f a b r = a .-. f r .<=. b <> b .<=. a .+. f r
 allVars :: Ord (Var op) => ILP op -> S.Set (Var op)
 allVars (ILP _ cost constraint bounds _) = varsExpr cost <> varsConstr constraint <> varsBounds bounds
 
+varsExpr :: Ord (Var op) => Expression op -> S.Set (Var op)
 varsExpr (Constant _) = mempty
 varsExpr (a :+ b) = varsExpr a <> varsExpr b
 varsExpr (_ :* v) = S.singleton v
 
+varsConstr :: Ord (Var op) => Constraint op -> S.Set (Var op)
 varsConstr TrueConstraint = mempty
 varsConstr (a :&& b) = varsConstr a <> varsConstr b
 varsConstr (a :>= b) = varsExpr a <> varsExpr b
 varsConstr (a :== b) = varsExpr a <> varsExpr b
 varsConstr (a :<= b) = varsExpr a <> varsExpr b
 
+varsBounds :: Ord (Var op) => Bounds op -> S.Set (Var op)
 varsBounds NoBounds  = mempty
 varsBounds (a :<> b) = varsBounds a <> varsBounds b
 varsBounds (Binary v) = S.singleton v

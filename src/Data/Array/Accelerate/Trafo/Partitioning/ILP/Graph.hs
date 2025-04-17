@@ -17,14 +17,16 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE PatternSynonyms #-}
-module Data.Array.Accelerate.Trafo.Partitioning.ILP.Grap where
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+module Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph where
 
 import Prelude hiding ( init, reads )
 
 -- Accelerate imports
 import Data.Array.Accelerate.Array.Buffer
 import Data.Array.Accelerate.AST.LeftHandSide
-import Data.Array.Accelerate.AST.Operation
+import Data.Array.Accelerate.AST.Operation hiding (Var)
 import Data.Array.Accelerate.Trafo.Operation.LiveVars
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding ( c )
@@ -228,6 +230,9 @@ class (Eq (BackendVar op), Ord (BackendVar op), Show (BackendVar op)) => MakesIL
   -- | ILP variables for backend-specific fusion rules.
   type BackendVar op
 
+  -- | Data that the backend adds to the graph for reconstruction.
+  type BackendArg op
+
   -- | This function defines per-operation backend-specific fusion rules.
   --
   -- When this function gets called, the majority of edges have already been
@@ -280,18 +285,22 @@ data Var (op :: Type -> Type)
     -- ^ Vars needed to express backend-specific fusion rules.
     -- This is what allows backends to specify how each of the operations can fuse.
 
+deriving instance Eq (BackendVar op) => Eq (Var op)
+deriving instance Ord (BackendVar op) => Ord (Var op)
+deriving instance Show (BackendVar op) => Show (Var op)
+
 
 
 --------------------------------------------------------------------------------
 -- Symbol table
 --------------------------------------------------------------------------------
 
--- data LabelledArgOp  op env a = LArgOp (Arg env a) (Labels Buff) (BackendArg op)
--- type LabelledArgsOp op env   = PreArgs (LabelledArgOp op env)
+data LabelledArgOp  op env a = LArgOp (Arg env a) (Labels Buff) (BackendArg op)
+type LabelledArgsOp op env   = PreArgs (LabelledArgOp op env)
 
--- instance Show (LabelledArgOp op env a) where
---   show :: LabelledArgOp op env a -> String
---   show (LArgOp _ bs _) = show bs
+instance Show (LabelledArgOp op env a) where
+  show :: LabelledArgOp op env a -> String
+  show (LArgOp _ bs _) = show bs
 
 data Symbol (op :: Type -> Type) where
   SExe :: LabelsEnv env -> LabelledArgs env args -> op args                                   -> Symbol op
@@ -636,6 +645,10 @@ aforementioned problems since the buffer will be a proper part of the graph
 and the environment before some operation is executed.
 -}
 
+
+--------------------------------------------------------------------------------
+-- Helpers
+--------------------------------------------------------------------------------
 
 -- | Lens that protects a given value from being modified.
 protected :: Lens' s a -> Lens' s s
