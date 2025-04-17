@@ -21,6 +21,8 @@ either be a computation or a buffer.
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels where
 
 import Data.Array.Accelerate.AST.Operation
@@ -46,6 +48,12 @@ import qualified Data.Functor.Const as C
 import Data.Coerce
 import Control.Monad.State
 import Data.Foldable
+import Data.Array.Accelerate.Array.Buffer (Buffer, Buffers)
+import Data.Typeable
+import Data.Array.Accelerate.Type (ScalarType)
+import Data.Array.Accelerate.Error
+import Data.Array.Accelerate.Representation.Array
+import Data.Bifunctor (Bifunctor(..))
 
 
 
@@ -142,75 +150,91 @@ updateLabels b b' bs
 
 
 --------------------------------------------------------------------------------
--- Tupled Labels
+-- Constant-valued Tuple Representation
 --------------------------------------------------------------------------------
 
-{- | Variant of 'TupR' that ignores the type information. -}
-data TupR_ t a where
-  TupRunit_   ::                           TupR_ () a
-  TupRsingle_ :: a                      -> TupR_ t  a
-  TupRpair_   :: TupR_ s a -> TupR_ t a -> TupR_ (s, t) a
+-- | Flipped, constant 'TupR'.
+newtype TupF t a = TupF { unTupF :: TupR (C.Const a) t }
+pattern TupFunit :: TupF () a
+pattern TupFunit = TupF TupRunit
+pattern TupFsingle :: a -> TupF t a
+pattern TupFsingle a = TupF (TupRsingle (C.Const a))
+pattern TupFpair :: TupF s a -> TupF t a -> TupF (s, t) a
+pattern TupFpair l r <- TupF (TupRpair (TupF -> l) (TupF -> r)) where
+  TupFpair (unTupF -> l) (unTupF -> r) = TupF (TupRpair l r)
+{-# COMPLETE TupFunit, TupFsingle, TupFpair #-}
 
-deriving instance Show a => Show (TupR_ t a)
+instance Show a => Show (TupF t a) where
+  show :: Show a => TupF t a -> String
+  show (TupF tup) = show tup
 
-instance Functor (TupR_ t) where
-  fmap :: (a -> b) -> TupR_ t a -> TupR_ t b
-  fmap _ TupRunit_       = TupRunit_
-  fmap f (TupRsingle_ a) = TupRsingle_ (f a)
-  fmap f (TupRpair_ l r) = TupRpair_ (fmap f l) (fmap f r)
+instance Functor (TupF t) where
+  fmap :: forall a b. (a -> b) -> TupF t a -> TupF t b
+  fmap f = TupF . go . unTupF
+    where
+      go :: TupR (C.Const a) s -> TupR (C.Const b) s
+      go TupRunit       = TupRunit
+      go (TupRsingle a) = TupRsingle (coerce f a)
+      go (TupRpair l r) = TupRpair (go l) (go r)
 
-instance Foldable (TupR_ t) where
-  foldMap :: Monoid m => (a -> m) -> TupR_ t a -> m
-  foldMap _ TupRunit_       = mempty
-  foldMap f (TupRsingle_ a) = f a
-  foldMap f (TupRpair_ l r) = foldMap f l <> foldMap f r
 
-instance Traversable (TupR_ t) where
-  traverse :: Applicative f => (a -> f b) -> TupR_ t a -> f (TupR_ t b)
-  traverse _ TupRunit_       = pure TupRunit_
-  traverse f (TupRsingle_ a) = TupRsingle_ <$> f a
-  traverse f (TupRpair_ l r) = TupRpair_ <$> traverse f l <*> traverse f r
+instance Foldable (TupF t) where
+  foldMap :: forall m a. Monoid m => (a -> m) -> TupF t a -> m
+  foldMap f = go . unTupF
+    where
+      go :: TupR (C.Const a) s -> m
+      go TupRunit       = mempty
+      go (TupRsingle a) = f (coerce a)
+      go (TupRpair l r) = go l <> go r
 
-instance Semigroup a => Semigroup (TupR_ t a) where
-  (<>) :: TupR_ t a -> TupR_ t a -> TupR_ t a
-  (<>) TupRunit_         TupRunit_         = TupRunit_
-  (<>) (TupRsingle_ a)   (TupRsingle_ b)   = TupRsingle_ (a <> b)
-  (<>) (TupRpair_ l1 r1) (TupRpair_ l2 r2) = TupRpair_ (l1 <> l2) (r1 <> r2)
-  (<>) _ _ = error "TupR_: Inaccessible left-hand side?"
+instance Traversable (TupF t) where
+  traverse :: forall f a b. Applicative f => (a -> f b) -> TupF t a -> f (TupF t b)
+  traverse f = (TupF <$>) . go . unTupF
+    where
+      go :: TupR (C.Const a) s -> f (TupR (C.Const b) s)
+      go TupRunit       = pure TupRunit
+      go (TupRsingle a) = TupRsingle . coerce <$> f (coerce a)
+      go (TupRpair l r) = TupRpair <$> go l <*> go r
 
--- | Create a 'TupR_' containing a single value in the same shape as a 'TupR'.
-tupRlike_ :: TupR s t -> b -> TupR_ t b
-tupRlike_ TupRunit       _ = TupRunit_
-tupRlike_ (TupRsingle _) b = TupRsingle_ b
-tupRlike_ (TupRpair l r) b = TupRpair_ (tupRlike_ l b) (tupRlike_ r b)
+instance Semigroup a => Semigroup (TupF t a) where
+  (<>) :: TupF t a -> TupF t a -> TupF t a
+  (<>) (TupF t1) (TupF t2) = TupF (go t1 t2)
+    where
+      go :: TupR (C.Const a) s -> TupR (C.Const a) s -> TupR (C.Const a) s
+      go TupRunit         TupRunit         = TupRunit
+      go (TupRsingle a)   (TupRsingle b)   = TupRsingle (coerce (a <> b))
+      go (TupRpair l1 r1) (TupRpair l2 r2) = TupRpair (go l1 l2) (go r1 r2)
+      go _ _ = error "TupR_: Inaccessible left-hand side"
 
--- | Tuple of 'Labels'.
---
--- We use a tuple of labels instead of a single label because after an
--- if-then-else there are now two labels that could be referenced depending
--- on the branch taken.
-type LabelsTup s t = TupR_ t (Labels s)
 
--- | Get the values associated with 'Vars' in 'LabelsEnv'.
-getVarsLTup :: Vars s env t -> LabelsEnv env -> LabelsTup Buff t
-getVarsLTup TupRunit         _   = TupRunit_
-getVarsLTup (TupRsingle var) env = getVarLTup var env
-getVarsLTup (TupRpair l r)   env = TupRpair_ (getVarsLTup l env) (getVarsLTup r env)
-
--- | Get the value associated with a 'Var' in 'LabelsEnv'.
-getVarLTup :: Var s env t -> LabelsEnv env -> LabelsTup Buff t
-getVarLTup (varIdx -> idx) = getIdxLTup idx
-
--- | Get the value associated with an 'Idx' in 'LabelsEnv'.
-getIdxLTup :: Idx env t -> LabelsEnv env -> LabelsTup Buff t
-getIdxLTup ZeroIdx       (bs :>>: _)   = bs
-getIdxLTup (SuccIdx idx) (_  :>>: env) = getIdxLTup idx env
+-- | Create a 'TupF' containing a single value in the same shape as a 'TupR'.
+tupFlike :: TupR s t -> b -> TupF t b
+tupFlike TupRunit       _ = TupFunit
+tupFlike (TupRsingle _) b = TupFsingle b
+tupFlike (TupRpair l r) b = TupFpair (tupFlike l b) (tupFlike r b)
 
 
 
 --------------------------------------------------------------------------------
 -- Labelled Environment
 --------------------------------------------------------------------------------
+
+-- | An 'ELabel' uniquely identifies an element of the environment.
+newtype EnvLabel = EnvLabel { unELabel :: Int }
+  deriving (Show, Eq, Ord, Num)
+
+-- | A 'TupF' of 'EnvLabel'.
+type EnvLabelTupF t = TupF t EnvLabel
+
+freshE' :: State EnvLabel EnvLabel
+freshE' = id <%= (+1)
+
+-- | Tuple of 'Labels' of type 'Buff' to be stored in the environment.
+--
+-- We use a tuple of labels instead of a single label because after an
+-- if-then-else there are now two labels that could be referenced depending
+-- on the branch taken.
+type BuffersTupF t = TupF t (Labels Buff)
 
 -- | The environment used during graph construction.
 --
@@ -228,52 +252,16 @@ data LabelsEnv env where
   -- | The empty environment.
   EnvNil :: LabelsEnv ()
   -- | The non-empty environment.
-  (:>>:) :: LabelsTup Buff t   -- ^ The buffers
-         -> LabelsEnv env      -- ^ The rest of the environment
+  (:>>:) :: (EnvLabel, BuffersTupF t)  -- ^ A pair of 'EnvLabel' and 'BuffersTupF'.
+         -> LabelsEnv env              -- ^ The rest of the environment.
          -> LabelsEnv (env, t)
 
 instance Semigroup (LabelsEnv env) where
   (<>) :: LabelsEnv env -> LabelsEnv env -> LabelsEnv env
   (<>) EnvNil EnvNil = EnvNil
-  (<>) (bs1 :>>: env1) (bs2 :>>: env2) = (bs1 <> bs2) :>>: (env1 <> env2)
-
--- | Map a function over the labels in the environment.
-mapLEnv :: (forall t. LabelsTup Buff t -> LabelsTup Buff t) -> LabelsEnv env -> LabelsEnv env
-mapLEnv _ EnvNil = EnvNil
-mapLEnv f (bs :>>: env) = f bs :>>: mapLEnv f env
-
--- | Flipped version of 'mapLEnv'.
-forLEnv :: LabelsEnv env -> (forall t. LabelsTup Buff t -> LabelsTup Buff t) -> LabelsEnv env
-forLEnv env f = mapLEnv f env
-{-# INLINE forLEnv #-}
-
--- | Fold over the labels in the environment.
-foldMapLEnv :: Monoid m => (forall t. LabelsTup Buff t -> m) -> LabelsEnv env -> m
-foldMapLEnv _ EnvNil = mempty
-foldMapLEnv f (bs :>>: env) = f bs <> foldMapLEnv f env
-
--- | Map a monadic function over the labels in the environment.
-mapLEnvM :: Monad m => (forall t. LabelsTup Buff t -> m (LabelsTup Buff t)) -> LabelsEnv env -> m (LabelsEnv env)
-mapLEnvM _ EnvNil = return EnvNil
-mapLEnvM f (bs :>>: env) = do
-  bs'  <- f bs
-  env' <- mapLEnvM f env
-  return (bs' :>>: env')
-
--- | Flipped version of 'mapLEnvM'.
-forLEnvM :: Monad m => LabelsEnv env -> (forall t. LabelsTup Buff t -> m (LabelsTup Buff t)) -> m (LabelsEnv env)
-forLEnvM env f = mapLEnvM f env
-{-# INLINE forLEnvM #-}
-
--- | Map a monadic action over the labels in the environment and discard the result.
-mapLEnvM_ :: Monad m => (forall t. LabelsTup Buff t -> m ()) -> LabelsEnv env -> m ()
-mapLEnvM_ _ EnvNil = return ()
-mapLEnvM_ f (bs :>>: env) = f bs >> mapLEnvM_ f env
-
--- | Flipped version of 'mapLEnvM_'.
-forLEnvM_ :: Monad m => LabelsEnv env -> (forall t. LabelsTup Buff t -> m ()) -> m ()
-forLEnvM_ env f = mapLEnvM_ f env
-{-# INLINE forLEnvM_ #-}
+  (<>) ((e1, bs1) :>>: env1) ((e2, bs2) :>>: env2)
+    | e1 == e2  = (e1, bs1 <> bs2) :>>: (env1 <> env2)
+    | otherwise = error "mappend: Encountered diverging EnvLabels."
 
 
 -- | Constructs a new 'LabelsEnv' by prepending labels for each element in the
@@ -282,12 +270,11 @@ forLEnvM_ env f = mapLEnvM_ f env
 -- The case where the left-hand side and the right-hand side are incompatible
 -- should neven happen. But in case it does happen I already have an
 -- implementation prepared that will duplicate the 'TupRsingle_'.
-weakenEnv :: LeftHandSide s v env env' -> LabelsTup Buff v -> LabelsEnv env -> LabelsEnv env'
-weakenEnv LeftHandSideWildcard{} _  = id
-weakenEnv LeftHandSideSingle{}   bs = (bs :>>:)
-weakenEnv (LeftHandSidePair l r) (TupRpair_ lbs rbs) = weakenEnv r rbs . weakenEnv l lbs
-weakenEnv LeftHandSidePair{} TupRsingle_{} = error "consLHS: Inaccesible left-hand side."
--- consLHS (LeftHandSidePair l r) (TupRsingle_ b) = consLHS r (TupRsingle_ b) . consLHS l (TupRsingle_ b)
+weakenEnv :: LeftHandSide s v env env' -> BuffersTupF v -> LabelsEnv env -> State EnvLabel (LabelsEnv env')
+weakenEnv LeftHandSideWildcard{} _                  = pure
+weakenEnv LeftHandSideSingle{}   bs                 = \lenv -> freshE' >>= \e -> return ((e, bs) :>>: lenv)
+weakenEnv (LeftHandSidePair l r) (TupFpair lbs rbs) = weakenEnv l lbs >=> weakenEnv r rbs
+weakenEnv (LeftHandSidePair _ _) _ = error "consLHS: Inaccesible left-hand side."
 
 
 
@@ -310,9 +297,21 @@ The other types of arguments only ever read a single value from an array and
 can therefore not be fused.
 -}
 
--- | An argument to a function paired with some value.
-data LabelledArg env t = LArg (Arg env t) (Labels Buff)
-  deriving Show
+-- | 'EnvLabels' retrieved from the 'LabelsEnv' stored with an 'Arg', but only
+--   if the argument is an array.
+data ArgLabels t where
+  -- | The argument is an array.
+  Arr    :: EnvLabelTupF e  -- ^ The array (as structure-of-arrays).
+         -> ArgLabels (m sh e)
+  -- | The argument is a scalar 'Var'', 'Exp'' or 'Fun''.
+  NotArr :: ArgLabels (t e)
+
+deriving instance Show (ArgLabels t)
+
+-- | The argument to a function paired with its 'ArgLabels' and other
+--   dependencies.
+data LabelledArg env t = L (Arg env t) (ArgLabels t, Labels Buff)
+  deriving (Show)
 
 -- | Labelled arguments to be passed to a function.
 type LabelledArgs env = PreArgs (LabelledArg env)
@@ -321,7 +320,143 @@ type LabelledArgs env = PreArgs (LabelledArg env)
 labelArgs :: Args env args -> LabelsEnv env -> LabelledArgs env args
 labelArgs ArgsNil _ = ArgsNil
 labelArgs (arg :>: args) env =
-  LArg arg (getArgDeps arg env) :>: labelArgs args env
+  L arg (getArgLabels arg env) :>: labelArgs args env
+
+-- | Get the 'ArgLabels' associated with 'Arg' from 'LabelsEnv'.
+getArgLabels :: Arg env t -> LabelsEnv env -> (ArgLabels t, Labels Buff)
+getArgLabels (ArgVar vars) env = (NotArr, getVarsDeps vars env)
+getArgLabels (ArgExp exp)  env = (NotArr, getExpDeps  exp  env)
+getArgLabels (ArgFun fun)  env = (NotArr, getFunDeps  fun  env)
+getArgLabels (ArgArray _ (ArrayR _ tp) sh bu) env
+  | (_       , shBs) <- getVarsTupFs sh env
+  , (Arr buEs, buBs) <- getVarsTupFs bu env
+  = (unbuffers tp $ Arr buEs, fold shBs <> fold buBs)
+getArgLabels _ _ = error "getArgLabels: Inaccessible left-hand side."
+
+-- | Get the values associated with 'Vars' from 'LabelsEnv'.
+getVarsTupFs :: Vars a env b -> LabelsEnv env -> (ArgLabels (m sh b), BuffersTupF b)
+getVarsTupFs TupRunit         _   = (Arr TupFunit, TupFunit)
+getVarsTupFs (TupRsingle var) env = getVarTupFs var env
+getVarsTupFs (TupRpair l r)   env | (Arr l', bs1) <- getVarsTupFs l env
+                                  , (Arr r', bs2) <- getVarsTupFs r env
+                                  = (Arr (TupFpair l' r'), TupFpair bs1 bs2)
+getVarsTupFs _ _ = error "getVarsTupFs: Inaccessible left-hand side."
+
+-- | Get the value associated with a 'Var' in 'LabelsEnv'.
+getVarTupFs :: Var a env b -> LabelsEnv env -> (ArgLabels (m sh b), BuffersTupF b)
+getVarTupFs (varIdx -> idx) = getIdxTupFs idx
+
+-- | Get the value associated with an 'Idx' in 'LabelsEnv'.
+getIdxTupFs :: Idx env a -> LabelsEnv env -> (ArgLabels (m sh a), BuffersTupF a)
+getIdxTupFs ZeroIdx       (bs :>>: _)   = first (Arr . TupFsingle) bs
+getIdxTupFs (SuccIdx idx) (_  :>>: env) = getIdxTupFs idx env
+
+-- | Get the dependencies of a tuple of variables.
+getVarsDeps :: Vars s env t -> LabelsEnv env -> Labels Buff
+getVarsDeps vars = fold . snd . getVarsTupFs vars
+
+-- | Get the dependencies of a tuple of variables.
+getVarDeps :: Var s env t -> LabelsEnv env -> Labels Buff
+getVarDeps var = fold . snd . getVarTupFs var
+
+-- | Get the dependencies of an expression.
+getExpDeps :: OpenExp x env y -> LabelsEnv env -> Labels Buff
+getExpDeps (ArrayInstr (Index     var) poe) env = getVarDeps var  env <> getExpDeps poe  env
+getExpDeps (ArrayInstr (Parameter var) poe) env = getVarDeps var  env <> getExpDeps poe  env
+getExpDeps (Let _ poe1 poe2)                env = getExpDeps poe1 env <> getExpDeps poe2 env
+getExpDeps (Evar _)                         _   = mempty
+getExpDeps  Foreign{}                       _   = mempty
+getExpDeps (Pair  poe1 poe2)                env = getExpDeps poe1 env <> getExpDeps poe2 env
+getExpDeps  Nil                             _   = mempty
+getExpDeps (VecPack _ poe)                  env = getExpDeps poe  env
+getExpDeps (VecUnpack _ poe)                env = getExpDeps poe  env
+getExpDeps (IndexSlice _ poe1 poe2)         env = getExpDeps poe1 env <> getExpDeps poe2 env
+getExpDeps (IndexFull  _ poe1 poe2)         env = getExpDeps poe1 env <> getExpDeps poe2 env
+getExpDeps (ToIndex    _ poe1 poe2)         env = getExpDeps poe1 env <> getExpDeps poe2 env
+getExpDeps (FromIndex  _ poe1 poe2)         env = getExpDeps poe1 env <> getExpDeps poe2 env
+getExpDeps (Case poe1 poes poe2)            env = getExpDeps poe1 env <>
+                                                  foldMap ((`getExpDeps` env) . snd) poes <>
+                                                  maybe mempty (`getExpDeps` env) poe2
+getExpDeps (Cond poe1 poe2 exp3)            env = getExpDeps poe1 env <>
+                                                  getExpDeps poe2 env <>
+                                                  getExpDeps exp3 env
+getExpDeps (While pof1 pof2 poe)            env = getFunDeps pof1 env <>
+                                                  getFunDeps pof2 env <>
+                                                  getExpDeps poe  env
+getExpDeps (Const _ _)                      _   = mempty
+getExpDeps (PrimConst _)                    _   = mempty
+getExpDeps (PrimApp   _ poe)                env = getExpDeps poe  env
+getExpDeps (ShapeSize _ poe)                env = getExpDeps poe  env
+getExpDeps (Undef _)                        _   = mempty
+getExpDeps  Coerce{}                        _   = mempty
+
+-- | Get the dependencies of a function.
+getFunDeps :: OpenFun x env y -> LabelsEnv env -> Labels Buff
+getFunDeps (Body  poe) env = getExpDeps poe env
+getFunDeps (Lam _ fun) env = getFunDeps fun env
+
+-- | Remove the 'Buffers' type from 'ArgLabels'.
+unbuffers :: forall m sh e. TypeR e -> ArgLabels (m sh (Buffers e)) -> ArgLabels (m sh e)
+unbuffers TupRunit _ = Arr TupFunit
+unbuffers (TupRsingle t) (Arr (TupFsingle e))
+  | Refl <- reprIsSingle @ScalarType @e @Buffer t
+  = Arr (TupFsingle e)
+unbuffers (TupRpair t1 t2) (Arr (TupFpair l r))
+  | Arr l' <- unbuffers t1 (Arr l)
+  , Arr r' <- unbuffers t2 (Arr r)
+  = Arr (TupFpair l' r')
+unbuffers _ (Arr _) = error "Tuple mismatch"
+unbuffers _ _ = error "Not an array"
+
+
+
+--------------------------------------------------------------------------------
+-- Helpers for Labelled Environment
+--------------------------------------------------------------------------------
+
+-- | Map a function over the labels in the environment.
+mapLEnv :: (forall t. BuffersTupF t -> BuffersTupF t) -> LabelsEnv env -> LabelsEnv env
+mapLEnv _ EnvNil = EnvNil
+mapLEnv f ((e, bs) :>>: env) = (e, f bs) :>>: mapLEnv f env
+
+-- | Flipped version of 'mapLEnv'.
+forLEnv :: LabelsEnv env -> (forall t. BuffersTupF t -> BuffersTupF t) -> LabelsEnv env
+forLEnv env f = mapLEnv f env
+{-# INLINE forLEnv #-}
+
+-- | Fold over the labels in the environment.
+foldMapLEnv :: Monoid m => (forall t. BuffersTupF t -> m) -> LabelsEnv env -> m
+foldMapLEnv _ EnvNil = mempty
+foldMapLEnv f ((_, bs) :>>: env) = f bs <> foldMapLEnv f env
+
+-- | Map a monadic function over the labels in the environment.
+mapLEnvM :: Monad m => (forall t. BuffersTupF t -> m (BuffersTupF t)) -> LabelsEnv env -> m (LabelsEnv env)
+mapLEnvM _ EnvNil = return EnvNil
+mapLEnvM f ((e, bs) :>>: env) = do
+  bs'  <- f bs
+  env' <- mapLEnvM f env
+  return ((e, bs') :>>: env')
+
+-- | Flipped version of 'mapLEnvM'.
+forLEnvM :: Monad m => LabelsEnv env -> (forall t. BuffersTupF t -> m (BuffersTupF t)) -> m (LabelsEnv env)
+forLEnvM env f = mapLEnvM f env
+{-# INLINE forLEnvM #-}
+
+-- | Map a monadic action over the labels in the environment and discard the result.
+mapLEnvM_ :: Monad m => (forall t. BuffersTupF t -> m ()) -> LabelsEnv env -> m ()
+mapLEnvM_ _ EnvNil = return ()
+mapLEnvM_ f ((_, bs) :>>: env) = f bs >> mapLEnvM_ f env
+
+-- | Flipped version of 'mapLEnvM_'.
+forLEnvM_ :: Monad m => LabelsEnv env -> (forall t. BuffersTupF t -> m ()) -> m ()
+forLEnvM_ env f = mapLEnvM_ f env
+{-# INLINE forLEnvM_ #-}
+
+
+
+--------------------------------------------------------------------------------
+-- Helpers for Labelled Arguments
+--------------------------------------------------------------------------------
 
 -- | Map a function over the labelled arguments.
 mapLArgs :: (forall s. LabelledArg env s -> LabelledArg env s) -> LabelledArgs env t -> LabelledArgs env t
@@ -373,64 +508,3 @@ mapAccumLArgsM f a (larg :>: largs) = do
 forAccumLArgsM :: Monad m => a -> LabelledArgs env t -> (forall s. a -> LabelledArg env s -> m (a, LabelledArg env s)) -> m (a, LabelledArgs env t)
 forAccumLArgsM a largs f = mapAccumLArgsM f a largs
 {-# INLINE forAccumLArgsM #-}
-
--- | Select labels from labeled arguments that satisfy the given predicate.
-selectLArgs :: (forall s. Arg env s -> Bool) -> LabelledArgs env t -> Labels Buff
-selectLArgs f = foldMapLArgs (\(LArg arg bs) -> if f arg then bs else mempty)
-{-# INLINE selectLArgs #-}
-
-
---------------------------------------------------------------------------------
--- Getting Argument Dependencies
---------------------------------------------------------------------------------
-
--- | Get the dependencies of an argument.
-getArgDeps :: Arg env t -> LabelsEnv env -> Labels Buff
-getArgDeps (ArgVar tup)         env = getVarsDeps tup env
-getArgDeps (ArgExp exp)         env = getExpDeps  exp env
-getArgDeps (ArgFun fun)         env = getFunDeps  fun env
-getArgDeps (ArgArray _ _ sh bu) env = getVarsDeps sh env <> getVarsDeps bu env
-
--- | Get the dependencies of a tuple of variables.
-getVarsDeps :: Vars s env t -> LabelsEnv env -> Labels Buff
-getVarsDeps vars env = fold (getVarsLTup vars env)
-
--- | Get the dependencies of a variable.
-getVarDeps :: Var s env t -> LabelsEnv env -> Labels Buff
-getVarDeps vars env = fold (getVarLTup vars env)
-
--- | Get the dependencies of an expression.
-getExpDeps :: OpenExp x env y -> LabelsEnv env -> Labels Buff
-getExpDeps (ArrayInstr (Index     var) poe) env = getVarDeps var  env <> getExpDeps poe  env
-getExpDeps (ArrayInstr (Parameter var) poe) env = getVarDeps var  env <> getExpDeps poe  env
-getExpDeps (Let _ poe1 poe2)                env = getExpDeps poe1 env <> getExpDeps poe2 env
-getExpDeps (Evar _)                         _   = mempty
-getExpDeps  Foreign{}                       _   = mempty
-getExpDeps (Pair  poe1 poe2)                env = getExpDeps poe1 env <> getExpDeps poe2 env
-getExpDeps  Nil                             _   = mempty
-getExpDeps (VecPack _ poe)                  env = getExpDeps poe  env
-getExpDeps (VecUnpack _ poe)                env = getExpDeps poe  env
-getExpDeps (IndexSlice _ poe1 poe2)         env = getExpDeps poe1 env <> getExpDeps poe2 env
-getExpDeps (IndexFull  _ poe1 poe2)         env = getExpDeps poe1 env <> getExpDeps poe2 env
-getExpDeps (ToIndex    _ poe1 poe2)         env = getExpDeps poe1 env <> getExpDeps poe2 env
-getExpDeps (FromIndex  _ poe1 poe2)         env = getExpDeps poe1 env <> getExpDeps poe2 env
-getExpDeps (Case poe1 poes poe2)            env = getExpDeps poe1 env <>
-                                                  foldMap ((`getExpDeps` env) . snd) poes <>
-                                                  maybe mempty (`getExpDeps` env) poe2
-getExpDeps (Cond poe1 poe2 exp3)            env = getExpDeps poe1 env <>
-                                                  getExpDeps poe2 env <>
-                                                  getExpDeps exp3 env
-getExpDeps (While pof1 pof2 poe)            env = getFunDeps pof1 env <>
-                                                  getFunDeps pof2 env <>
-                                                  getExpDeps poe  env
-getExpDeps (Const _ _)                      _   = mempty
-getExpDeps (PrimConst _)                    _   = mempty
-getExpDeps (PrimApp   _ poe)                env = getExpDeps poe  env
-getExpDeps (ShapeSize _ poe)                env = getExpDeps poe  env
-getExpDeps (Undef _)                        _   = mempty
-getExpDeps  Coerce{}                        _   = mempty
-
--- | Get the dependencies of a function.
-getFunDeps :: OpenFun x env y -> LabelsEnv env -> Labels Buff
-getFunDeps (Body  poe) env = getExpDeps poe env
-getFunDeps (Lam _ fun) env = getFunDeps fun env

@@ -20,6 +20,7 @@
 {-# LANGUAGE ViewPatterns           #-}
 {-# OPTIONS_GHC -Wno-orphans        #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE DataKinds #-}
 
 -- |
 -- Module      : Data.Array.Accelerate.AST.Partitioned
@@ -62,7 +63,7 @@ import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Trafo.Var
 import Data.Array.Accelerate.Trafo.Exp.Substitution
 import Data.Array.Accelerate.Trafo.Substitution
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Labels, LabelledArgs, LabelledArg (..), Label(..))
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (LabelledArgs, LabelledArg (..), Label(..), ArgLabels (..), EnvLabel, LabelType (..), TupF (TupF), EnvLabelTupF)
 import Data.List (sortOn, partition, groupBy, nubBy)
 import qualified Data.Functor.Const as C
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (LabelledArgOp (..), BackendClusterArg, MakesILP (..), LabelledArgsOp, BackendCluster)
@@ -80,7 +81,7 @@ type PartitionedAfun op = PreOpenAfun (Clustered op)
 data Clustered op args = Clustered (Cluster op args) (BackendCluster op args)
 
 data Cluster op args where
-  SingleOp :: SingleOp op args -> Label -> Cluster op args
+  SingleOp :: SingleOp op args -> Label Comp -> Cluster op args
   Fused :: Fusion largs rargs args
         -> Cluster op largs
         -> Cluster op rargs
@@ -167,12 +168,13 @@ split (ArgArray Out (ArrayR shr (TupRpair rl rr)) sh (TupRpair bufl bufr)) = (Ar
 split _ = error "non-array soa"
 
 splitLabelledArgs :: LabelledArg env (f (l,r)) -> (LabelledArg env (f l), LabelledArg env (f r))
-splitLabelledArgs (L _ (Arr (TupRsingle _), _)) = error "pair in single"
-splitLabelledArgs (L arg (Arr (TupRpair labl labr), labs)) = bimap (`L` (Arr labl, labs)) (`L` (Arr labr, labs)) $ split arg
-splitLabelledArgs (L _ (NotArr, _)) = error "SOA'd non-array arg"
+splitLabelledArgs (L _   (Arr (TupF (TupRsingle _)), _)) = error "pair in single"
+splitLabelledArgs (L arg (Arr (TupF (TupRpair labl labr)), labs)) = bimap (`L` (Arr (TupF labl), labs)) (`L` (Arr (TupF labr), labs)) $ split arg
+splitLabelledArgs (L _   (NotArr, _)) = error "SOA'd non-array arg"
+
 splitLabelledArgsOp :: LabelledArgOp op env (f (l,r)) -> (LabelledArgOp op env (f l), LabelledArgOp op env (f r))
-splitLabelledArgsOp (LOp _ (Arr (TupRsingle _), _) _) = error "pair in single"
-splitLabelledArgsOp (LOp arg (Arr (TupRpair labl labr), labs) b) = bimap (flip (`LOp` (Arr labl, labs)) b) (flip (`LOp` (Arr labr, labs)) b) $ split arg
+splitLabelledArgsOp (LOp _ (Arr (TupF (TupRsingle _)), _) _) = error "pair in single"
+splitLabelledArgsOp (LOp arg (Arr (TupF (TupRpair labl labr)), labs) b) = bimap (flip (`LOp` (Arr (TupF labl), labs)) b) (flip (`LOp` (Arr (TupF labr), labs)) b) $ split arg
 splitLabelledArgsOp (LOp _ (NotArr, _) _) = error "SOA'd non-array arg"
 
 
@@ -376,8 +378,8 @@ mkFused ArgsNil (LOp r _ _ :>: rs) k = mkFused ArgsNil rs $ \f -> k (addright r 
 mkFused (LOp l _ _ :>: ls) ArgsNil k = mkFused ls ArgsNil $ \f -> k (addleft l f)
 mkFused ((LOp l (NotArr,_) _) :>: ls) rs k = mkFused ls rs $ \f -> k (addleft l f)
 mkFused ls ((LOp r (NotArr,_)_ ) :>: rs) k = mkFused ls rs $ \f -> k (addright r f)
-mkFused ((LOp l (Arr TupRunit,_)_ ) :>: ls) rs k = mkFused ls rs $ \f -> k (addleft l f)
-mkFused ls ((LOp r (Arr TupRunit,_)_) :>: rs) k = mkFused ls rs $ \f -> k (addright r f)
+mkFused ((LOp l (Arr (TupF TupRunit),_)_ ) :>: ls) rs k = mkFused ls rs $ \f -> k (addleft l f)
+mkFused ls ((LOp r (Arr (TupF TupRunit),_)_) :>: rs) k = mkFused ls rs $ \f -> k (addright r f)
 mkFused (l'@(LOp l _ bl) :>: ls) (r'@(LOp r _ br) :>: rs) k
   | Just le <- getElabelForSort $ unOpLabel l'
   , Just re <- getElabelForSort $ unOpLabel r'
@@ -387,8 +389,8 @@ mkFused (l'@(LOp l _ bl) :>: ls) (r'@(LOp r _ br) :>: rs) k
       EQ -> mkFused ls rs $ \f -> if bl == br then addboth l r f k else k (addleft l (addright r f))
 mkFused ((LOp l@(ArgArray Mut _ _ _) _ _) :>: ls) rs k = mkFused ls rs $ \f -> k (addleft l f)
 mkFused ls ((LOp r@(ArgArray Mut _ _ _) _ _) :>: rs) k = mkFused ls rs $ \f -> k (addright r f)
-mkFused ((LOp _ (Arr TupRpair{}, _)_) :>: _) _ _ = error "not soa'd array"
-mkFused _ ((LOp _ (Arr TupRpair{}, _)_) :>: _) _ = error "not soa'd array"
+mkFused ((LOp _ (Arr (TupF TupRpair{}), _)_) :>: _) _ _ = error "not soa'd array"
+mkFused _ ((LOp _ (Arr (TupF TupRpair{}), _)_) :>: _) _ = error "not soa'd array"
 mkFused _ _ _ = error "exhaustive"
 
 addleft :: Arg env arg -> Fusion left right args -> Fusion (arg->left) right (arg->args)
@@ -418,15 +420,15 @@ addboth (ArgArray Out _ _ _) (ArgArray Out _ _ _) _ _ = error "two producers of 
 addboth (ArgArray In  _ _ _) (ArgArray Out _ _ _) _ _ = error "reverse vertical/diagonal"
 addboth _ _ _ _ = error "fusing non-arrays"
 
-getElabelForSort :: LabelledArg env a -> Maybe ELabel
-getElabelForSort (L (ArgArray m (ArrayR _ TupRsingle{}) _ _) (Arr (TupRsingle (C.Const e)),_))
+getElabelForSort :: LabelledArg env a -> Maybe EnvLabel
+getElabelForSort (L (ArgArray m (ArrayR _ TupRsingle{}) _ _) (Arr (TupF (TupRsingle (C.Const e))),_))
   | In  <- m = Just e
   | Out <- m = Just e
 getElabelForSort _ = Nothing
 
 singleton
   :: MakesILP op
-  => Label
+  => Label Comp
   -> LabelledArgsOp op env args
   -> op args
   -> (forall args'. Clustered op args' -> LabelledArgsOp op env args' -> r)
@@ -475,13 +477,13 @@ createClusterArg _ sorted (LOp (ArgArray (m :: Modifier m) (ArrayR (shr :: Shape
     inOrOut Out = True
     inOrOut _   = False
 
-    go :: TypeR t -> ELabelTup t -> ClusterArgBuffers (FunToEnv sorted) m sh t
-    go TupRunit TupRunit
+    go :: TypeR t -> EnvLabelTupF t -> ClusterArgBuffers (FunToEnv sorted) m sh t
+    go TupRunit (TupF TupRunit)
       = ClusterArgBuffersLive TupRunit $ findUnit sorted
-    go (TupRsingle t) (TupRsingle (C.Const label))
+    go (TupRsingle t) (TupF (TupRsingle (C.Const label)))
       = ClusterArgBuffersLive (TupRsingle t) $ findLabel (TupRsingle t) label sorted
-    go (TupRpair t1 t2) (TupRpair l1 l2)
-      = go t1 l1 `ClusterArgBuffersPair` go t2 l2
+    go (TupRpair t1 t2) (TupF (TupRpair l1 l2))
+      = go t1 (TupF l1) `ClusterArgBuffersPair` go t2 (TupF l2)
     go _ _ = internalError "Tuple mismatch"
 
     findUnit
@@ -497,11 +499,11 @@ createClusterArg _ sorted (LOp (ArgArray (m :: Modifier m) (ArrayR (shr :: Shape
 
     findLabel
       :: TupR ScalarType t
-      -> ELabel
+      -> EnvLabel
       -> LabelledArgsOp op env sorted'
       -> Idx (FunToEnv sorted') (m sh t)
     findLabel tp label = \case
-      LOp (ArgArray m' (ArrayR _ tp') sh' _) (Arr (TupRsingle (C.Const label')), _) _ :>: _
+      LOp (ArgArray m' (ArrayR _ tp') sh' _) (Arr (TupF (TupRsingle (C.Const label'))), _) _ :>: _
         | label == label'
         , Refl <- expectOr "Modifier didn't match" $ matchModifier m m'
         , Refl <- expectOr "Shapes didn't match" $ matchVars sh sh'
@@ -602,20 +604,20 @@ sortAndExpandArgs args = argsFromList $ singles ++ unitArraysDedup ++ dedup
       = True
     compareUnitArrays _ _ = False
 
-expandUnitArg :: LabelledArgOp op env t -> [(Exists (LabelledArgOp op env))]
-expandUnitArg (LOp (ArgArray m (ArrayR shr (TupRpair t1 t2)) sh (TupRpair b1 b2)) (Arr (TupRpair l1 l2), set) ba)
-  =  expandUnitArg (LOp (ArgArray m (ArrayR shr t1) sh b1) (Arr l1, set) ba)
-  ++ expandUnitArg (LOp (ArgArray m (ArrayR shr t2) sh b2) (Arr l2, set) ba)
-expandUnitArg arg@(LOp _ (Arr TupRunit, _) _) = [Exists arg]
+expandUnitArg :: LabelledArgOp op env t -> [Exists (LabelledArgOp op env)]
+expandUnitArg (LOp (ArgArray m (ArrayR shr (TupRpair t1 t2)) sh (TupRpair b1 b2)) (Arr (TupF (TupRpair l1 l2)), set) ba)
+  =  expandUnitArg (LOp (ArgArray m (ArrayR shr t1) sh b1) (Arr (TupF l1), set) ba)
+  ++ expandUnitArg (LOp (ArgArray m (ArrayR shr t2) sh b2) (Arr (TupF l2), set) ba)
+expandUnitArg arg@(LOp _ (Arr (TupF TupRunit), _) _) = [Exists arg]
 expandUnitArg _ = []
 
-expandArg :: LabelledArgOp op env t -> [(ELabel, Exists (LabelledArgOp op env))]
-expandArg (LOp (ArgArray m (ArrayR shr (TupRpair t1 t2)) sh (TupRpair b1 b2)) (Arr (TupRpair l1 l2), set) ba)
-  =  expandArg (LOp (ArgArray m (ArrayR shr t1) sh b1) (Arr l1, set) ba)
-  ++ expandArg (LOp (ArgArray m (ArrayR shr t2) sh b2) (Arr l2, set) ba)
-expandArg arg@(LOp _ (Arr (TupRsingle (C.Const l)), _) _)
+expandArg :: LabelledArgOp op env t -> [(EnvLabel, Exists (LabelledArgOp op env))]
+expandArg (LOp (ArgArray m (ArrayR shr (TupRpair t1 t2)) sh (TupRpair b1 b2)) (Arr (TupF (TupRpair l1 l2)), set) ba)
+  =  expandArg (LOp (ArgArray m (ArrayR shr t1) sh b1) (Arr (TupF l1), set) ba)
+  ++ expandArg (LOp (ArgArray m (ArrayR shr t2) sh b2) (Arr (TupF l2), set) ba)
+expandArg arg@(LOp _ (Arr (TupF (TupRsingle (C.Const l))), _) _)
   = [(l, Exists arg)]
-expandArg (LOp _ (Arr TupRunit, _) _) = []
+expandArg (LOp _ (Arr (TupF TupRunit), _) _) = []
 expandArg _ = internalError "Tuple mismatch with labels"
 
 instance ShrinkArg (BackendClusterArg op) => SLVOperation (Clustered op) where
@@ -838,7 +840,7 @@ data ToFlatFusion fun funL funR where
     -> ToFlatFusion fun funL funR
 
 toFlatClustered :: SetOpIndices op => Clustered op f -> Args env f -> FlatCluster op env
-toFlatClustered (Clustered cluster _) args = toFlatCluster cluster args
+toFlatClustered (Clustered cluster _) = toFlatCluster cluster
 
 toFlatCluster :: SetOpIndices op => Cluster op f -> Args env f -> FlatCluster op env
 toFlatCluster cluster args
