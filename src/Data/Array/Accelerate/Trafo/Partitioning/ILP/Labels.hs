@@ -21,7 +21,7 @@ either be a computation or a buffer.
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE PatternSynonyms #-}
-module Data.Array.Accelerate.Trafo.Partitioning.ILP.LabelsNew where
+module Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels where
 
 import Data.Array.Accelerate.AST.Operation
 import Data.Array.Accelerate.Representation.Type

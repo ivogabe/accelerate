@@ -17,7 +17,7 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE PatternSynonyms #-}
-module Data.Array.Accelerate.Trafo.Partitioning.ILP.GraphNew where
+module Data.Array.Accelerate.Trafo.Partitioning.ILP.Grap where
 
 import Prelude hiding ( init, reads )
 
@@ -26,7 +26,7 @@ import Data.Array.Accelerate.Array.Buffer
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Operation
 import Data.Array.Accelerate.Trafo.Operation.LiveVars
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.LabelsNew
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding ( c )
 import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Type

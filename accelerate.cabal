@@ -453,9 +453,7 @@ library
         Data.Array.Accelerate.Trafo.Partitioning.ILP
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
-        Data.Array.Accelerate.Trafo.Partitioning.ILP.GraphNew
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
-        Data.Array.Accelerate.Trafo.Partitioning.ILP.LabelsNew
         -- Data.Array.Accelerate.Trafo.Partitioning.ILP.HiGHS
         Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap
