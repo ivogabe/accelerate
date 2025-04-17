@@ -203,9 +203,9 @@ guard2Cycle c1 c2 g = S.member (c2, c1) (g^.infusibleEdges)
 -- the backend.
 --
 data ILPInfo op = ILPInfo
-  { _graph  :: Graph          -- ^ The program graph.
-  , _constr :: Constraint op  -- ^ Constraints for the ILP.
-  , _bounds :: Bounds op      -- ^ Bounds for variables in the ILP.
+  { _graph       :: Graph          -- ^ The program graph.
+  , _constraints :: Constraint op  -- ^ Constraints for the ILP.
+  , _bounds      :: Bounds op      -- ^ Bounds for variables in the ILP.
   }
 
 instance Semigroup (ILPInfo op) where
@@ -224,19 +224,9 @@ makeLenses ''ILPInfo
 -- Backend specific definitions
 --------------------------------------------------------------------------------
 
-class (ShrinkArg (BackendClusterArg op), Eq (BackendVar op), Ord (BackendVar op), Eq (BackendArg op), Show (BackendArg op), Ord (BackendArg op), Show (BackendVar op)) => MakesILP op where
-  -- Vars needed to express backend-specific fusion rules.
+class (Eq (BackendVar op), Ord (BackendVar op), Show (BackendVar op)) => MakesILP op where
+  -- | ILP variables for backend-specific fusion rules.
   type BackendVar op
-  -- Information that the backend attaches to the argument for reconstruction,
-  -- i.e. to identify when two instances of an array are to be fused.
-  type BackendArg op
-  defaultBA :: BackendArg op -- anything that's equal to itself
-
-  -- Information that the backend attaches to the cluster, for use in interpreting/code generation.
-  data BackendClusterArg op arg
-  combineBackendClusterArg :: BackendClusterArg op (Out sh e) -> BackendClusterArg op (In sh e) -> BackendClusterArg op (Var' sh)
-  encodeBackendClusterArg :: BackendClusterArg op arg -> Builder
-
 
   -- | This function defines per-operation backend-specific fusion rules.
   --
@@ -247,17 +237,48 @@ class (ShrinkArg (BackendClusterArg op), Eq (BackendVar op), Ord (BackendVar op)
   -- graph to enforce any additional constraints the implementation may have.
   --
   mkBackendGraph
-    :: op args                -- ^ The operation.
-    -> Label Comp             -- ^ The label of the operation.
+    :: Label Comp             -- ^ The label of the operation.
+    -> op args                -- ^ The operation.
     -> LabelledArgs env args  -- ^ The arguments to the operation.
     -> State (FullGraphState op env) ()
 
-  -- using the ILP solution, attach the required information to each argument
-  labelLabelledArg :: Solution op -> Label t -> LabelledArg env a -> LabelledArgOp op env a
-  getClusterArg :: LabelledArgOp op env a -> BackendClusterArg op a
+  -- | This function lets the backend define additional constraints on the ILP.
+  finalize :: [Label Buff] -> [Label Comp] -> Constraint op
 
-  -- allow the backend to add constraints/bounds for every node
-  finalize :: [Label t] -> Constraint op
+
+
+--------------------------------------------------------------------------------
+-- ILP Variables
+--------------------------------------------------------------------------------
+
+data Var (op :: Type -> Type)
+  = Pi (Label Comp)
+    -- ^ Used for acyclic ordering of clusters.
+    -- Pi (Label x y) = z means that computation number x (possibly a subcomputation of y, see Label) is fused into cluster z (y ~ Just i -> z is a subcluster of the cluster of i)
+  | Fused (Label Comp) (Label Comp)
+    -- ^ 0 is fused (same cluster), 1 is unfused. We do *not* have one of these for all pairs, only the ones we need for constraints and/or costs!
+    -- Invariant: Like edges, both labels have to have the same parent: Either on top (Label _ Nothing) or as sub-computation of the same label (Label _ (Just x)).
+    -- In fact, this is the Var-equivalent to Edge: an infusible edge has a constraint (== 1).
+  | Manifest (Label Buff)
+    -- ^ 0 means manifest, 1 is like a `delayed array`.
+    -- Binary variable; will we write the output to a manifest array, or is it fused away (i.e. all uses are in its cluster)?
+  | InDir (Label Comp)
+    -- ^ -3 can't fuse with anything, -2 for 'left to right', -1 for 'right to left', n for 'unpredictable, see computation n' (currently only backpermute)
+  | OutDir (Label Comp)
+    -- ^ See 'InDir'.
+  | InFoldSize (Label Comp)
+    -- ^ Keeps track of the fold that's one dimension larger than this operation, and is fused in the same cluster.
+    -- This prevents something like @zipWith f (fold g xs) (fold g ys)@ from illegally fusing
+  | OutFoldSize (Label Comp)
+    -- ^ Keeps track of the fold that's one dimension larger than this operation, and is fused in the same cluster.
+    -- This prevents something like @zipWith f (fold g xs) (fold g ys)@ from illegally fusing
+  | Other String
+    -- ^ For one-shot variables that don't deserve a constructor. These are also integer variables, and the responsibility is on the user to pick a unique name!
+    -- It is possible to add a variation for continuous variables too, see `allIntegers` in MIP.hs.
+    -- We currently use this in Solve.hs for cost functions.
+  | BackendSpecific (BackendVar op)
+    -- ^ Vars needed to express backend-specific fusion rules.
+    -- This is what allows backends to specify how each of the operations can fuse.
 
 
 
@@ -265,26 +286,25 @@ class (ShrinkArg (BackendClusterArg op), Eq (BackendVar op), Ord (BackendVar op)
 -- Symbol table
 --------------------------------------------------------------------------------
 
-data LabelledArgOp  op env a = LArgOp (Arg env a) (Labels Buff) (BackendArg op)
-type LabelledArgsOp op env   = PreArgs (LabelledArgOp op env)
+-- data LabelledArgOp  op env a = LArgOp (Arg env a) (Labels Buff) (BackendArg op)
+-- type LabelledArgsOp op env   = PreArgs (LabelledArgOp op env)
 
-instance Show (LabelledArgOp op env a) where
-  show :: LabelledArgOp op env a -> String
-  show (LArgOp _ bs _) = show bs
+-- instance Show (LabelledArgOp op env a) where
+--   show :: LabelledArgOp op env a -> String
+--   show (LArgOp _ bs _) = show bs
 
 data Symbol (op :: Type -> Type) where
-  SExe' :: LabelsEnv env -> LabelledArgs      env args -> op args                              -> Symbol op
-  SExe  :: LabelsEnv env -> LabelledArgsOp op env args                                         -> Symbol op
-  SUse  ::                  ScalarType e -> Int -> Buffer e                                    -> Symbol op
-  SITE  :: LabelsEnv env -> ExpVar env PrimBool -> Label Comp -> Label Comp                    -> Symbol op
-  SWhl  :: LabelsEnv env -> Label Comp -> Label Comp -> GroundVars env a     -> Uniquenesses a -> Symbol op
-  SLet  ::                  GLeftHandSide bnd env env' -> LabelsTup Buff bnd -> Uniquenesses a -> Symbol op
-  SFun  ::                  GLeftHandSide bnd env env' -> LabelsTup Buff bnd                   -> Symbol op
-  SBod  ::                  LabelsTup Buff res                                                 -> Symbol op
-  SRet  :: LabelsEnv env -> GroundVars env a                                                   -> Symbol op
-  SCmp  :: LabelsEnv env -> Exp env a                                                          -> Symbol op
-  SAlc  :: LabelsEnv env -> ShapeR sh -> ScalarType e -> ExpVars env sh                        -> Symbol op
-  SUnt  :: LabelsEnv env -> ExpVar env e                                                       -> Symbol op
+  SExe :: LabelsEnv env -> LabelledArgs env args -> op args                                   -> Symbol op
+  SUse ::                  ScalarType e -> Int -> Buffer e                                    -> Symbol op
+  SITE :: LabelsEnv env -> ExpVar env PrimBool -> Label Comp -> Label Comp                    -> Symbol op
+  SWhl :: LabelsEnv env -> Label Comp -> Label Comp -> GroundVars env a     -> Uniquenesses a -> Symbol op
+  SLet ::                  GLeftHandSide bnd env env' -> LabelsTup Buff bnd -> Uniquenesses a -> Symbol op
+  SFun ::                  GLeftHandSide bnd env env' -> LabelsTup Buff bnd                   -> Symbol op
+  SBod ::                  LabelsTup Buff res                                                 -> Symbol op
+  SRet :: LabelsEnv env -> GroundVars env a                                                   -> Symbol op
+  SCmp :: LabelsEnv env -> Exp env a                                                          -> Symbol op
+  SAlc :: LabelsEnv env -> ShapeR sh -> ScalarType e -> ExpVars env sh                        -> Symbol op
+  SUnt :: LabelsEnv env -> ExpVar env e                                                       -> Symbol op
 
 -- | Mapping from labels to symbols.
 type Symbols t op = Map (Label t) (Symbol op)
@@ -347,6 +367,9 @@ makeLenses ''FullGraphState
 producers :: Label Buff -> Lens' (FullGraphState op env) (Labels Comp)
 producers b f s = (\c -> s & producersEnv %~ M.insert b c)
   <$> f (M.findWithDefault (S.singleton (b^.asCLabel)) b (s^.producersEnv))
+
+allProducers :: Labels Buff -> SimpleGetter (FullGraphState op env) (Labels Comp)
+allProducers bs = to (\s -> foldMap (\b -> s^.producers b) bs)
 
 -- | Lens for locally adding new variables to the environment.
 --
@@ -465,8 +488,8 @@ mkFullGraph (Exec op args) = do
     (LArg (ArgArray Mut _ _ _) bs) -> for_ bs (<==> c)
     (LArg _                    bs) -> for_ bs (===> c)
   zoom (with producersEnv penv . unprotected ilpInfo) $
-    mkBackendGraph op c labelledArgs
-  symbols %= M.insert c (SExe' lenv labelledArgs op)
+    mkBackendGraph c op labelledArgs
+  symbols %= M.insert c (SExe lenv labelledArgs op)
   return TupRunit_
 
 mkFullGraph (Alet LeftHandSideUnit _ bnd scp) =
