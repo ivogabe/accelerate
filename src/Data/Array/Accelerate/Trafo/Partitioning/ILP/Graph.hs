@@ -50,7 +50,11 @@ import Control.Monad.State (State)
 import Data.Foldable
 import Data.Kind (Type)
 import Unsafe.Coerce (unsafeCoerce)
+import Data.Array.Accelerate.AST.Idx
 
+-- Temporarily thing so HLS works.
+data Edge where
+  (:->) :: forall a. a -> a -> Edge
 
 
 --------------------------------------------------------------------------------
@@ -539,7 +543,7 @@ mkFullGraph (Alet lhs u bnd scp) = do
 mkFullGraph (Return vars) = do
   lenv <- use labelsEnv
   c <- freshC
-  let (_, bs) = getVarsTupFs vars lenv
+  let (_, bs) = getVarsFromEnv vars lenv
   for_ bs $ traverse_ (<--> c)
   symbols %= M.insert c (SRet lenv vars)
   return bs
@@ -670,6 +674,31 @@ in a separate pass before fusion. Doing it like that won't have any of the
 aforementioned problems since the buffer will be a proper part of the graph
 and the environment before some operation is executed.
 -}
+
+-- | Makes a ReindexPartial, which allows us to transform indices in @env@ into indices in @env'@.
+-- We cannot guarantee the index is present in env', so we use the partiality of ReindexPartial by
+-- returning a Maybe. Uses unsafeCoerce to re-introduce type information implied by the ELabels.
+mkReindexPartial :: LabelsEnv env -> LabelsEnv env' -> ReindexPartial Maybe env env'
+mkReindexPartial env env' idx = go env'
+  where
+    -- The ELabel in the original environment
+    e = fst $ lookupIdxInEnv idx env
+    go :: forall e a. LabelsEnv e -> Maybe (Idx e a)
+    go ((e',_) :>>: rest) -- e' is the ELabel in the new environment
+      -- Here we have to convince GHC that the top element in the environment
+      -- really does have the same type as the one we were searching for.
+      -- Some literature does this stuff too: 'effect handlers in haskell, evidently'
+      -- and 'a monadic framework for delimited continuations' come to mind.
+      -- Basically: standard procedure if you're using Ints as a unique identifier
+      -- and want to re-introduce type information. :)
+      -- Type applications allow us to restrict unsafeCoerce to the return type.
+      | e == e' = Just $ unsafeCoerce @(Idx e _) @(Idx e a) ZeroIdx
+      -- Recurse if we did not find e' yet.
+      | otherwise = SuccIdx <$> go rest
+    -- If we hit the end, the Elabel was not present in the environment.
+    -- That probably means we'll error out at a later point, but maybe there is
+    -- a case where we try multiple options? No need to worry about it here.
+    go EnvNil = Nothing
 
 
 --------------------------------------------------------------------------------

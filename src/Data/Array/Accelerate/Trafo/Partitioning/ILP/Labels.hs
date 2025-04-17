@@ -328,36 +328,37 @@ getArgLabels (ArgVar vars) env = (NotArr, getVarsDeps vars env)
 getArgLabels (ArgExp exp)  env = (NotArr, getExpDeps  exp  env)
 getArgLabels (ArgFun fun)  env = (NotArr, getFunDeps  fun  env)
 getArgLabels (ArgArray _ (ArrayR _ tp) sh bu) env
-  | (_       , shBs) <- getVarsTupFs sh env
-  , (Arr buEs, buBs) <- getVarsTupFs bu env
+  | (_       , shBs) <- getVarsFromEnv sh env
+  , (Arr buEs, buBs) <- getVarsFromEnv bu env
   = (unbuffers tp $ Arr buEs, fold shBs <> fold buBs)
 getArgLabels _ _ = error "getArgLabels: Inaccessible left-hand side."
 
 -- | Get the values associated with 'Vars' from 'LabelsEnv'.
-getVarsTupFs :: Vars a env b -> LabelsEnv env -> (ArgLabels (m sh b), BuffersTupF b)
-getVarsTupFs TupRunit         _   = (Arr TupFunit, TupFunit)
-getVarsTupFs (TupRsingle var) env = getVarTupFs var env
-getVarsTupFs (TupRpair l r)   env | (Arr l', bs1) <- getVarsTupFs l env
-                                  , (Arr r', bs2) <- getVarsTupFs r env
-                                  = (Arr (TupFpair l' r'), TupFpair bs1 bs2)
-getVarsTupFs _ _ = error "getVarsTupFs: Inaccessible left-hand side."
+getVarsFromEnv :: Vars a env b -> LabelsEnv env -> (ArgLabels (m sh b), BuffersTupF b)
+getVarsFromEnv TupRunit         _   = (Arr TupFunit, TupFunit)
+getVarsFromEnv (TupRsingle var) env = getVarFromEnv var env
+getVarsFromEnv (TupRpair l r)   env | (Arr l', bs1) <- getVarsFromEnv l env
+                                    , (Arr r', bs2) <- getVarsFromEnv r env
+                                    = (Arr (TupFpair l' r'), TupFpair bs1 bs2)
+getVarsFromEnv _ _ = error "getVarsFromEnv: Inaccessible left-hand side."
 
--- | Get the value associated with a 'Var' in 'LabelsEnv'.
-getVarTupFs :: Var a env b -> LabelsEnv env -> (ArgLabels (m sh b), BuffersTupF b)
-getVarTupFs (varIdx -> idx) = getIdxTupFs idx
+-- | Get the value associated with a 'Var' from 'LabelsEnv'.
+getVarFromEnv :: Var a env b -> LabelsEnv env -> (ArgLabels (m sh b), BuffersTupF b)
+getVarFromEnv (varIdx -> idx) = first (Arr . TupFsingle) . lookupIdxInEnv idx
 
--- | Get the value associated with an 'Idx' in 'LabelsEnv'.
-getIdxTupFs :: Idx env a -> LabelsEnv env -> (ArgLabels (m sh a), BuffersTupF a)
-getIdxTupFs ZeroIdx       (bs :>>: _)   = first (Arr . TupFsingle) bs
-getIdxTupFs (SuccIdx idx) (_  :>>: env) = getIdxTupFs idx env
+-- | Get the value associated with an 'Idx' from 'LabelsEnv'.
+lookupIdxInEnv :: Idx env a -> LabelsEnv env -> (EnvLabel, BuffersTupF a)
+lookupIdxInEnv ZeroIdx       (bs :>>: _)   = bs
+lookupIdxInEnv (SuccIdx idx) (_  :>>: env) = lookupIdxInEnv idx env
+
 
 -- | Get the dependencies of a tuple of variables.
 getVarsDeps :: Vars s env t -> LabelsEnv env -> Labels Buff
-getVarsDeps vars = fold . snd . getVarsTupFs vars
+getVarsDeps vars = fold . snd . getVarsFromEnv vars
 
 -- | Get the dependencies of a tuple of variables.
 getVarDeps :: Var s env t -> LabelsEnv env -> Labels Buff
-getVarDeps var = fold . snd . getVarTupFs var
+getVarDeps var = fold . snd . getVarFromEnv var
 
 -- | Get the dependencies of an expression.
 getExpDeps :: OpenExp x env y -> LabelsEnv env -> Labels Buff
