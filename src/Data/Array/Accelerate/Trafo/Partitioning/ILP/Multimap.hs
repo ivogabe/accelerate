@@ -41,3 +41,12 @@ lookup k (Multimap m) = M.findWithDefault S.empty k m
 
 toList :: Multimap k v -> [(k, v)]
 toList (Multimap m) = [(k, v) | (k, vs) <- M.toList m, v <- S.toList vs]
+
+
+foldrWithKey :: (k -> a -> b -> b) -> b -> Multimap k a -> b
+foldrWithKey f z (Multimap m) = M.foldrWithKey (\k vs acc -> S.foldr (f k) acc vs) z m
+{-# INLINE foldrWithKey #-}
+
+toMapOfSets :: Multimap k v -> Map k (Set v)
+toMapOfSets (Multimap m) = m
+{-# INLINE toMapOfSets #-}

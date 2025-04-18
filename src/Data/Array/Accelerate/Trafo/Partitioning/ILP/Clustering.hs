@@ -17,10 +17,10 @@
 -- _Significantly_ speeds up compilation of this file, but at an obvious cost!
 -- Even in GHC 9.0.1, which has Lower Your Guards, these checks take some time (though no longer quite as long).
 -- Recommended to disable these options when working on this file, and restore them when you're done.
-{-# OPTIONS_GHC
-  -Wno-overlapping-patterns
-  -Wno-incomplete-patterns
-#-}
+-- {-# OPTIONS_GHC
+--   -Wno-overlapping-patterns
+--   -Wno-incomplete-patterns
+-- #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 

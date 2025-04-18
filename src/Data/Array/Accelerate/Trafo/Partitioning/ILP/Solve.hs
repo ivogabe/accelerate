@@ -3,11 +3,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve where
 
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (readEdges, writeEdges, fusionEdges, beforeEdges)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
     (Label, parent, Labels, LabelType (..) )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (finalize)
@@ -16,6 +17,7 @@ import Data.List (groupBy, sortOn)
 import Prelude hiding ( pi )
 
 import qualified Data.Map as M
+import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap as MM
 
 -- In this file, order very often subly does matter.
 -- To keep this clear, we use S.Set whenever it does not,
@@ -29,6 +31,7 @@ import Data.Maybe (fromJust,  mapMaybe )
 import Control.Monad.State
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration (freshName)
 import Data.Foldable
+import Data.Tuple (swap)
 
 data Objective
   = NumClusters
@@ -45,23 +48,28 @@ data Objective
 -- that reward putting non-siblings in the same cluster) this is fine: We will interpret 'cluster 3'
 -- with parents `Nothing` as a different cluster than 'cluster 3' with parents `Just 5`.
 makeILP :: forall op. MakesILP op => Objective -> ILPInfo op -> ILP op
-makeILP obj (ILPInfo graph backendConstraints backendBounds) = combine graphILP
+makeILP obj (ILPInfo (Graph readEdgesMM _ writeEdgesMM _ fusionEdges beforeEdges) backendConstraints backendBounds) = combine graphILP
   where
-    -- Remove any redundant 'fusible' edges
-    fuseEdges = fuseEdges' S.\\ nofuseEdges
-    edges = fuseEdges <> nofuseEdges
-    nodes = _
+    readEdges  = S.fromList $ MM.toList readEdgesMM
+    writeEdges = S.fromList $ MM.toList writeEdgesMM
+
+    (fusibleEdges, infusibleEdges)  = S.partition (\(c1, _, c2) -> S.notMember (c1, c2) beforeEdges) fusionEdges
+    (bufferNodes, computationNodes) = S.foldr  biinsert         mempty readEdges
+                                   <> S.foldr (biinsert . swap) mempty writeEdges
+
+    biinsert :: Ord a => (a, b) -> (S.Set a, S.Set b) -> (S.Set a, S.Set b)
+    biinsert (a, b) (as, bs) = (S.insert a as, S.insert b bs)
+
 
     combine :: ILP op -> ILP op
     combine (ILP dir fun cons bnds _) =
-             ILP dir fun (cons <> backendconstraints)
-                         (bnds <> backendbounds)
-                         n
+      ILP dir fun (cons <> backendConstraints) (bnds <> backendBounds) n
+
     -- n is used in some of the constraints, as an upperbound on the number of clusters.
     -- We add a small constant to be safe, as some variables have ranges from -3 to number of nodes.
     -- Then, we also multiply by 2, as some variables range from -n to n
     n :: Int
-    n = 10 + 2 * S.size nodes
+    n = 10 + 2 * S.size computationNodes
 
     graphILP = ILP minmax objFun myConstraints myBounds n
 
@@ -139,20 +147,6 @@ makeILP obj (ILPInfo graph backendConstraints backendBounds) = combine graphILP
     numberOfClustersConstraint = case obj of NumClusters -> foldMap (\l -> pi l .<=. numberOfClusters) nodes
                                              Everything  -> foldMap (\l -> pi l .<=. numberOfClusters) nodes
                                              _ -> mempty
-
-    -- attempt at execpi:
-    -- this failed because it was adding one for _all_ labels, not just exec. Need to find out which ones they are first!
-    -- execpi l = Other <$> freshName ("Exec" <> show l <> "Pi")
-    -- -- removing this from myConstraints makes the ILP slightly smaller, but disables the use of this cost function
-    -- (numberOfClustersConstraint, nClustersBounds) = --foldMap (\l -> pi l .<=. numberOfClusters) nodes
-    --   (\epis -> let epimap = M.fromList epis in
-    --     foldMap (\(l,epi) -> (c epi .<=. numberOfClusters, lowerUpper 0 epi n)) epis
-    --   <> (foldMap (\(i:->j) -> between (fused i j) (c (epimap M.! i) .-. c (epimap M.! j)) (timesN $ fused i j)) edges,mempty))
-    --   $ flip evalState "" $ forM (S.toList nodes) $ \l -> (l,) <$> execpi l
-
-
-
-
 
     myConstraints = acyclic <> infusible <> manifestC <> numberOfClustersConstraint <> readConstraints <> orderConstraints <> finalize (S.toList nodes)
 
