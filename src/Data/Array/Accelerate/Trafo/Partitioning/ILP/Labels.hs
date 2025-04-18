@@ -16,11 +16,8 @@ either be a computation or a buffer.
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE QuantifiedConstraints #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels where
@@ -36,9 +33,6 @@ import Lens.Micro.Extras
 import Data.Set (Set)
 import qualified Data.Set as S
 
-import Data.Map (Map)
-import qualified Data.Map as M
-
 import Data.Hashable (Hashable, hashWithSalt)
 import Data.Array.Accelerate.AST.Idx
 import Prelude hiding (exp)
@@ -48,12 +42,11 @@ import qualified Data.Functor.Const as C
 import Data.Coerce
 import Control.Monad.State
 import Data.Foldable
-import Data.Array.Accelerate.Array.Buffer (Buffer, Buffers)
 import Data.Typeable
 import Data.Array.Accelerate.Type (ScalarType)
-import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Array
 import Data.Bifunctor (Bifunctor(..))
+import Data.Maybe (fromJust)
 
 
 
@@ -77,52 +70,54 @@ data LabelType = Comp | Buff
 -- @VLabel x Nothing@ means that label @x@ is top-level.
 -- @VLabel x (Just y)@ means that label @x@ is a sub-computation of label @y@.
 data Label (t :: LabelType) where
-  CLabel  :: Int                  -- ^ The computation label.
-          -> Maybe (Label Comp)   -- ^ The parent computation.
-          -> Label Comp
-  BLabel  :: Int                  -- ^ The buffer label.
-          -> Maybe (Label Comp)   -- ^ The parent computation.
-          -> Label Buff
+  Label :: Int      -- ^ The computation label.
+        -> Parent   -- ^ The parent computation.
+        -> Label t
+
+type Parent = Maybe (Label Comp)
 
 -- | Lens for getting and setting the label id.
 labelId :: Lens' (Label t) Int
-labelId f (CLabel i p) = fmap (`CLabel` p) (f i)
-labelId f (BLabel i p) = fmap (`BLabel` p) (f i)
+labelId f (Label i p) = f i <&> (`Label` p)
 
 -- | Lens for getting and setting the parent label.
-parent :: Lens' (Label t) (Maybe (Label Comp))
-parent f (CLabel i p) = fmap (CLabel i) (f p)
-parent f (BLabel i p) = fmap (BLabel i) (f p)
+parent :: Lens' (Label t) Parent
+parent f (Label i p) = f p <&> Label i
+
+-- | Lens for setting and unsafely getting the parent.
+parent' :: Lens' (Label t) (Label Comp)
+parent' f (Label i p) = f (fromJust p) <&> (Label i . Just)
 
 -- | Lens for interpreting any label as a computation label.
-asCLabel :: Lens' (Label t) (Label Comp)
-asCLabel f l@CLabel{} = f l
-asCLabel f l = fmap (\(CLabel i p) -> l & labelId .~ i & parent .~ p)
-                    (f (CLabel (l ^. labelId) (l ^. parent)))
+asComp :: Lens' (Label t) (Label Comp)
+asComp f l = coerce <$> f (coerce l)
 
 -- | Lens for interpreting any label as a buffer label.
-asBLabel :: Lens' (Label t) (Label Buff)
-asBLabel f l@BLabel{} = f l
-asBLabel f l = fmap (\(BLabel i p) -> l & labelId .~ i & parent .~ p)
-                    (f (BLabel (l ^. labelId) (l ^. parent)))
+asBuff :: Lens' (Label t) (Label Buff)
+asBuff f l = coerce <$> f (coerce l)
 
 instance Show (Label t) where
   show :: Label t -> String
-  show l = "L" <> show (l ^. labelId) <> "{" <> show (l ^. parent) <> "}"
+  show l = "L" <> show (l^.labelId) <> "{" <> show (l^.parent) <> "}"
 
 instance Eq (Label t) where
   (==) :: Label t -> Label t -> Bool
-  (==) l1 l2  = l1 ^. labelId == l2 ^. labelId && (l1 ^. parent == l2 ^. parent || parentMismatch l1 l2)
+  (==) (Label i1 p1) (Label i2 p2)
+    | i1 == i2  = checkMismatch p1 p2 True
+    | otherwise = False
 
 instance Ord (Label t) where
   compare :: Label t -> Label t -> Ordering
-  compare l1 l2 = case compare (l1 ^. labelId) (l2 ^. labelId) of
-    EQ -> if l1 ^. parent == l2 ^. parent then EQ else parentMismatch l1 l2
-    x  -> x
+  compare (Label i1 p1) (Label i2 p2) = case compare i1 i2 of
+    EQ -> checkMismatch p1 p2 EQ
+    LT -> LT
+    GT -> GT
 
--- | Error message for when parent computation labels do not match.
-parentMismatch :: Label t -> Label t -> a
-parentMismatch l1 l2 = error $ "parent mismatch: " <> show l1 <> " " <> show l2
+-- | Checks if two parents are equal and throw an error if they are not.
+checkMismatch :: Parent -> Parent -> a -> a
+checkMismatch (Just l1) (Just l2) | l1 == l2 = id
+checkMismatch Nothing Nothing = id
+checkMismatch _ _ = error "checkMismatch: Mismatching labels detected."
 
 instance Hashable (Label t) where
   hashWithSalt :: Int -> Label t -> Int
@@ -130,9 +125,14 @@ instance Hashable (Label t) where
 
 -- | Compute the nesting level of a label.
 level :: Label t -> Int
-level l = case l ^. parent of
+level l = case l^.parent of
   Nothing -> 0
   Just p  -> 1 + level p
+
+-- | Check if a parent label is an ancestor of another label.
+ancestorOf :: Parent -> Label t -> Bool
+ancestorOf Nothing _ = True  -- The top-level label is always an ancestor.
+ancestorOf p1 (Label _ p2) = p1 == p2 || maybe False (ancestorOf p1) p2
 
 -- | Create a new label.
 freshL' :: State (Label t) (Label t)
@@ -140,12 +140,6 @@ freshL' = id <%= (labelId +~ 1)
 
 -- | Set of labels.
 type Labels t = Set (Label t)
-
--- | Replace a label in a set of labels with another.
-updateLabels :: Label t -> Label t -> Labels t -> Labels t
-updateLabels b b' bs
-  | b /= b' && S.member b bs = S.insert b' (S.delete b bs)
-  | otherwise                = bs
 
 
 
