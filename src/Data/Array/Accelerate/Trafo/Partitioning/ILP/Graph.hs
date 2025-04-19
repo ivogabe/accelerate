@@ -630,6 +630,7 @@ mkFullGraph (Acond cond tacc facc) = do
   c_cond  <- freshComp
   c_true  <- freshComp
   c_false <- freshComp
+  -- TODO: Should there be edges between these by default?
   for_ (getVarDeps cond lenv) (===> c_cond)
   symbols %= M.insert c_cond (SITE lenv cond c_true c_false)
   (t_res, t_wenv, t_renv) <- block c_true  mkFullGraph tacc
@@ -645,6 +646,7 @@ mkFullGraph (Awhile u cond body init) = do
   c_while <- freshComp
   c_cond  <- freshComp
   c_body  <- freshComp
+  -- TODO: Should there be edges between these by default?
   for_ (getVarsDeps init lenv) (===> c_while)
   symbols %= M.insert c_while (SWhl lenv c_cond c_body init u)
   (_                  , cond_wenv, cond_renv) <- block c_cond mkFullGraphF cond
@@ -670,11 +672,11 @@ mkFullGraphF (Alam lhs f) = do
   lenv <- use labelsEnv
   (b, c) <- freshBuff
   let bnd = tupFlike (lhsToTupR lhs) b
+  symbols %= M.insert c (SFun lhs bnd)
   lenv' <- zoom currEnvL (weakenEnv lhs bnd lenv)
-  zoom (local lenv') do
-    res <- mkFullGraphF f
-    symbols %= M.insert c (SFun lhs bnd)
-    return res
+  res <- zoom (local lenv') (mkFullGraphF f)
+  for_ res $ traverse_ (<--> c)
+  return res
 
 
 -- | A block is a subcomputation that is executed under the scope of another
@@ -682,11 +684,11 @@ mkFullGraphF (Alam lhs f) = do
 block :: Label Comp -> FullGraphMaker f op env t (BuffersTupF r)
       -> FullGraphMaker f op env t (BuffersTupF r, WritersEnv, ReadersEnv)
 block c f x = zoom (scope c . protected writersEnv . protected readersEnv) do
-    res <- f x
-    for_ res $ traverse_ (<--> c)
-    wenv <- use writersEnv
-    renv <- use readersEnv
-    return (res, wenv, renv)
+  res <- f x
+  for_ res $ traverse_ (<--> c)
+  wenv <- use writersEnv
+  renv <- use readersEnv
+  return (res, wenv, renv)
 
 
 -- | Type of functions that take an AST and produce a graph.
