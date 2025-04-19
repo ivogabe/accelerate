@@ -10,6 +10,7 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE InstanceSigs #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver where
 
 import qualified Data.Map as M
@@ -40,7 +41,7 @@ finalize :: Ord (Var op) => ILP op -> ILP op
 finalize ilp@(ILP dir obj constr bnds n) =
   ILP dir obj (constr <> extraconstr) (bnds <> extrabnds) n
   where
-    extraconstr = foldMap (\v -> int (-5) .<=. c v) (allVars ilp)
+    extraconstr = foldMap (\v -> int (-5) .<=. var v) (allVars ilp)
     extrabnds   = foldMap (Lower (-5))              (allVars ilp)
 
 data OptDir = Maximise | Minimise
@@ -51,28 +52,34 @@ deriving instance Show (Var op) => Show (ILP op)
 
 type Solution op = M.Map (Var op) Int
 
--- given `n` (for the number of nodes in the ILP), make an Int
+-- | given `n` (for the number of nodes in the ILP), make an Int
 newtype Number = Number (Int -> Int)
+
 instance Show Number where
+  show :: Number -> String
   show (Number f) = "Number {" ++ show (f 1) ++ "}"
 
 data Expression op where
   Constant :: Number -> Expression op
-  (:+)  :: Expression op -> Expression op -> Expression op
-  (:*)  :: Number -> Var op -> Expression op
+  (:+)     :: Expression op -> Expression op -> Expression op
+  (:*)     :: Number -> Var op -> Expression op
 deriving instance Show (Var op) => Show (Expression op)
 
 data Constraint op where
   (:>=) :: Expression op -> Expression op -> Constraint op
   (:<=) :: Expression op -> Expression op -> Constraint op
   (:==) :: Expression op -> Expression op -> Constraint op
-
   (:&&) :: Constraint op -> Constraint op -> Constraint op
   TrueConstraint :: Constraint op
 deriving instance Show (Var op) => Show (Constraint op)
 
-instance Semigroup (Constraint op) where (<>) = (:&&)
-instance Monoid    (Constraint op) where mempty = TrueConstraint
+instance Semigroup (Constraint op) where
+  (<>) :: Constraint op -> Constraint op -> Constraint op
+  (<>) = (:&&)
+
+instance Monoid    (Constraint op) where
+  mempty :: Constraint op
+  mempty = TrueConstraint
 
 
 data Bounds op where
@@ -84,73 +91,113 @@ data Bounds op where
   NoBounds :: Bounds op
 deriving instance Show (Var op) => Show (Bounds op)
 
-instance Semigroup (Bounds op) where (<>) = (:<>)
-instance Monoid    (Bounds op) where mempty = NoBounds
+instance Semigroup (Bounds op) where
+  (<>) :: Bounds op -> Bounds op -> Bounds op
+  (<>) = (:<>)
+
+instance Monoid    (Bounds op) where
+  mempty :: Bounds op
+  mempty = NoBounds
 
 
--- Synonyms for the constructors above: ease of defining ILP
-infixl 8 .+.
-infixl 8 .-.
-infixl 8 .*.
+-- | Add two expressions.
 (.+.)  :: Expression op -> Expression op -> Expression op
 (.+.) = (:+)
+infixl 8 .+.
+
+-- | Subtract two expressions.
 (.-.)  :: Expression op -> Expression op -> Expression op
 e1 .-. e2 = e1 .+. ((-1) .*. e2)
-(.*.)  :: Int           -> Expression op -> Expression op
+infixl 8 .-.
+
+-- | Multiply an expression by a constant.
+(.*.)  :: Int -> Expression op -> Expression op
 i .*. (Constant (Number f)) = Constant $ Number $ (*i) . f
 i .*. (e1 :+ e2) = (:+) (i .*. e1) (i .*. e2)
 i .*. (Number f :* v) = (:*) (Number ((*i) . f)) v
+infixl 8 .*.
+
+-- | Multiply by @n@ (the total number of nodes).
 timesN :: Expression op -> Expression op
 timesN (Constant (Number f)) = Constant (Number (\n -> n * f n))
 timesN ((:+) e1 e2) = (:+) (timesN e1) (timesN e2)
 timesN ((:*) (Number f) v) = (:*) (Number (\n -> n * f n)) v
--- | Convert 'Var' to 'Expression' (multiplies with 1).
-c :: Var op -> Expression op
-c = (Number (const 1) :*)
+
+-- | Use a 'Var' in an 'Expression'.
+var :: Var op -> Expression op
+var = (Number (const 1) :*)
+
+-- | Use a constant in an 'Expression'.
 int :: Int -> Expression op
 int = Constant . Number . const
 
-infixr 7 .>=.
-infixr 7 .<=.
-infixr 7 .==.
+-- | @x >= y@
 (.>=.) :: Expression op -> Expression op -> Constraint op
 (.>=.) = (:>=)
+infixr 7 .>=.
+
+-- | @x <= y@
 (.<=.) :: Expression op -> Expression op -> Constraint op
 (.<=.) = (:<=)
+infixr 7 .<=.
+
+-- | @x == y@
 (.==.) :: Expression op -> Expression op -> Constraint op
 (.==.) = (:==)
+infixr 7 .==.
+
+-- | @x[0] == x[1] == ... == x[n-1]@
+equals :: [Expression op] -> Constraint op
+equals [] = TrueConstraint
+equals (x:xs) = foldMap (x .==.) xs
+
+-- | 'Var' is binary.
 binary :: Var op -> Bounds op
 binary = Binary
+
+-- | 'Var' is bounded by lower and upper bounds.
 lowerUpper :: Int -> Var op -> Int -> Bounds op
 lowerUpper = LowerUpper
+
+-- | 'Var' is bounded by lower bound.
 lower :: Int -> Var op -> Bounds op
 lower = Lower
+
+-- | 'Var' is bounded by upper bound.
 upper :: Var op -> Int -> Bounds op
 upper = Upper
+
+-- | 'Var' is equal to a constant.
 equal :: Int -> Var op -> Bounds op
 equal x v = lowerUpper x v x
 
--- Convenience
-(.>.)  :: Expression op -> Expression op -> Constraint op
+-- | @x < y@
+(.>.) :: Expression op -> Expression op -> Constraint op
 x .>. y = x .>=. (y .+. int 1)
-(.<.)  :: Expression op -> Expression op -> Constraint op
+infixl 7 .>.
+
+-- | @x < y@
+(.<.) :: Expression op -> Expression op -> Constraint op
 x .<. y = (x .+. int 1) .<=. y
+infixl 7 .<.
+
+-- | @x <= y <= z@
 between :: Expression op -> Expression op -> Expression op -> Constraint op
 between x y z = x .<=. y <> y .<=. z
 
-
+-- | Not 'Expression'
 notB :: Expression op -> Expression op
 notB e = int 1 .-. e
 
--- | If a is 0, then b must be 0
+-- | If a is 0, then b is 0.
 impliesB :: Expression op -> Expression op -> Constraint op
 impliesB a b = a .>=. b
 
--- | Iff a and b are 0, the result is 0
-andB  :: Expression op -> Expression op -> Expression op -> Constraint op
+-- | Iff a and b are 0, then r is 0.
+andB :: Expression op -> Expression op -> Expression op -> Constraint op
 andB a b r = orB (notB a) (notB b) (notB r)
 
--- | Iff a and b are 1, r is 1
+-- | Iff a and b are 1, then r is 1.
 -- not sure if this encoding is new, nor whether it is the simplest, but I think it works.
 -- perhaps defining andB is easier than defining orB?
 orB :: Expression op -> Expression op -> Expression op -> Constraint op

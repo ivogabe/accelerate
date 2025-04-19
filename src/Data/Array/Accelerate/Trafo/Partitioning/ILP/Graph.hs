@@ -29,7 +29,7 @@ import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Operation hiding (Var)
 import Data.Array.Accelerate.Trafo.Operation.LiveVars
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding ( c )
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
 import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Analysis.Hash.Exp
@@ -63,30 +63,31 @@ data Edge where
 -- Graph
 --------------------------------------------------------------------------------
 
--- | Program graph in adjacency list representation.
+-- | Program graph.
 --
--- The program graph is a directed graph in which a node is either a computation
--- or a buffer. Edges between buffers and computations represent dependencies
--- between them.
--- In addition to basic data flow, the graph also contains sets of fusible- and
--- infusible edges. Fusible edges represent dependencies between computations as
--- producer and consumer. They share data over a buffer and may be fused
--- together. If the computations are not fused, these edges enforce a strict
--- ordering between computations.
--- Infusible edges represent dependencies between computations that prevent them
--- from being fused together. They also enforce a strict ordering between
--- computations such that one must execute before the other.
--- Having a fusible and an infusible edge between two computations means that
--- data does flow between them, but that they can't be fused together.
+-- The graph consists of read/write edges, strict ordering edges and fusible
+-- edges.
 --
--- A graph represents a single block of code, there can be no nested blocks.
--- Any nesting is handled by 'FusionILPblock' and 'FusionILP'.
+-- The read/write edges represent a read or write relation between a buffer and
+-- a computation. In the ILP, these edges get a variable indicating in which
+-- order a computation reads or writes an array in the buffer. Some of these
+-- edges are duplicated, in which case we assert that they are equal in the
+-- bounds of 'FusionILP'.
+--
+-- The strict ordering edges enforce a strict ordering between two computations.
+-- This ordering can be due to any number of reasons, but in most cases it is to
+-- prevent race conditions between two computations.
+--
+-- The data-flow edges represent a flow of data between two computations over a
+-- buffer. These edges are used to determine which computations can be fused.
+-- Data-flow edges that are also strict edges are infusible.
+-- Data-flow edges that are not strict edges are fusible.
 --
 data Graph = Graph   -- TODO: Use hashmaps and hashsets in production.
-  {      _readEdges :: Set (Label Buff, Label Comp)  -- ^ Edges from buffers to computations.
-  ,     _writeEdges :: Set (Label Comp, Label Buff)  -- ^ Edges from computations to buffers.
-  ,   _fusibleEdges :: Set (Label Comp, Label Buff, Label Comp)  -- ^ Edges that can be fused.
-  , _infusibleEdges :: Set (Label Comp, Label Comp)  -- ^ Edges that enforce strict ordering.
+  {     _readEdges :: Set (Label Buff, Label Comp)  -- ^ Edges from buffers to computations.
+  ,    _writeEdges :: Set (Label Comp, Label Buff)  -- ^ Edges from computations to buffers.
+  ,   _strictEdges :: Set (Label Comp, Label Comp)  -- ^ Edges that enforce strict ordering.
+  , _dataflowEdges :: Set (Label Comp, Label Buff, Label Comp)  -- ^ Edges that represent data-flow.
   }
 
 instance Semigroup Graph where
@@ -100,63 +101,38 @@ instance Monoid Graph where
 
 makeLenses ''Graph
 
--- | Add a read edge from a buffer to a computation in the graph.
-reads' :: Label Comp -> Label Buff -> Graph -> Graph
-reads' c b g = g & readEdges  %~ S.insert (b, c)
+-- | Insert a read edge from a buffer to a computation in the graph.
+insertRead :: (Label Buff, Label Comp) -> Graph -> Graph
+insertRead edge = readEdges %~ S.insert edge
 
--- | Add a write edge from a computation to a buffer.
-writes' :: Label Comp -> Label Buff -> Graph -> Graph
-writes' c b g = g & writeEdges  %~ S.insert (c, b)
+-- | Insert multiple read edges into the graph.
+insertReads :: Traversable t => t (Label Buff, Label Comp) -> Graph -> Graph
+insertReads edges = readEdges %~ flip (foldl' (flip S.insert)) edges
 
--- | Add an infusible edge between two computations.
---
--- Infusible edges represent computations that cannot be fused together and
--- enforces a strict ordering between them.
---
--- These edges represent the fact that two computations are not allowed to be in
--- the same cluster and that one should happen before the other. This is usually
--- to avoid race-conditions when two computations write to the same buffer.
-before' :: Label Comp -> Label Comp -> Graph -> Graph
-before' c1 c2 g
-  | c1 == c2 = error "before: Cannot add infusible edge to self."
-  | guard2Cycle c1 c2 g = error "before: c2 Already happens before c1."
-  | otherwise = g & infusibleEdges %~ S.insert (c1, c2)
+-- | Insert a write edge from a computation to a buffer.
+insertWrite :: (Label Comp, Label Buff) -> Graph -> Graph
+insertWrite edge = writeEdges %~ S.insert edge
 
--- | Add a fusible edge between two computations over a buffer.
---
--- Fusible edges represent computations that can be fused together but enforces
--- a strict ordering between them if they are not fused.
---
--- These edges represent the flow of data between computations. Since multiple
--- computations can write to the same buffer, it is not necessarily the case that
--- all readers of a buffer read the same value. This depends on which computation
--- wrote to the buffer last.
---
-fusible' :: Label Comp -> Label Buff -> Label Comp -> Graph -> Graph
-fusible'  c1 b c2 g
-  | c1 == c2 = error "fusible: Cannot add fusible edge to self."
-  | guard2Cycle c1 c2 g = error "fusible: c2 Already happens before c1."
-  -- | S.notMember (c1, b) (g^.writeEdges) = error "fusible: c1 is not a writer of b."
-  -- | S.notMember (b, c2) (g^.readEdges)  = error "fusible: c2 is not a reader of b."
-  | otherwise = g & fusibleEdges %~ S.insert (c1, b, c2)
-                  &   writeEdges %~ S.insert (c1, b)
-                  &    readEdges %~ S.insert (b, c2)
-  -- TODO: Maybe throw an warning if the edge doesn't exist?
+-- | Insert multiple write edges into the graph.
+insertWrites :: Traversable t => t (Label Comp, Label Buff) -> Graph -> Graph
+insertWrites edges = writeEdges %~ flip (foldl' (flip S.insert)) edges
 
--- | Multiple computations can fuse with another over a buffer.
-allFusible' :: Labels Comp -> Label Buff -> Label Comp -> Graph -> Graph
-allFusible' cs1 b c2 g
-  | S.null cs1 = g
-  | otherwise = foldl' (\g' c1 -> (c1 `fusible'` b) c2 g') g cs1
+-- | Insert a strict relation between two computations.
+insertStrict :: (Label Comp, Label Comp) -> Graph -> Graph
+insertStrict (c1, c2) | c1 == c2  = error "insertStrict: Cannot add reflexive edge."
+                      | otherwise = strictEdges %~ S.insert (c1, c2)
 
--- | Same as 'fusible'', except also calls 'before'' on the two computations.
-infusible' :: Label Comp -> Label Buff -> Label Comp -> Graph -> Graph
-infusible' c1 b c2 = before' c1 c2 . fusible' c1 b c2
+-- | Insert a fusible data-flow edge between two computations.
+insertFusible :: (Label Comp, Label Buff, Label Comp) -> Graph -> Graph
+insertFusible (c1, b, c2) g
+  | c1 == c2                            = error "fusible: Cannot add reflexive edge."
+  | S.notMember (c1, b) (g^.writeEdges) = error "fusible: c1 is not a writer of b."
+  | S.notMember (b, c2) (g^.readEdges)  = error "fusible: c2 is not a reader of b."
+  | otherwise = g & dataflowEdges %~ S.insert (c1, b, c2)
 
--- | Guard against 2-cycles in the graph.
-guard2Cycle :: Label Comp -> Label Comp -> Graph -> Bool
-guard2Cycle c1 c2 g = S.member (c2, c1) (g^.infusibleEdges)
-  || any (\(c1', _, c2') -> (c1', c2') == (c2, c1)) (S.toList (g^.fusibleEdges))
+-- | Insert an infusible data-flow edge between two computations.
+insertInfusible :: (Label Comp, Label Buff, Label Comp) -> Graph -> Graph
+insertInfusible (c1, b, c2) = insertStrict (c1, c2) . insertFusible (c1, b, c2)
 
 
 
@@ -166,156 +142,94 @@ guard2Cycle c1 c2 g = S.member (c2, c1) (g^.infusibleEdges)
 
 -- | A single block of the ILP.
 --
--- 'FusionILPblock' stores an fusion ILP for a single block of code. This is
+-- 'FusionILP' stores an fusion ILP for a single block of code. This is
 -- possible because there can be no fusion between different blocks of code.
 -- Separating the ILP into blocks then allows us to pass much smaller ILPs to
 -- the solver, which should make the whole process faster.
 -- If not, we can always merge the blocks together later.
-data FusionILPblock op = FusionILPblock
-  { _graph        :: Graph
-  , _constraints  :: Constraint op
-  , _bounds       :: Bounds op
+data FusionILP op = FusionILPblock
+  { _graph       :: Graph
+  , _constraints :: Constraint op
+  , _bounds      :: Bounds op
   }
 
-makeLenses ''FusionILPblock
+makeLenses ''FusionILP
 
--- | The ILP for the whole program.
---
--- The ILP for the whole program is represented as(Label _ k) a map from the enclosing
--- parent (may be 'Nothing' for the top-level) to the ILP for that block.
---
--- During the construction of the ILP, we want to be able to treat the whole
--- ILP as a single object, because computations may try to read or write to/from
--- buffers that are not in the same block. For this purpose each block will have
--- a proxy in one other block (except for the top-level block).
---
--- The proxy is a computation (but never a buffer). This ensures that
--- computations within the block can read/write from/to buffers outside the
--- block by adding an edge not only to itself, but also to any proxies of its
--- enclosing blocks until a legal edge can be made between the buffer and the
--- proxy/computation. We DO NOT need to make an explicit proxy for a buffer when
--- a computation in a sub-block reads/writes from/to it. Because any edges
--- between computations and proxies are infusible, the computations inside the
--- proxy may assume that the buffer exists and is not mutated by external
--- computations throughout the block's execution.
---
--- It could also be the case that a computation outside of a block tries to
--- read/write from/to a buffer inside a block. Such a situation can only occur
--- when a block returns a buffer, yielding ownership of the buffer to the
--- enclosing block. At this point the enclosing block can assume that the sub-
--- computation will not mutate the buffer any further, since a return-statement
--- is always the last statement of a block. In case the return-statement is not
--- the last statement of the block, then the returned buffer will be bound by
--- a let-binding, so no value is returned.
---
--- How we handle constraints and bounds is still up for debate. I can see some
--- merits in making a single set of bounds, rather than individual ones for each
--- block. This way we only need to set the bounds of a variable once rather than
--- for each block it occurs in. This could be useful for the backend, however
--- not so much for the frontend, since those bounds are added after the fact.
--- based on the graph. So no, we will keep the bounds for each block separate.
---
-newtype FusionILP op = FusionILP (Map Parent (FusionILPblock op))
-
-instance Semigroup (FusionILPblock op) where
-  (<>) :: FusionILPblock op -> FusionILPblock op -> FusionILPblock op
+instance Semigroup (FusionILP op) where
+  (<>) :: FusionILP op -> FusionILP op -> FusionILP op
   (<>) (FusionILPblock g1 c1 b1) (FusionILPblock g2 c2 b2) =
     FusionILPblock (g1 <> g2) (c1 <> c2) (b1 <> b2)
 
-instance Monoid (FusionILPblock op) where
-  mempty :: FusionILPblock op
+instance Monoid (FusionILP op) where
+  mempty :: FusionILP op
   mempty = FusionILPblock mempty mempty mempty
 
-
-type instance Index (FusionILP op)   = Parent
-type instance IxValue (FusionILP op) = FusionILPblock op
-
-instance Ixed (FusionILP op) where
-  ix :: Index (FusionILP op) -> Traversal' (FusionILP op) (IxValue (FusionILP op))
-  ix k f (FusionILP m) = f (M.findWithDefault mempty k m) <&> \v' -> FusionILP (M.insert k v' m)
-
-
--- Here we redefine the functions for the graph
-
--- | Add read edges between the buffer and the computation and all the parents
---   of the computation until the parent of the computation is an ancestor of
---   the buffer.
+-- | Safely add a read edge between a computation and a buffer.
 reads :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
-reads comp buff
-  = (ix(comp^.parent).graph %~ comp `reads'` buff)
-  . if (comp^.parent) `ancestorOf` buff then id else reads comp buff
+reads comp buff ilp =
+  let edges = map (buff,) (traceParentIsAncestorC comp buff)
+   in ilp & constraints <>~ equals (map readDir edges)
+          & graph %~ insertReads edges
 
--- | Add write edges between the computation and the buffer and all the parents
---   of the computation until the parent of the computation is an ancestor of
---   the buffer.
+-- | Safely add a write edge between a computation and a buffer.
 writes :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
-writes comp buff
-  = (ix(comp^.parent).graph %~ comp `writes'` buff)
-  . if (comp^.parent) `ancestorOf` buff then id else writes comp buff
+writes comp buff ilp =
+  let edges = map (,buff) (traceParentIsAncestorC comp buff)
+   in ilp & constraints <>~ equals (map writeDir edges)
+          & graph %~ insertWrites edges
 
--- | Add strict ordering between two computations.
---
--- Adds only an infusible edge between the two computations if they share the
--- same parent. If they don't share the same parent, find the largest common
--- ancestor and add the infusible edge there.
+-- | Safely add a strict relation between two computations.
 before :: Label Comp -> Label Comp -> FusionILP op -> FusionILP op
-before c1 c2 = if c1^.parent == c2^.parent
-  then ix(c1^.parent).graph %~ before' c1 c2
-  else case compare (level c1) (level c2) of
-    LT -> before  c1           (c2^.parent')  -- c2 is deeper
-    GT -> before (c1^.parent')  c2            -- c1 is deeper
-    EQ -> before (c1^.parent') (c2^.parent')  -- same level
+before c1 c2 = graph %~ insertStrict (c1', c2')
+  where c1' = findParentIsAncestorC c1 c2
+        c2' = findParentIsAncestorC c2 c1
 
--- | Add a fusible edge to the ILP.
+-- | Safely add a fusible edge between two computations.
 --
--- Adds a fusible edge between the computations if they share the same parent.
--- If they don't share the same parent, add an infusible edge instead.
+-- If the computations share the same parent, add a fusible edge, otherwise add
+-- an infusible edge.
 fusible :: Label Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 fusible prod buff cons = if prod^.parent == cons^.parent
-  then ix(prod^.parent).graph %~ fusible' prod buff cons
+  then graph %~ insertFusible (prod, buff, cons)
   else infusible prod buff cons
 
--- | Add an infusible edge to the ILP.
+-- | Safely add an infusible edge between two computations.
 --
--- Adds an infusible edge between the computations if they share the same
--- parent. If they don't share the same parent, find the largest common ancestor
--- and add the infusible edge there.
+-- Infusible edges are only added to computations that share the same parent.
+-- If they don't share the same parent, find the first ancestors that do.
 infusible :: Label Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
-infusible prod buff cons = if prod^.parent == cons^.parent
-  then ix(prod^.parent).graph %~ infusible' prod buff cons
-  else case compare (level prod) (level cons) of
-    LT -> infusible  prod           buff (cons^.parent')  -- cons is deeper
-    GT -> infusible (prod^.parent') buff  cons            -- prod is deeper
-    EQ -> infusible (prod^.parent') buff (cons^.parent')  -- same level
+infusible prod buff cons = graph %~ insertInfusible (prod', buff, cons')
+  where prod' = findParentIsAncestorC prod cons
+        cons' = findParentIsAncestorC cons prod
 
--- | Add strict ordering between computations and a computation.
+-- | Safely add strict ordering between multiple computations and another computation.
 allBefore :: Labels Comp -> Label Comp -> FusionILP op -> FusionILP op
 allBefore cs1 c2 ilp = foldl' (\ilp' c1 -> before c1 c2 ilp') ilp cs1
 
--- | Add a fusible edges from all producers, over the buffer, to the consumer.
+-- | Safely add fusible edges from all producers to the consumer.
 allFusible :: Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 allFusible prods buff cons ilp = foldl' (\ilp' prod -> fusible prod buff cons ilp') ilp prods
 
--- | Add an infusible edge from all producers, over the buffer, to the consumer.
+-- | Safely add infusible edges from all producers to the consumer.
 allInfusible :: Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 allInfusible prods buff cons ilp = foldl' (\ilp' prod -> infusible prod buff cons ilp') ilp prods
 
--- | See 'allFusible'.
+-- | Infix synonym for 'allBefore'.
+(==|-|=>) :: Labels Comp -> Label Comp -> FusionILP op -> FusionILP op
+(==|-|=>) = allBefore
+
+-- | Infix synonym for 'allFusible'.
 (--|) :: Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 (--|) = allFusible
 
--- | '($)' Specialized to '(|->)'.
-(|->) :: (Label Comp -> FusionILP op -> FusionILP op) -> Label Comp -> FusionILP op -> FusionILP op
-(|->) = ($)
-
--- | See 'allInfusible''.
+-- | Infix synonym for 'allInfusible'.
 (==|) :: Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 (==|) = allInfusible
 
--- | '($)' Specialized to '(|=>)'.
-(|=>) :: (Label Comp -> FusionILP op -> FusionILP op) -> Label Comp -> FusionILP op -> FusionILP op
+-- | Arrow heads to complete '(--|)' and '(==|)'.
+(|->), (|=>) :: (a -> b) -> a -> b
+(|->) = ($)
 (|=>) = ($)
-
 
 --------------------------------------------------------------------------------
 -- Backend specific definitions
@@ -387,9 +301,9 @@ data Var (op :: Type -> Type)
   | Manifest (Label Buff)
     -- ^ 0 means manifest, 1 is like a `delayed array`.
     -- Binary variable; will we write the output to a manifest array, or is it fused away (i.e. all uses are in its cluster)?
-  | InDir (Label Comp)
+  | ReadDir (Label Buff) (Label Comp)
     -- ^ -3 can't fuse with anything, -2 for 'left to right', -1 for 'right to left', n for 'unpredictable, see computation n' (currently only backpermute)
-  | OutDir (Label Comp)
+  | WriteDir (Label Comp) (Label Buff)
     -- ^ See 'InDir'.
   | InFoldSize (Label Comp)
     -- ^ Keeps track of the fold that's one dimension larger than this operation, and is fused in the same cluster.
@@ -408,6 +322,32 @@ data Var (op :: Type -> Type)
 deriving instance Eq   (BackendVar op) => Eq   (Var op)
 deriving instance Ord  (BackendVar op) => Ord  (Var op)
 deriving instance Show (BackendVar op) => Show (Var op)
+
+-- | Constructor for Pi variables.
+pi :: Label Comp -> Expression op
+pi = var . Pi
+
+-- | No clue what this is for.
+delayed :: Label Buff -> Expression op
+delayed = notB . manifest
+
+-- | Constructor for Manifest variables.
+manifest :: Label Buff -> Expression op
+manifest = var . Manifest
+
+-- | Safe constructor for Fused variables.
+fused :: HasCallStack => Label Comp -> Label Comp -> Expression op
+fused prod cons
+  | prod' == cons' = error $ "reflexive fused variable " <> show prod'
+  | otherwise      = var $ Fused prod' cons'
+  where prod' = findParentIsAncestorC prod cons
+        cons' = findParentIsAncestorC cons prod
+
+readDir :: (Label Buff, Label Comp) -> Expression op
+readDir = var . uncurry ReadDir
+
+writeDir :: (Label Comp, Label Buff) -> Expression op
+writeDir = var . uncurry WriteDir
 
 
 
@@ -550,64 +490,67 @@ freshBuff = do
   fusionILP %= c `writes` b
   return (S.singleton b, c)
 
--- | Read from a buffer and maybe fuse with its writers.
+-- | Read from a buffer and be fusisble with its writers.
 (--->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (--->) b c = do
   ws <- use $ writers b
   fusionILP %= c `reads` b
   fusionILP %= ws --|b|-> c
+  readers b %= S.insert c
 
--- | Read from a buffer and don't fuse with its writers.
+-- | Read from a buffer and be infusible with its writers.
 (===>) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (===>) b c = do
   ws <- use $ writers b
   fusionILP %= c `reads` b
   fusionILP %= ws ==|b|=> c
+  readers b %= S.insert c
 
 -- | Write to a buffer.
 --
 -- For a write to be safe we need to enforce the following:
--- * All (current) readers run before the writer.
--- * The producer runs before the writer.
+-- 1. All readers run before the computation.
+-- 2. All writers run before the computation.
+-- 3. We become the sole writer of the buffer.
+-- 4. We clear the readers of the buffer.
 (<===) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<===) b c = do
-  ws <- use $ writers b
   rs <- use $ readers b
-  fusionILP %= ws `allBefore` c
-  fusionILP %= rs `allBefore` c
+  ws <- use $ writers b
   fusionILP %= c `writes` b
+  fusionILP %= rs ==|-|=> c
+  fusionILP %= ws ==|-|=> c
   writers b .= S.singleton c
   readers b .= S.empty
 
 -- | Mutate a buffer.
 --
 -- For a mutation to be safe we need to enforce the following:
--- * All (current) readers run before the writer.
--- * The producer runs before the writer.
--- * We can't fuse with the producer.
+-- 1. All readers run before this computation.
+-- 2. All writers are infusible with this computation.
+-- 3. We become the sole writer of the buffer.
+-- 4. We clear the readers of the buffer.
 (<==>) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<==>) b c = do
-  ws <- use $ writers b
   rs <- use $ readers b
-  fusionILP %= rs `allBefore` c
-  fusionILP %= c  `reads`  b
-  fusionILP %= c  `writes` b
-  fusionILP %= ws ==|b|=>  c
+  ws <- use $ writers b
+  fusionILP %= c `reads`  b
+  fusionILP %= c `writes` b
+  fusionILP %= rs ==|-|=> c
+  fusionILP %= ws ==|b|=> c
   writers b .= S.singleton c
   readers b .= S.empty
 
 -- | Mutate a buffer with the identity function, preventing fusion.
 --
 -- This is a special case of mutation where the buffer is not actually changed.
--- Unlike '(<==>)', we now don't have to:
--- * Enforce the readers to run before the writer.
--- * Clear the readers of the buffer.
+-- Because of this, we now don't need to enforce rules 1 and 4 from '(<==>)'.
 (<-->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<-->) b c = do
   ws <- use $ writers b
-  fusionILP %= c  `reads`  b
-  fusionILP %= c  `writes` b
-  fusionILP %= ws ==|b|=>  c
+  fusionILP %= c `reads`  b
+  fusionILP %= c `writes` b
+  fusionILP %= ws ==|b|=> c
   writers b .= S.singleton c
 
 
@@ -671,11 +614,11 @@ mkFullGraph (Alloc shr e sh) = do
   symbols %= M.insert c (SAlc lenv shr e sh)
   return (TupFsingle b)
 
-mkFullGraph (Unit var) = do
+mkFullGraph (Unit v) = do
   lenv <- use labelsEnv
   (b, c) <- freshBuff
-  for_ (getVarDeps var lenv) (===> c)
-  symbols %= M.insert c (SUnt lenv var)
+  for_ (getVarDeps v lenv) (===> c)
+  symbols %= M.insert c (SUnt lenv v)
   return (TupFsingle b)
 
 mkFullGraph (Use sctype n buff) = do
@@ -706,7 +649,7 @@ mkFullGraph (Awhile u cond body init) = do
   for_ (getVarsDeps init lenv) (===> c_while)
   symbols %= M.insert c_while (SWhl lenv c_cond c_body init u)
   (_                  , cond_wenv, cond_renv) <- block c_cond mkFullGraphF cond
-  (unsafeCoerce -> res, body_wenv, body_renv) <- block c_body mkFullGraphF body  -- Safe
+  (unsafeCoerce -> res, body_wenv, body_renv) <- block c_body mkFullGraphF body
   writersEnv .= cond_wenv <> body_wenv
   readersEnv .= cond_renv <> body_renv
   for_ res $ traverse_ (<--> c_while)
@@ -722,7 +665,7 @@ mkFullGraphF (Abody acc) = do
     res <- mkFullGraph acc
     symbols %= M.insert c (SBod res)
     for_ res $ traverse_ (<--> c)
-    return (unsafeCoerce res)  -- Safe
+    return (unsafeCoerce res)
 
 mkFullGraphF (Alam lhs f) = do
   lenv <- use labelsEnv

@@ -46,7 +46,7 @@ import Data.Typeable
 import Data.Array.Accelerate.Type (ScalarType)
 import Data.Array.Accelerate.Representation.Array
 import Data.Bifunctor (Bifunctor(..))
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, fromMaybe)
 
 
 
@@ -130,9 +130,42 @@ level l = case l^.parent of
   Just p  -> 1 + level p
 
 -- | Check if a parent label is an ancestor of another label.
-ancestorOf :: Parent -> Label t -> Bool
-ancestorOf Nothing _ = True  -- The top-level label is always an ancestor.
-ancestorOf p1 (Label _ p2) = p1 == p2 || maybe False (ancestorOf p1) p2
+isAncestor :: Parent -> Label t -> Bool
+isAncestor Nothing _ = True  -- The top-level label is always an ancestor.
+isAncestor p1 (Label _ p2) = p1 == p2 || maybe False (isAncestor p1) p2
+
+-- | Find the first ancestor of the argument label whose parent is an ancestor
+--   of the second argument.
+findParentIsAncestor :: Label t1 -> Label t2 -> Maybe (Label Comp)
+findParentIsAncestor (Label _ p1) l2 = go p1
+  where
+    go :: Parent -> Maybe (Label Comp)
+    go = maybe Nothing (\l@(Label _ p) -> if isAncestor p l2 then Just l else go p)
+
+-- | Trace the ancestry of the first argument up to the first ancestor whose
+--   parent is an ancestor of the second label.
+traceParentIsAncestor :: Label t1 -> Label t2 -> [Label Comp]
+traceParentIsAncestor (Label _ p1) l2 = go p1
+  where
+    go :: Parent -> [Label Comp]
+    go = maybe [] (\l@(Label _ p) -> l : if isAncestor p l2 then [] else go p)
+
+-- | Find the first ancestor of the argument label whose parent is an ancestor
+--   of the second argument.
+--
+-- This is a version of 'findParentIsAncestor' specialized to comptutations,
+-- returning itself instead of 'Nothing'.
+findParentIsAncestorC :: Label Comp -> Label t -> Label Comp
+findParentIsAncestorC l1 = fromMaybe l1 . findParentIsAncestor l1
+
+-- | Trace the ancestry of the first argument up to the first ancestor whose
+--   parent is an ancestor of the second label.
+--
+-- This is a version of 'traceParentIsAncestor' specialized to computations,
+-- prepending itself to the trace.
+traceParentIsAncestorC :: Label Comp -> Label t -> [Label Comp]
+traceParentIsAncestorC l1 l2 = l1 : traceParentIsAncestor l1 l2
+
 
 -- | Create a new label.
 freshL' :: State (Label t) (Label t)

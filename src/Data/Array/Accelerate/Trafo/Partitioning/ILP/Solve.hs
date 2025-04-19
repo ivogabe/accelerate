@@ -8,7 +8,7 @@
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve where
 
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (readEdges, writeEdges, fusionEdges, beforeEdges)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (readEdges, writeEdges, fusibleEdges, infusibleEdges)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
     (Label, parent, Labels, LabelType (..) )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (finalize)
@@ -47,13 +47,14 @@ data Objective
 -- We could add some assertions, but if all the input is well-formed (no labels, constraints, etc
 -- that reward putting non-siblings in the same cluster) this is fine: We will interpret 'cluster 3'
 -- with parents `Nothing` as a different cluster than 'cluster 3' with parents `Just 5`.
-makeILP :: forall op. MakesILP op => Objective -> ILPInfo op -> ILP op
-makeILP obj (ILPInfo (Graph readEdgesMM _ writeEdgesMM _ fusionEdges beforeEdges) backendConstraints backendBounds) = combine graphILP
+makeILP :: forall op. MakesILP op => Objective -> FusionILPblock op -> ILP op
+makeILP obj (FusionILPblock (Graph readEdges writeEdges fusibleEdges infusibleEdges) backendConstraints backendBounds) = combine graphILP
   where
-    readEdges  = S.fromList $ MM.toList readEdgesMM
-    writeEdges = S.fromList $ MM.toList writeEdgesMM
+    fuseEdges, nonfuseEdges :: S.Set (Label Comp, Label Buff, Label Comp)
+    (fuseEdges, nonfuseEdges) = S.partition (\(c1, _, c2) -> S.notMember (c1, c2) infusibleEdges) fusibleEdges
 
-    (fusibleEdges, infusibleEdges)  = S.partition (\(c1, _, c2) -> S.notMember (c1, c2) beforeEdges) fusionEdges
+    bufferNodes      :: S.Set (Label Buff)
+    computationNodes :: S.Set (Label Comp)
     (bufferNodes, computationNodes) = S.foldr  biinsert         mempty readEdges
                                    <> S.foldr (biinsert . swap) mempty writeEdges
 
@@ -91,9 +92,7 @@ makeILP obj (ILPInfo (Graph readEdgesMM _ writeEdgesMM _ fusionEdges beforeEdges
 
 
     -- objective function that maximises the number of edges we fuse, and minimises the number of array reads if you ignore horizontal fusion
-    numberOfUnfusedEdges = foldl' (\f (i :-> j) -> f .+. fused i j)
-                    (int 0)
-                    (S.toList fuseEdges)
+    numberOfUnfusedEdges = foldl' (\e (prod, _, cons) -> e .+. fused prod cons) (int 0) fuseEdges
 
     -- A cost function that doesn't ignore horizontal fusion.
     -- Idea: Each node $x$ with $n$ outgoing edges gets $n$ extra variables.
