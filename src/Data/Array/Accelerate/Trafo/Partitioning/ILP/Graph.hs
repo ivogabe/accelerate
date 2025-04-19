@@ -575,8 +575,7 @@ mkFullGraph (Exec op args) = do
   zoom ( with readersEnv renv
        . with writersEnv wenv
        . unprotected fusionILP
-       ) do
-    mkBackendGraph c op labelledArgs
+       ) (mkBackendGraph c op labelledArgs)
   symbols %= M.insert c (SExe lenv labelledArgs op)
   return TupFunit
 
