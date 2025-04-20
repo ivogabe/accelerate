@@ -8,16 +8,15 @@
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve where
 
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (readEdges, writeEdges, fusibleEdges, infusibleEdges)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (readEdges, writeEdges, strictEdges, dataflowEdges, constraints, bounds)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
     (Label, parent, Labels, LabelType (..) )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (finalize)
 
 import Data.List (groupBy, sortOn)
-import Prelude hiding ( pi )
+import Prelude hiding ( pi, read )
 
 import qualified Data.Map as M
-import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap as MM
 
 -- In this file, order very often subly does matter.
 -- To keep this clear, we use S.Set whenever it does not,
@@ -47,24 +46,23 @@ data Objective
 -- We could add some assertions, but if all the input is well-formed (no labels, constraints, etc
 -- that reward putting non-siblings in the same cluster) this is fine: We will interpret 'cluster 3'
 -- with parents `Nothing` as a different cluster than 'cluster 3' with parents `Just 5`.
-makeILP :: forall op. MakesILP op => Objective -> FusionILPblock op -> ILP op
-makeILP obj (FusionILPblock (Graph readEdges writeEdges fusibleEdges infusibleEdges) backendConstraints backendBounds) = combine graphILP
+makeILP :: forall op. MakesILP op => Objective -> FusionILP op -> ILP op
+makeILP obj (FusionILP (Graph readEdges writeEdges strictEdges dataflowEdges) constraints bounds) = combine graphILP
   where
-    fuseEdges, nonfuseEdges :: S.Set (Label Comp, Label Buff, Label Comp)
-    (fuseEdges, nonfuseEdges) = S.partition (\(c1, _, c2) -> S.notMember (c1, c2) infusibleEdges) fusibleEdges
+    fusibleEdges, infusibleEdges :: S.Set (Label Comp, Label Buff, Label Comp)
+    (fusibleEdges, infusibleEdges) = S.partition (\(c1, _, c2) -> S.notMember (c1, c2) strictEdges) dataflowEdges
 
     bufferNodes      :: S.Set (Label Buff)
     computationNodes :: S.Set (Label Comp)
     (bufferNodes, computationNodes) = S.foldr  biinsert         mempty readEdges
                                    <> S.foldr (biinsert . swap) mempty writeEdges
 
-    biinsert :: Ord a => (a, b) -> (S.Set a, S.Set b) -> (S.Set a, S.Set b)
+    biinsert :: (Ord a, Ord b) => (a, b) -> (S.Set a, S.Set b) -> (S.Set a, S.Set b)
     biinsert (a, b) (as, bs) = (S.insert a as, S.insert b bs)
-
 
     combine :: ILP op -> ILP op
     combine (ILP dir fun cons bnds _) =
-      ILP dir fun (cons <> backendConstraints) (bnds <> backendBounds) n
+      ILP dir fun (cons <> constraints) (bnds <> bounds) n
 
     -- n is used in some of the constraints, as an upperbound on the number of clusters.
     -- We add a small constant to be safe, as some variables have ranges from -3 to number of nodes.
@@ -92,7 +90,7 @@ makeILP obj (FusionILPblock (Graph readEdges writeEdges fusibleEdges infusibleEd
 
 
     -- objective function that maximises the number of edges we fuse, and minimises the number of array reads if you ignore horizontal fusion
-    numberOfUnfusedEdges = foldl' (\e (prod, _, cons) -> e .+. fused prod cons) (int 0) fuseEdges
+    numberOfUnfusedEdges = foldl' (\e (prod, _, cons) -> e .+. fused prod cons) (int 0) fusibleEdges
 
     -- A cost function that doesn't ignore horizontal fusion.
     -- Idea: Each node $x$ with $n$ outgoing edges gets $n$ extra variables.
@@ -102,34 +100,34 @@ makeILP obj (FusionILPblock (Graph readEdges writeEdges fusibleEdges infusibleEd
     -- note, it's only quadratic in the number of consumers of a specific array.
     -- We also check for the 'order': horizontal fusion only happens when the two fused accesses are in the same order.
     numberOfReads =  nReads .+. numberOfUnfusedEdges
-    (nReads, readConstraints, readBounds) =
-        foldl (\(a,b,c) (d,e,f)->(a.+.d,b<>e,c<>f)) (int 0, mempty, mempty)
+    (nReads, readConstraints, readBounds)
+      = foldl (<>) mempty
       . flip evalState ""
-      . forM (S.toList nodes) $ \l -> do
-      let consumers  = map (\(_ :-> j) -> j) . S.toList $ S.filter (\(i :-> _) -> i == l) fuseEdges
-          nConsumers = length consumers
-      readPis <- replicateM nConsumers readPiVar
+      . forM (S.toList computationNodes) $ \computation -> do
+      let consumers  = S.map (\(_,b,c) -> (b,c)) $ S.filter (\(c,_,_) -> c == computation) fusibleEdges
+          nConsumers = S.size consumers
+      readPis    <- replicateM nConsumers readPiVar
       readOrders <- replicateM nConsumers readOrderVar
-      (subConstraint, subBounds) <- flip foldMapM consumers $ \consumerL -> do
+      (subConstraint, subBounds) <- flip foldMapM consumers $ \read@(_,consumer) -> do
         useVars <- replicateM nConsumers useVar -- these are the n^2 variables: For each consumer, n variables which each check the equality of pi to readpi
         let constraint = foldMap
-              (\(uv, rp, ro) -> isEqualRangeN (c rp) (pi consumerL)         (c uv)
-                                <> isEqualRangeN (c ro) (c $ OutDir consumerL) (c uv))
+              (\(uv, rp, ro) -> isEqualRangeN (var rp) (pi consumer)  (var uv)
+                             <> isEqualRangeN (var ro) (readDir read) (var uv))
               (zip3 useVars readPis readOrders)
-        return (constraint <> foldl (.+.) (int 0) (map c useVars) .<=. int (nConsumers-1), foldMap binary useVars)
+        return (constraint <> foldl (.+.) (int 0) (map var useVars) .<=. int (nConsumers-1), foldMap binary useVars)
       readPi0s <- replicateM nConsumers readPi0Var
-      return ( foldl (.+.) (int 0) (map c readPi0s)
-             , subConstraint <> fold (zipWith (\p p0 -> c p .<=. timesN (c p0)) readPis readPi0s)
+      return ( foldl (.+.) (int 0) (map var readPi0s)
+             , subConstraint <> fold (zipWith (\p p0 -> var p .<=. timesN (var p0)) readPis readPi0s)
              , subBounds <> foldMap (\v -> lowerUpper 0 v n) readPis <> foldMap binary readPi0s)
 
     readOrderVar = Other <$> freshName "ReadOrder"
-    readPiVar  = Other <$> freshName "ReadPi" -- non-zero signifies that at least one consumer reads this array from a certain pi
-    readPi0Var = Other <$> freshName "Read0Pi" -- signifies whether the corresponding readPi variable is 0
-    useVar = Other <$> freshName "ReadUse" -- signifies whether a consumer corresponds with a readPi variable; because its pi == readpi
+    readPiVar    = Other <$> freshName "ReadPi"   -- non-zero signifies that at least one consumer reads this array from a certain pi
+    readPi0Var   = Other <$> freshName "Read0Pi"  -- signifies whether the corresponding readPi variable is 0
+    useVar       = Other <$> freshName "ReadUse"  -- signifies whether a consumer corresponds with a readPi variable; because its pi == readpi
 
     -- objective function that maximises the number of fused away arrays, and thus minimises the number of array writes
     -- using .-. instead of notB to factor the constants out of the cost function; if we use (1 - manifest l) as elsewhere Gurobi thinks the 1 is a variable name
-    numberOfManifestArrays = foldl' (\f l -> f .-. manifest l) (int 0) (S.toList nodes)
+    numberOfManifestArrays = foldl' (\e b -> e .-. manifest b) (int 0) bufferNodes
 
     -- objective function that minimises the total number of array reads + writes
     numberOfArrayReadsWrites = numberOfReads .+. numberOfManifestArrays
@@ -141,46 +139,34 @@ makeILP obj (FusionILPblock (Graph readEdges writeEdges fusibleEdges infusibleEd
     -- It's possible to also give each array operation a 'exec-pi' variable, and change this to minimise the maximum of
     -- these exec-pi values, in which case we are only left with the independent array operations problem.
     -- To eliminate that one too, we'd need n^2 edges.
-    numberOfClusters  = c (Other "maximumClusterNumber")
+    numberOfClusters  = var (Other "maximumClusterNumber")
     -- removing this from myConstraints makes the ILP slightly smaller, but disables the use of this cost function
-    numberOfClustersConstraint = case obj of NumClusters -> foldMap (\l -> pi l .<=. numberOfClusters) nodes
-                                             Everything  -> foldMap (\l -> pi l .<=. numberOfClusters) nodes
+    numberOfClustersConstraint = case obj of NumClusters -> foldMap (\l -> pi l .<=. numberOfClusters) computationNodes
+                                             Everything  -> foldMap (\l -> pi l .<=. numberOfClusters) computationNodes
                                              _ -> mempty
 
-    myConstraints = acyclic <> infusible <> manifestC <> numberOfClustersConstraint <> readConstraints <> orderConstraints <> finalize (S.toList nodes)
+    myConstraints = acyclicC <> infusibleC <> manifestC <> numberOfClustersConstraint <> readConstraints <> orderConstraints  -- TODO: Call finalize
 
     -- x_ij <= pi_j - pi_i <= n*x_ij for all edges
-    acyclic = foldMap
-                (\(i :-> j) -> between
-                              ( fused i j )
-                              ( pi j .-. pi i )
-                              ( timesN $ fused i j ))
-                edges
-    infusible = foldMap
-                  (\(i :-> j) -> fused i j .==. int 1)
-                  nofuseEdges
+    acyclicC   = foldMap (\(i,_,j) -> between (fused i j) (pi j .-. pi i) (timesN $ fused i j)) dataflowEdges
+    infusibleC = foldMap (\(i,_,j) -> fused i j .==. int 1) infusibleEdges
 
-    -- if (i :-> j) is not fused, i has to be manifest
+    -- if (i,b,j) is not fused, b has to be manifest
     -- TODO: final output is also manifest
-    manifestC = foldMap
-                (\(i :-> j) -> notB (fused i j) `impliesB` manifest i)
-                edges
+    manifestC = foldMap (\(i,b,j) -> notB (fused i j) `impliesB` manifest b) dataflowEdges
 
 
-    orderConstraints = flip foldMap fuseEdges $ \(lIn :-> l) ->
-                    timesN (fused lIn l) .>=. c (InDir  l) .-. c (OutDir  lIn)
-        <> (-1) .*. timesN (fused lIn l) .<=. c (InDir  l) .-. c (OutDir  lIn)
+    orderConstraints = flip foldMap fusibleEdges $ \(i,b,j) ->
+                    timesN (fused i j) .>=. readDir (b, j) .-. writeDir (i, b)
+        <> (-1) .*. timesN (fused i j) .<=. readDir (b, j) .-. writeDir (i, b)
 
     myBounds :: Bounds op
-    --            0 <= pi_i <= n
-    myBounds = foldMap (\i -> lowerUpper 0 (Pi i) n)
-                  nodes
+                   --  0 <= pi_i <= n
+    myBounds = foldMap (\i -> lowerUpper 0 (Pi i) n) computationNodes
                <>  -- x_ij \in {0, 1}
-               foldMap (\(i :-> j) -> binary $ Fused i j)
-                  edges
-               <>
-               foldMap (binary . ManifestOutput)
-                  nodes
+               foldMap (\(i,_,j) -> binary $ Fused i j) dataflowEdges
+               <>  -- m_i \in {0, 1}
+               foldMap (binary . Manifest) bufferNodes
                <>
                readBounds
 
@@ -188,8 +174,8 @@ makeILP obj (FusionILPblock (Graph readEdges writeEdges fusibleEdges infusibleEd
 -- Extract the fusion information (ordered list of clusters of Labels) (head is the first cluster).
 -- Output has the top-level clusters in fst, and the rest in snd.
 interpretSolution :: MakesILP op => Solution op -> ([Labels Comp], M.Map (Label Comp) [Labels Comp])
-interpretSolution =
-    (\(x:xs) ->
+interpretSolution
+  = (\(x:xs) ->
       ( x
       , M.fromList $
             map
@@ -216,6 +202,7 @@ interpretSolution =
     -- groupBy only really does what you want on a sorted list
     partition f = groupBy ((==) `on` f) . sortOn f
 
+-- | Cluster labels, distinguishing between execute and non-execute labels.
 data ClusterLs = Execs (Labels Comp) | NonExec (Label Comp)
   deriving (Eq, Show)
 

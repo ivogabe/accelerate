@@ -324,20 +324,22 @@ The other types of arguments only ever read a single value from an array and
 can therefore not be fused.
 -}
 
--- | 'EnvLabels' retrieved from the 'LabelsEnv' stored with an 'Arg', but only
---   if the argument is an array.
-data ArgLabels t where
+-- | A label to be stored with an argument, indicating whether an argument is an
+--   array or not, and if so, which buffers it is associated with as a 'TupF'.
+data ArgIsArray t where
   -- | The argument is an array.
   Arr    :: EnvLabelTupF e  -- ^ The array (as structure-of-arrays).
-         -> ArgLabels (m sh e)
+         -> ArgIsArray (m sh e)
   -- | The argument is a scalar 'Var'', 'Exp'' or 'Fun''.
-  NotArr :: ArgLabels (t e)
+  NotArr :: ArgIsArray (t e)
 
-deriving instance Show (ArgLabels t)
+deriving instance Show (ArgIsArray t)
 
--- | The argument to a function paired with its 'ArgLabels' and other
---   dependencies.
-data LabelledArg env t = L (Arg env t) (ArgLabels t, Labels Buff)
+-- | An 'ArgIsArray' and all dependencies of the argument.
+type ArgLabels t = (ArgIsArray t, Labels Buff)
+
+-- | The argument to a function paired with 'ArgLabels'
+data LabelledArg env t = L (Arg env t) (ArgLabels t)
   deriving (Show)
 
 -- | Labelled arguments to be passed to a function.
@@ -350,7 +352,7 @@ labelArgs (arg :>: args) env =
   L arg (getArgLabels arg env) :>: labelArgs args env
 
 -- | Get the 'ArgLabels' associated with 'Arg' from 'LabelsEnv'.
-getArgLabels :: Arg env t -> LabelsEnv env -> (ArgLabels t, Labels Buff)
+getArgLabels :: Arg env t -> LabelsEnv env -> ArgLabels t
 getArgLabels (ArgVar vars) env = (NotArr, getVarsDeps vars env)
 getArgLabels (ArgExp exp)  env = (NotArr, getExpDeps  exp  env)
 getArgLabels (ArgFun fun)  env = (NotArr, getFunDeps  fun  env)
@@ -361,7 +363,7 @@ getArgLabels (ArgArray _ (ArrayR _ tp) sh bu) env
 getArgLabels _ _ = error "getArgLabels: Inaccessible left-hand side."
 
 -- | Get the values associated with 'Vars' from 'LabelsEnv'.
-getVarsFromEnv :: Vars a env b -> LabelsEnv env -> (ArgLabels (m sh b), BuffersTupF b)
+getVarsFromEnv :: Vars a env b -> LabelsEnv env -> (ArgIsArray (m sh b), BuffersTupF b)
 getVarsFromEnv TupRunit         _   = (Arr TupFunit, TupFunit)
 getVarsFromEnv (TupRsingle var) env = getVarFromEnv var env
 getVarsFromEnv (TupRpair l r)   env | (Arr l', bs1) <- getVarsFromEnv l env
@@ -370,7 +372,7 @@ getVarsFromEnv (TupRpair l r)   env | (Arr l', bs1) <- getVarsFromEnv l env
 getVarsFromEnv _ _ = error "getVarsFromEnv: Inaccessible left-hand side."
 
 -- | Get the value associated with a 'Var' from 'LabelsEnv'.
-getVarFromEnv :: Var a env b -> LabelsEnv env -> (ArgLabels (m sh b), BuffersTupF b)
+getVarFromEnv :: Var a env b -> LabelsEnv env -> (ArgIsArray (m sh b), BuffersTupF b)
 getVarFromEnv (varIdx -> idx) = first (Arr . TupFsingle) . lookupIdxInEnv idx
 
 -- | Get the value associated with an 'Idx' from 'LabelsEnv'.
@@ -423,8 +425,8 @@ getFunDeps :: OpenFun x env y -> LabelsEnv env -> Labels Buff
 getFunDeps (Body  poe) env = getExpDeps poe env
 getFunDeps (Lam _ fun) env = getFunDeps fun env
 
--- | Remove the 'Buffers' type from 'ArgLabels'.
-unbuffers :: forall m sh e. TypeR e -> ArgLabels (m sh (Buffers e)) -> ArgLabels (m sh e)
+-- | Remove the 'Buffers' type from 'ArgIsArray'.
+unbuffers :: forall m sh e. TypeR e -> ArgIsArray (m sh (Buffers e)) -> ArgIsArray (m sh e)
 unbuffers TupRunit _ = Arr TupFunit
 unbuffers (TupRsingle t) (Arr (TupFsingle e))
   | Refl <- reprIsSingle @ScalarType @e @Buffer t

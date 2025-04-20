@@ -147,7 +147,7 @@ insertInfusible (c1, b, c2) = insertStrict (c1, c2) . insertFusible (c1, b, c2)
 -- Separating the ILP into blocks then allows us to pass much smaller ILPs to
 -- the solver, which should make the whole process faster.
 -- If not, we can always merge the blocks together later.
-data FusionILP op = FusionILPblock
+data FusionILP op = FusionILP
   { _graph       :: Graph
   , _constraints :: Constraint op
   , _bounds      :: Bounds op
@@ -157,12 +157,12 @@ makeLenses ''FusionILP
 
 instance Semigroup (FusionILP op) where
   (<>) :: FusionILP op -> FusionILP op -> FusionILP op
-  (<>) (FusionILPblock g1 c1 b1) (FusionILPblock g2 c2 b2) =
-    FusionILPblock (g1 <> g2) (c1 <> c2) (b1 <> b2)
+  (<>) (FusionILP g1 c1 b1) (FusionILP g2 c2 b2) =
+    FusionILP (g1 <> g2) (c1 <> c2) (b1 <> b2)
 
 instance Monoid (FusionILP op) where
   mempty :: FusionILP op
-  mempty = FusionILPblock mempty mempty mempty
+  mempty = FusionILP mempty mempty mempty
 
 -- | Safely add a read edge between a computation and a buffer.
 reads :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
@@ -355,7 +355,7 @@ writeDir = var . uncurry WriteDir
 -- Symbol table
 --------------------------------------------------------------------------------
 
-data LabelledArgOp  op env a = LOp (Arg env a) (ArgLabels a, Labels Buff) (BackendArg op)
+data LabelledArgOp  op env a = LOp (Arg env a) (ArgLabels a) (BackendArg op)
 type LabelledArgsOp op env   = PreArgs (LabelledArgOp op env)
 
 instance Show (LabelledArgOp op env a) where
@@ -665,7 +665,7 @@ mkFullGraphF (Abody acc) = do
   zoom (scope c) do
     res <- mkFullGraph acc
     symbols %= M.insert c (SBod res)
-    for_ res $ traverse_ (<--> c)
+    for_ res $ traverse_ (<--> c)  -- TODO: This generates a reflexive edge?
     return (unsafeCoerce res)
 
 mkFullGraphF (Alam lhs f) = do
@@ -685,7 +685,7 @@ block :: Label Comp -> FullGraphMaker f op env t (BuffersTupF r)
       -> FullGraphMaker f op env t (BuffersTupF r, WritersEnv, ReadersEnv)
 block c f x = zoom (scope c . protected writersEnv . protected readersEnv) do
   res <- f x
-  for_ res $ traverse_ (<--> c)
+  for_ res $ traverse_ (<--> c)  -- TODO: This generates a reflexive edge?
   wenv <- use writersEnv
   renv <- use readersEnv
   return (res, wenv, renv)
@@ -733,11 +733,11 @@ and the environment before some operation is executed.
 
 -- | Makes a ReindexPartial, which allows us to transform indices in @env@ into indices in @env'@.
 -- We cannot guarantee the index is present in env', so we use the partiality of ReindexPartial by
--- returning a Maybe. Uses unsafeCoerce to re-introduce type information implied by the ELabels.
+-- returning a Maybe. Uses unsafeCoerce to re-introduce type information implied by the EnvLabels.
 mkReindexPartial :: LabelsEnv env -> LabelsEnv env' -> ReindexPartial Maybe env env'
 mkReindexPartial env env' idx = go env'
   where
-    -- The ELabel in the original environment
+    -- The EnvLabel in the original environment
     e = fst $ lookupIdxInEnv idx env
     go :: forall e a. LabelsEnv e -> Maybe (Idx e a)
     go ((e',_) :>>: rest) -- e' is the ELabel in the new environment

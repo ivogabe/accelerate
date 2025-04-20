@@ -65,6 +65,14 @@ data Expression op where
   (:*)     :: Number -> Var op -> Expression op
 deriving instance Show (Var op) => Show (Expression op)
 
+instance Semigroup (Expression op) where
+  (<>) :: Expression op -> Expression op -> Expression op
+  (<>) = (:+)
+
+instance Monoid (Expression op) where
+  mempty :: Expression op
+  mempty = int 0
+
 data Constraint op where
   (:>=) :: Expression op -> Expression op -> Constraint op
   (:<=) :: Expression op -> Expression op -> Constraint op

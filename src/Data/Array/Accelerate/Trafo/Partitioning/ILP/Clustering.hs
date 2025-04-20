@@ -23,6 +23,7 @@
 -- #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE InstanceSigs #-}
 
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering where
 
@@ -88,7 +89,7 @@ reconstruct repr a b c d e = case openReconstruct a EnvNil b c d e of
           Exists res -> expectType repr res
 
 reconstructF :: forall op a. MakesILP op => PreOpenAfun op () a -> Bool -> Graph -> [ClusterLs] -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op)  -> PreOpenAfun (Clustered op) () a
-reconstructF original a b c d e = case openReconstructF a EnvNil b c (CLabel 1 Nothing) d e of
+reconstructF original a b c d e = case openReconstructF a EnvNil b c (Label 1 Nothing) d e of
           Exists res -> expectFunTypeEqual original res
 
 
@@ -104,14 +105,14 @@ topSort :: forall op. MakesILP op => Bool -> Graph -> Labels Comp -> M.Map (Labe
 topSort _ _ (S.toList -> [l]) _ = [ExecL [l]]
 topSort singletons graph cluster construct = if singletons then concatMap (map (ExecL . pure)) topsorteds else map ExecL topsorteds
   where
-    buildGraph =
-            G.graphFromEdges
-          . map (\(a,b) -> (a,a,b))
-          . M.toList
-          . flip (S.fold (\(x,i,y) -> M.adjust ((y,defaultBA @op):) (x,i))) edges
-          . M.fromList
-          . map (,[])
-          . S.toList
+    buildGraph
+      = G.graphFromEdges
+      . map (\(a,b) -> (a,a,b))
+      . M.toList
+      . flip (S.fold (\(x,i,y) -> M.adjust ((y,defaultBA @op):) (x,i))) edges
+      . M.fromList
+      . map (,[])
+      . S.toList
 
 
     -- Make a graph of all these labels and their incoming edges (for horizontal fusion)...
@@ -337,6 +338,7 @@ fuseVertically
   = LOp (ArgVar $ groundToExpVar (shapeType shr) sh) (NotArr, ls<>ls') b
 
 instance NFData' op => NFData' (Clustered op) where
+  rnf' :: NFData' op => Clustered op a -> ()
   rnf' c = () -- TODO
 
 expectType :: HasCallStack => GroundsR t -> PreOpenAcc op env s -> PreOpenAcc op env t
