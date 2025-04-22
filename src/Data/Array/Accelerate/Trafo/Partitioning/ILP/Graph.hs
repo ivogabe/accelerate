@@ -297,7 +297,9 @@ class ( ShrinkArg (BackendClusterArg op), Eq (BackendVar op)
   -- | This function lets the backend define additional constraints on the ILP.
   finalize :: [Label Buff] -> [Label Comp] -> Constraint op
 
-
+labelLabelledArgs :: MakesILP op => Solution op -> Label Comp -> LabelledArgs env args -> LabelledArgsOp op env args
+labelLabelledArgs sol l (arg :>: args) = labelLabelledArg sol l arg :>: labelLabelledArgs sol l args
+labelLabelledArgs _ _ ArgsNil = ArgsNil
 
 --------------------------------------------------------------------------------
 -- ILP Variables
@@ -406,6 +408,12 @@ reindexLabelledArgOp k (LOp (ArgArray m repr sh buffers) l o) = (\x -> LOp x l o
 
 reindexLabelledArgsOp :: Applicative f => ReindexPartial f env env' -> LabelledArgsOp op env t -> f (LabelledArgsOp op env' t)
 reindexLabelledArgsOp = reindexPreArgs reindexLabelledArgOp
+
+attachBackendLabels :: MakesILP op => Solution op -> Symbols op -> Symbols op
+attachBackendLabels sol = M.mapWithKey \cases
+  l (SExe lenv largs op) -> SExe' lenv (labelLabelledArgs sol l largs) op
+  _  SExe'{} -> error "already converted???"
+  _  con -> con
 
 
 

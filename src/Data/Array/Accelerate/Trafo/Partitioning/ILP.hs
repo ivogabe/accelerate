@@ -77,13 +77,13 @@ ilpFusion' :: (MakesILP op, ILPSolver s op)
            -> y
 ilpFusion' k1 k2 s obj acc = fusedAcc
   where
-    (info@(FusionILP graph _ _), constrM') = k1 acc
-    constrM = backendConstruc solution constrM'
-    ilp                               = makeILP obj info
-    solution                          = solve' ilp
-    interpreted                       = interpretSolution solution
-    (labelClusters, labelClustersM)   = splitExecs interpreted constrM
-    fusedAcc                          = k2 graph labelClusters labelClustersM constrM
+    (fusionILP', symbolTable)       = k1 acc
+    symbolTable'                    = attachBackendLabels solution symbolTable
+    ilp                             = makeILP obj fusionILP'
+    solution                        = solve' ilp
+    interpreted                     = interpretSolution solution
+    (labelClusters, labelClustersM) = splitExecs interpreted symbolTable'
+    fusedAcc                        = k2 (fusionILP'^.graph) labelClusters labelClustersM symbolTable'
     solve' x = unsafePerformIO (solve s x) & \case
       Nothing -> error "Accelerate: No ILP solution found"
       Just y -> y
