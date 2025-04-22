@@ -19,6 +19,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph where
 
 import Prelude hiding ( init, reads )
@@ -37,24 +38,21 @@ import Data.Array.Accelerate.Analysis.Hash.Exp
 -- Data structures (including custom Multimap)
 import Data.Set (Set)
 import Data.Map (Map)
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap (Multimap)
 import qualified Data.Set as S
 import qualified Data.Map as M
-import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap as MM
 
 import Lens.Micro
 import Lens.Micro.TH
 import Lens.Micro.Mtl
 import Lens.Micro.Internal
 
-import Control.Monad.State (State)
+import Control.Monad.State (State, runState)
 import Data.Foldable
 import Data.Kind (Type)
 import Unsafe.Coerce (unsafeCoerce)
 import Data.Array.Accelerate.AST.Idx
-import Data.Maybe (fromJust)
 
--- Temporarily thing so HLS works.
+-- Temoprarily added to make HLS work.
 data Edge where
   (:->) :: forall a. a -> a -> Edge
 
@@ -62,6 +60,13 @@ data Edge where
 --------------------------------------------------------------------------------
 -- Graph
 --------------------------------------------------------------------------------
+
+type ReadEdge      = (Label Buff, Label Comp)
+type WriteEdge     = (Label Comp, Label Buff)
+type StrictEdge    = (Label Comp, Label Comp)
+type DataflowEdge  = (Label Comp, Label Buff, Label Comp)
+type FusibleEdge   = DataflowEdge
+type InfusibleEdge = DataflowEdge
 
 -- | Program graph.
 --
@@ -83,11 +88,23 @@ data Edge where
 -- Data-flow edges that are also strict edges are infusible.
 -- Data-flow edges that are not strict edges are fusible.
 --
+-- From the sets of data-flow and strict ordering edges we can derive:
+-- 1. The set of write edges. @S.map (\(w,b,_) -> (w,b)) _dataflowEdges@
+-- 2. The set of read edges. @S.map (\(_,b,r) -> (w,b)) _dataflowEdges@
+-- 3. The set of fusible edges. @S.filter (\(w,_,r) -> S.notMember (w,r) _strictEdges) _dataflowEdges@
+-- 4. The set of infusible edges. @S.filter (\(w,_,r) -> S.member (w,r) _strictEdges) _dataflowEdges@
+--
+-- The latter two computations may be combined as such:
+--
+-- @
+-- (fusible, infusible) = S.partition (\(w,_,r) -> S.notMember (w,r) _strictEdges) _dataflowEdges
+-- @
+--
 data Graph = Graph   -- TODO: Use hashmaps and hashsets in production.
-  {     _readEdges :: Set (Label Buff, Label Comp)  -- ^ Edges from buffers to computations.
-  ,    _writeEdges :: Set (Label Comp, Label Buff)  -- ^ Edges from computations to buffers.
-  ,   _strictEdges :: Set (Label Comp, Label Comp)  -- ^ Edges that enforce strict ordering.
-  , _dataflowEdges :: Set (Label Comp, Label Buff, Label Comp)  -- ^ Edges that represent data-flow.
+  {      _bufferNodes :: Set (Label Buff)  -- ^ Buffers in the graph.
+  , _computationNodes :: Set (Label Comp)  -- ^ Computations in the graph.
+  ,      _strictEdges :: Set StrictEdge    -- ^ Edges that enforce strict ordering.
+  ,    _dataflowEdges :: Set DataflowEdge  -- ^ Edges that represent data-flow.
   }
 
 instance Semigroup Graph where
@@ -101,21 +118,13 @@ instance Monoid Graph where
 
 makeLenses ''Graph
 
--- | Insert a read edge from a buffer to a computation in the graph.
-insertRead :: (Label Buff, Label Comp) -> Graph -> Graph
-insertRead edge = readEdges %~ S.insert edge
-
--- | Insert multiple read edges into the graph.
-insertReads :: Traversable t => t (Label Buff, Label Comp) -> Graph -> Graph
-insertReads edges = readEdges %~ flip (foldl' (flip S.insert)) edges
+-- | Insert a buffer node into the graph.
+insertBuffer :: Label Buff -> Graph -> Graph
+insertBuffer b = bufferNodes %~ S.insert b
 
 -- | Insert a write edge from a computation to a buffer.
-insertWrite :: (Label Comp, Label Buff) -> Graph -> Graph
-insertWrite edge = writeEdges %~ S.insert edge
-
--- | Insert multiple write edges into the graph.
-insertWrites :: Traversable t => t (Label Comp, Label Buff) -> Graph -> Graph
-insertWrites edges = writeEdges %~ flip (foldl' (flip S.insert)) edges
+insertComputation :: Label Comp -> Graph -> Graph
+insertComputation c = computationNodes %~ S.insert c
 
 -- | Insert a strict relation between two computations.
 insertStrict :: (Label Comp, Label Comp) -> Graph -> Graph
@@ -123,16 +132,34 @@ insertStrict (c1, c2) | c1 == c2  = error "insertStrict: Cannot add reflexive ed
                       | otherwise = strictEdges %~ S.insert (c1, c2)
 
 -- | Insert a fusible data-flow edge between two computations.
-insertFusible :: (Label Comp, Label Buff, Label Comp) -> Graph -> Graph
-insertFusible (c1, b, c2) g
-  | c1 == c2                            = error "fusible: Cannot add reflexive edge."
-  | S.notMember (c1, b) (g^.writeEdges) = error "fusible: c1 is not a writer of b."
-  | S.notMember (b, c2) (g^.readEdges)  = error "fusible: c2 is not a reader of b."
-  | otherwise = g & dataflowEdges %~ S.insert (c1, b, c2)
+insertFusible :: DataflowEdge -> Graph -> Graph
+insertFusible (c1, b, c2)
+  | c1 == c2  = error "fusible: Cannot add reflexive edge."
+  | otherwise = dataflowEdges %~ S.insert (c1, b, c2)
 
 -- | Insert an infusible data-flow edge between two computations.
-insertInfusible :: (Label Comp, Label Buff, Label Comp) -> Graph -> Graph
+insertInfusible :: DataflowEdge -> Graph -> Graph
 insertInfusible (c1, b, c2) = insertStrict (c1, c2) . insertFusible (c1, b, c2)
+
+-- | Gets the set of fusible edges.
+fusibleEdges :: SimpleGetter Graph (Set FusibleEdge)
+fusibleEdges = to (\g -> S.filter (\(w, _, r) -> S.notMember (w, r) (g^.strictEdges)) (g^.dataflowEdges))
+
+-- | Gets the set of infusible edges.
+infusibleEdges :: SimpleGetter Graph (Set InfusibleEdge)
+infusibleEdges = to (\g -> S.filter (\(w, _, r) -> S.member (w, r) (g^.strictEdges)) (g^.dataflowEdges))
+
+-- | Gets the set of fusible and infusible edges.
+fusInfusEdges :: SimpleGetter Graph (Set FusibleEdge, Set InfusibleEdge)
+fusInfusEdges = to (\g -> S.partition (\(w, _, r) -> S.notMember (w, r) (g^.strictEdges)) (g^.dataflowEdges))
+
+-- | Gets the set of read edges.
+readEdges :: SimpleGetter Graph (Set ReadEdge)
+readEdges = to (\g -> S.map (\(_, b, r) -> (b, r)) (g^.dataflowEdges))
+
+-- | Gets the set of write edges.
+writeEdges :: SimpleGetter Graph (Set WriteEdge)
+writeEdges = to (\g -> S.map (\(w, b, _) -> (w, b)) (g^.dataflowEdges))
 
 
 
@@ -163,20 +190,6 @@ instance Semigroup (FusionILP op) where
 instance Monoid (FusionILP op) where
   mempty :: FusionILP op
   mempty = FusionILP mempty mempty mempty
-
--- | Safely add a read edge between a computation and a buffer.
-reads :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
-reads comp buff ilp =
-  let edges = map (buff,) (traceParentIsAncestorC comp buff)
-   in ilp & constraints <>~ equals (map readDir edges)
-          & graph %~ insertReads edges
-
--- | Safely add a write edge between a computation and a buffer.
-writes :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
-writes comp buff ilp =
-  let edges = map (,buff) (traceParentIsAncestorC comp buff)
-   in ilp & constraints <>~ equals (map writeDir edges)
-          & graph %~ insertWrites edges
 
 -- | Safely add a strict relation between two computations.
 before :: Label Comp -> Label Comp -> FusionILP op -> FusionILP op
@@ -302,9 +315,9 @@ data Var (op :: Type -> Type)
     -- ^ 0 means manifest, 1 is like a `delayed array`.
     -- Binary variable; will we write the output to a manifest array, or is it fused away (i.e. all uses are in its cluster)?
   | ReadDir (Label Buff) (Label Comp)
-    -- ^ -3 can't fuse with anything, -2 for 'left to right', -1 for 'right to left', n for 'unpredictable, see computation n' (currently only backpermute)
+    -- ^ -3 can't fuse with anything, -2 for 'left to right', -1 for 'right to left', n for 'unpredictable, see computation n' (currently only backpermute). DO NOT USE THIS, USE 'readDir' INSTEAD! See 'reads' for the reason.
   | WriteDir (Label Comp) (Label Buff)
-    -- ^ See 'InDir'.
+    -- ^ See 'ReadDir'. DO NOT USE THIS, USE 'writeDir' INSTEAD! See 'writes' for the reason.
   | InFoldSize (Label Comp)
     -- ^ Keeps track of the fold that's one dimension larger than this operation, and is fused in the same cluster.
     -- This prevents something like @zipWith f (fold g xs) (fold g ys)@ from illegally fusing
@@ -323,7 +336,7 @@ deriving instance Eq   (BackendVar op) => Eq   (Var op)
 deriving instance Ord  (BackendVar op) => Ord  (Var op)
 deriving instance Show (BackendVar op) => Show (Var op)
 
--- | Constructor for Pi variables.
+-- | Constructor for 'Pi' variables.
 pi :: Label Comp -> Expression op
 pi = var . Pi
 
@@ -331,11 +344,11 @@ pi = var . Pi
 delayed :: Label Buff -> Expression op
 delayed = notB . manifest
 
--- | Constructor for Manifest variables.
+-- | Constructor for 'Manifest' variables.
 manifest :: Label Buff -> Expression op
 manifest = var . Manifest
 
--- | Safe constructor for Fused variables.
+-- | Safe constructor for 'Fused' variables.
 fused :: HasCallStack => Label Comp -> Label Comp -> Expression op
 fused prod cons
   | prod' == cons' = error $ "reflexive fused variable " <> show prod'
@@ -343,17 +356,36 @@ fused prod cons
   where prod' = findParentIsAncestorC prod cons
         cons' = findParentIsAncestorC cons prod
 
-readDir :: (Label Buff, Label Comp) -> Expression op
-readDir = var . uncurry ReadDir
+-- | Safe constructor for 'ReadDir' variables.
+readDir :: Label Buff -> Label Comp -> Expression op
+readDir buff comp = var $ ReadDir buff (findParentIsAncestorC comp buff)
 
-writeDir :: (Label Comp, Label Buff) -> Expression op
-writeDir = var . uncurry WriteDir
+-- | Safe constructor for 'WriteDir' variables.
+writeDir :: Label Comp -> Label Buff -> Expression op
+writeDir comp buff = var $ WriteDir (findParentIsAncestorC comp buff) buff
 
 
 
 --------------------------------------------------------------------------------
 -- Symbol table
 --------------------------------------------------------------------------------
+
+data Symbol (op :: Type -> Type) where
+  SExe  :: BuffersEnv env -> LabelledArgs      env args -> op args                              -> Symbol op
+  SExe' :: BuffersEnv env -> LabelledArgsOp op env args -> op args                              -> Symbol op
+  SUse  ::                   ScalarType e -> Int -> Buffer e                                    -> Symbol op
+  SITE  :: BuffersEnv env -> ExpVar env PrimBool -> Label Comp -> Label Comp                    -> Symbol op
+  SWhl  :: BuffersEnv env -> Label Comp -> Label Comp -> GroundVars env bnd -> Uniquenesses bnd -> Symbol op
+  SLet  ::                   BoundGLHS bnd env env' -> Label Comp           -> Uniquenesses bnd -> Symbol op
+  SFun  ::                   BoundGLHS bnd env env' -> Label Comp                               -> Symbol op
+  SBod  ::                   Label Comp                                                         -> Symbol op
+  SRet  :: BuffersEnv env -> GroundVars env a                                                   -> Symbol op
+  SCmp  :: BuffersEnv env -> Exp env a                                                          -> Symbol op
+  SAlc  :: BuffersEnv env -> ShapeR sh -> ScalarType e -> ExpVars env sh                        -> Symbol op
+  SUnt  :: BuffersEnv env -> ExpVar env e                                                       -> Symbol op
+
+-- | Mapping from labels to symbols.
+type Symbols op = Map (Label Comp) (Symbol op)
 
 data LabelledArgOp  op env a = LOp (Arg env a) (ArgLabels a) (BackendArg op)
 type LabelledArgsOp op env   = PreArgs (LabelledArgOp op env)
@@ -362,22 +394,18 @@ instance Show (LabelledArgOp op env a) where
   show :: LabelledArgOp op env a -> String
   show (LOp _ bs _) = show bs
 
-data Symbol (op :: Type -> Type) where
-  SExe  :: LabelsEnv env -> LabelledArgs      env args -> op args                              -> Symbol op
-  SExe' :: LabelsEnv env -> LabelledArgsOp op env args                                         -> Symbol op
-  SUse  ::                  ScalarType e -> Int -> Buffer e                                    -> Symbol op
-  SITE  :: LabelsEnv env -> ExpVar env PrimBool -> Label Comp -> Label Comp                    -> Symbol op
-  SWhl  :: LabelsEnv env -> Label Comp -> Label Comp -> GroundVars env a     -> Uniquenesses a -> Symbol op
-  SLet  ::                  GLeftHandSide bnd env env' -> BuffersTupF bnd -> Uniquenesses a    -> Symbol op
-  SFun  ::                  GLeftHandSide bnd env env' -> BuffersTupF bnd                      -> Symbol op
-  SBod  ::                  BuffersTupF res                                                    -> Symbol op
-  SRet  :: LabelsEnv env -> GroundVars env a                                                   -> Symbol op
-  SCmp  :: LabelsEnv env -> Exp env a                                                          -> Symbol op
-  SAlc  :: LabelsEnv env -> ShapeR sh -> ScalarType e -> ExpVars env sh                        -> Symbol op
-  SUnt  :: LabelsEnv env -> ExpVar env e                                                       -> Symbol op
+unlabelop :: LabelledArgsOp op env a -> Args env a
+unlabelop ArgsNil = ArgsNil
+unlabelop ((LOp arg _ _) :>: args) = arg :>: unlabelop args
 
--- | Mapping from labels to symbols.
-type Symbols op = Map (Label Comp) (Symbol op)
+reindexLabelledArgOp :: Applicative f => ReindexPartial f env env' -> LabelledArgOp op env t -> f (LabelledArgOp op env' t)
+reindexLabelledArgOp k (LOp (ArgVar vars               ) l o) = (\x -> LOp x l o)  .   ArgVar          <$> reindexVars k vars
+reindexLabelledArgOp k (LOp (ArgExp e                  ) l o) = (\x -> LOp x l o)  .   ArgExp          <$> reindexExp k e
+reindexLabelledArgOp k (LOp (ArgFun f                  ) l o) = (\x -> LOp x l o)  .   ArgFun          <$> reindexExp k f
+reindexLabelledArgOp k (LOp (ArgArray m repr sh buffers) l o) = (\x -> LOp x l o) <$> (ArgArray m repr <$> reindexVars k sh <*> reindexVars k buffers)
+
+reindexLabelledArgsOp :: Applicative f => ReindexPartial f env env' -> LabelledArgsOp op env t -> f (LabelledArgsOp op env' t)
+reindexLabelledArgsOp = reindexPreArgs reindexLabelledArgOp
 
 
 
@@ -402,7 +430,7 @@ type Symbols op = Map (Label Comp) (Symbol op)
 -- This method makes defining the control flow easier since we do not need to
 -- worry about merging the graphs in the return values as in the old approach.
 --
--- The environment is not passed as an argument to 'mkFullGraph' since it may
+-- The environment is not passed as an argument to 'mkFullGraph'' since it may
 -- be modified by certain computations. Specifically, when a buffer is marked as
 -- mutable, a copy of the buffer is created and the original buffer is replaced
 -- by the copy in the environment.
@@ -419,9 +447,9 @@ type Symbols op = Map (Label Comp) (Symbol op)
 --
 data FullGraphState op env = FullGraphState
   { _fusionILP  :: FusionILP op   -- ^ The ILP information.
-  , _labelsEnv  :: LabelsEnv env  -- ^ The label environment.
-  , _writersEnv :: WritersEnv     -- ^ Mapping from buffers to producers.
+  , _buffersEnv :: BuffersEnv env  -- ^ The label environment.
   , _readersEnv :: ReadersEnv     -- ^ Mapping from buffers to consumers.
+  , _writersEnv :: WritersEnv     -- ^ Mapping from buffers to producers.
   , _symbols    :: Symbols op     -- ^ The symbols for the ILP.
   , _currComp   :: Label Comp     -- ^ The current computation label.
   , _currEnvL   :: EnvLabel       -- ^ The current environment label.
@@ -432,6 +460,17 @@ type WritersEnv = Map (Label Buff) (Labels Comp)
 
 makeLenses ''FullGraphState
 
+initialFullGraphState :: FullGraphState op ()
+initialFullGraphState = FullGraphState
+  { _fusionILP  = mempty
+  , _buffersEnv = EnvNil
+  , _readersEnv = mempty
+  , _writersEnv = mempty
+  , _symbols    = mempty
+  , _currComp   = Label 0 Nothing
+  , _currEnvL   = 0
+  }
+
 -- | Lens for getting and setting the writers of a buffer.
 --
 -- The default value for the producer of a buffer is the buffer itself casted to
@@ -439,24 +478,24 @@ makeLenses ''FullGraphState
 -- has yet to be written to is "produced" by its allocator (which has the same
 -- label).
 writers :: Label Buff -> Lens' (FullGraphState op env) (Labels Comp)
-writers b f s = f (M.findWithDefault (S.singleton (b^.asComp)) b (s^.writersEnv)) <&> \cases
-  cs | S.null cs -> s
-     | otherwise -> s & writersEnv %~ M.insert b cs
+writers b f s = f (M.findWithDefault (S.singleton (coerce b)) b (s^.writersEnv))
+  <&> (\cs -> s & writersEnv %~ M.insert b cs)
 
--- | Lens for getting all writers of a buffer.
-allWriters :: Labels Buff -> SimpleGetter (FullGraphState op env) (Labels Comp)
+-- | Lens for getting all writers of buffers.
+allWriters :: Foldable f => f (Label Buff) -> SimpleGetter (FullGraphState op env) (Labels Comp)
 allWriters bs = to (\s -> foldMap (\b -> s^.writers b) bs)
+-- allWriters bs = to (\s -> traverse (\b -> s^.writers b) bs)
 
 -- | Lens for getting and setting the readers of a buffer.
 --
 -- By default a buffer isn't read by any computations.
 readers :: Label Buff -> Lens' (FullGraphState op env) (Labels Comp)
-readers b f s = f (M.findWithDefault mempty b (s^.readersEnv)) <&> \cases
-  cs | S.null cs -> s
+readers b f s = f (M.findWithDefault mempty b (s^.readersEnv)) <&> \case
+  cs | S.null cs -> s & readersEnv %~ M.delete b
      | otherwise -> s & readersEnv %~ M.insert b cs
 
--- | Lens for getting all readers of a buffer.
-allReaders :: Labels Buff -> SimpleGetter (FullGraphState op env) (Labels Comp)
+-- | Lens for getting all readers of buffers.
+allReaders :: Foldable f => f (Label Buff) -> SimpleGetter (FullGraphState op env) (Labels Comp)
 allReaders bs = to (\s -> foldMap (\b -> s^.readers b) bs)
 
 -- | Lens for working under the scope of a computation.
@@ -468,33 +507,31 @@ allReaders bs = to (\s -> foldMap (\b -> s^.readers b) bs)
 scope :: Label Comp -> Lens' (FullGraphState op env) (FullGraphState op env)
 scope c = with (currComp.parent) (Just c)
 
-local :: LabelsEnv env' -> Lens' (FullGraphState op env) (FullGraphState op env')
-local env' f s = (labelsEnv .~ s^.labelsEnv) <$> f (s & labelsEnv .~ env')
-
--- | Lens for interpreting the current  label as a buffer label.
-currBuff :: Lens' (FullGraphState op env) (Label Buff)
-currBuff = currComp . asBuff
+local :: BuffersEnv env' -> Lens' (FullGraphState op env) (FullGraphState op env')
+local env' f s = (buffersEnv .~ s^.buffersEnv) <$> f (s & buffersEnv .~ env')
 
 -- | Fresh computation label.
 freshComp :: State (FullGraphState op env) (Label Comp)
-freshComp = zoom currComp freshL'
+freshComp = do
+  comp <- zoom currComp freshL'
+  fusionILP.graph %= insertComputation comp
+  return comp
 
 -- | Fresh buffer as a singleton set and the corresponding computation label.
 --
--- Buffers are by default their own producer so we don't need to set it, but we
--- do need to add a read edge between them.
+-- The implementation of 'writers' makes it so by default the buffer is produced
+-- by the computation that allocates it. This is possible because they have the
+-- same label just, just different types.
 freshBuff :: State (FullGraphState op env) (Labels Buff, Label Comp)
 freshBuff = do
   c <- freshComp
-  b <- use currBuff
-  fusionILP %= c `writes` b
-  return (S.singleton b, c)
+  fusionILP.graph %= insertBuffer (coerce c)
+  return (S.singleton (coerce c), c)
 
 -- | Read from a buffer and be fusisble with its writers.
 (--->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (--->) b c = do
   ws <- use $ writers b
-  fusionILP %= c `reads` b
   fusionILP %= ws --|b|-> c
   readers b %= S.insert c
 
@@ -502,7 +539,6 @@ freshBuff = do
 (===>) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (===>) b c = do
   ws <- use $ writers b
-  fusionILP %= c `reads` b
   fusionILP %= ws ==|b|=> c
   readers b %= S.insert c
 
@@ -517,7 +553,6 @@ freshBuff = do
 (<===) b c = do
   rs <- use $ readers b
   ws <- use $ writers b
-  fusionILP %= c `writes` b
   fusionILP %= rs ==|-|=> c
   fusionILP %= ws ==|-|=> c
   writers b .= S.singleton c
@@ -534,8 +569,6 @@ freshBuff = do
 (<==>) b c = do
   rs <- use $ readers b
   ws <- use $ writers b
-  fusionILP %= c `reads`  b
-  fusionILP %= c `writes` b
   fusionILP %= rs ==|-|=> c
   fusionILP %= ws ==|b|=> c
   writers b .= S.singleton c
@@ -548,8 +581,6 @@ freshBuff = do
 (<-->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<-->) b c = do
   ws <- use $ writers b
-  fusionILP %= c `reads`  b
-  fusionILP %= c `writes` b
   fusionILP %= ws ==|b|=> c
   writers b .= S.singleton c
 
@@ -559,10 +590,22 @@ freshBuff = do
 -- Graph construction
 --------------------------------------------------------------------------------
 
-mkFullGraph :: forall op env t. (MakesILP op)
-            => FullGraphMaker PreOpenAcc op env t (BuffersTupF t)
-mkFullGraph (Exec op args) = do
-  lenv <- use labelsEnv
+mkFullGraph :: MakesILP op => PreOpenAcc op () a -> (FusionILP op, Symbols op)
+mkFullGraph acc = (s^.fusionILP & constraints <>~ manifestRes, s^.symbols)
+  where
+    (res, s) = runState (mkFullGraph' acc) initialFullGraphState
+    manifestRes = foldMap (foldMap (\b -> manifest b .==. int 0)) res
+
+mkFullGraphF :: MakesILP op => PreOpenAfun op () a -> (FusionILP op, Symbols op)
+mkFullGraphF acc = (s^.fusionILP, s^.symbols)
+  where
+    (_, s) = runState (mkFullGraphF' acc) initialFullGraphState
+
+
+mkFullGraph' :: forall op env t. (MakesILP op)
+            => FullGraphMaker PreOpenAcc op env t (BuffersTup t)
+mkFullGraph' (Exec op args) = do
+  lenv <- use buffersEnv
   renv <- use readersEnv
   wenv <- use writersEnv
   c <- freshComp
@@ -579,78 +622,77 @@ mkFullGraph (Exec op args) = do
   symbols %= M.insert c (SExe lenv labelledArgs op)
   return TupFunit
 
-mkFullGraph (Alet LeftHandSideUnit _ bnd scp) =
-  mkFullGraph bnd >> mkFullGraph scp
+mkFullGraph' (Alet LeftHandSideUnit _ bnd scp) =
+  mkFullGraph' bnd >> mkFullGraph' scp
 
-mkFullGraph (Alet lhs u bnd scp) = do
-  lenv <- use labelsEnv
+mkFullGraph' (Alet lhs u bnd scp) = do
+  lenv <- use buffersEnv
   c <- freshComp
-  bndRes <- mkFullGraph bnd
+  bndRes <- mkFullGraph' bnd
+  bndResComp <- traverse (use.allWriters) bndRes
   for_ bndRes $ traverse_ (<--> c)
-  symbols %= M.insert c (SLet lhs bndRes u)
   lenv' <- zoom currEnvL (weakenEnv lhs bndRes lenv)
-  zoom (local lenv') (mkFullGraph scp)
+  symbols %= M.insert c (SLet (bindLHS lhs lenv') (fromSingletonSet $ fold bndResComp) u)
+  zoom (local lenv') (mkFullGraph' scp)
 
-mkFullGraph (Return vars) = do
-  lenv <- use labelsEnv
+mkFullGraph' (Return vars) = do
+  lenv <- use buffersEnv
   c <- freshComp
   let (_, bs) = getVarsFromEnv vars lenv
   for_ bs $ traverse_ (<--> c)
   symbols %= M.insert c (SRet lenv vars)
   return bs
 
-mkFullGraph (Compute expr) = do
-  lenv <- use labelsEnv
+mkFullGraph' (Compute expr) = do
+  lenv <- use buffersEnv
   (b, c) <- freshBuff
   for_ (getExpDeps expr lenv) (===> c)
   symbols %= M.insert c (SCmp lenv expr)
   return (tupFlike (expType expr) b)
 
-mkFullGraph (Alloc shr e sh) = do
-  lenv <- use labelsEnv
+mkFullGraph' (Alloc shr e sh) = do
+  lenv <- use buffersEnv
   (b, c) <- freshBuff
   for_ (getVarsDeps sh lenv) (===> c)
   symbols %= M.insert c (SAlc lenv shr e sh)
   return (TupFsingle b)
 
-mkFullGraph (Unit v) = do
-  lenv <- use labelsEnv
+mkFullGraph' (Unit v) = do
+  lenv <- use buffersEnv
   (b, c) <- freshBuff
   for_ (getVarDeps v lenv) (===> c)
   symbols %= M.insert c (SUnt lenv v)
   return (TupFsingle b)
 
-mkFullGraph (Use sctype n buff) = do
+mkFullGraph' (Use sctype n buff) = do
   (b, c) <- freshBuff
   symbols %= M.insert c (SUse sctype n buff)
   return (TupFsingle b)
 
-mkFullGraph (Acond cond tacc facc) = do
-  lenv <- use labelsEnv
+mkFullGraph' (Acond cond tacc facc) = do
+  lenv <- use buffersEnv
   c_cond  <- freshComp
   c_true  <- freshComp
   c_false <- freshComp
-  -- TODO: Should there be edges between these by default?
   for_ (getVarDeps cond lenv) (===> c_cond)
   symbols %= M.insert c_cond (SITE lenv cond c_true c_false)
-  (t_res, t_wenv, t_renv) <- block c_true  mkFullGraph tacc
-  (f_res, f_wenv, f_renv) <- block c_false mkFullGraph facc
+  (t_res, t_wenv, t_renv) <- block c_true  mkFullGraph' tacc
+  (f_res, f_wenv, f_renv) <- block c_false mkFullGraph' facc
   writersEnv .= t_wenv <> f_wenv
   readersEnv .= t_renv <> f_renv
   let res = t_res <> f_res
   for_ res $ traverse_ (<--> c_cond)
   return res
 
-mkFullGraph (Awhile u cond body init) = do
-  lenv <- use labelsEnv
+mkFullGraph' (Awhile u cond body init) = do
+  lenv <- use buffersEnv
   c_while <- freshComp
   c_cond  <- freshComp
   c_body  <- freshComp
-  -- TODO: Should there be edges between these by default?
   for_ (getVarsDeps init lenv) (===> c_while)
   symbols %= M.insert c_while (SWhl lenv c_cond c_body init u)
-  (_                  , cond_wenv, cond_renv) <- block c_cond mkFullGraphF cond
-  (unsafeCoerce -> res, body_wenv, body_renv) <- block c_body mkFullGraphF body
+  (_                  , cond_wenv, cond_renv) <- block c_cond mkFullGraphF' cond
+  (unsafeCoerce -> res, body_wenv, body_renv) <- block c_body mkFullGraphF' body
   writersEnv .= cond_wenv <> body_wenv
   readersEnv .= cond_renv <> body_renv
   for_ res $ traverse_ (<--> c_while)
@@ -658,31 +700,30 @@ mkFullGraph (Awhile u cond body init) = do
 
 
 
-mkFullGraphF :: forall op env t. (MakesILP op)
-             => FullGraphMaker PreOpenAfun op env t (BuffersTupF (Result t))
-mkFullGraphF (Abody acc) = do
+mkFullGraphF' :: forall op env t. (MakesILP op)
+             => FullGraphMaker PreOpenAfun op env t (BuffersTup (Result t))
+mkFullGraphF' (Abody acc) = do
   c <- freshComp
   zoom (scope c) do
-    res <- mkFullGraph acc
-    symbols %= M.insert c (SBod res)
-    for_ res $ traverse_ (<--> c)  -- TODO: This generates a reflexive edge?
+    res <- mkFullGraph' acc
+    resComp <- traverse (use.allWriters) res
+    symbols %= M.insert c (SBod (fromSingletonSet $ fold resComp))
     return (unsafeCoerce res)
 
-mkFullGraphF (Alam lhs f) = do
-  lenv <- use labelsEnv
+mkFullGraphF' (Alam lhs f) = do
+  lenv <- use buffersEnv
   (b, c) <- freshBuff
-  let bnd = tupFlike (lhsToTupR lhs) b
-  symbols %= M.insert c (SFun lhs bnd)
-  lenv' <- zoom currEnvL (weakenEnv lhs bnd lenv)
-  res <- zoom (local lenv') (mkFullGraphF f)
-  for_ res $ traverse_ (<--> c)
+  lenv' <- zoom currEnvL (weakenEnv lhs (tupFlike (lhsToTupR lhs) b) lenv)
+  res <- zoom (local lenv') (mkFullGraphF' f)
+  resComp <- traverse (use.allWriters) res
+  symbols %= M.insert c (SFun (bindLHS lhs lenv') (fromSingletonSet $ fold resComp))
   return res
 
 
 -- | A block is a subcomputation that is executed under the scope of another
 --   computation.
-block :: Label Comp -> FullGraphMaker f op env t (BuffersTupF r)
-      -> FullGraphMaker f op env t (BuffersTupF r, WritersEnv, ReadersEnv)
+block :: Label Comp -> FullGraphMaker f op env t (BuffersTup r)
+      -> FullGraphMaker f op env t (BuffersTup r, WritersEnv, ReadersEnv)
 block c f x = zoom (scope c . protected writersEnv . protected readersEnv) do
   res <- f x
   for_ res $ traverse_ (<--> c)  -- TODO: This generates a reflexive edge?
@@ -734,12 +775,12 @@ and the environment before some operation is executed.
 -- | Makes a ReindexPartial, which allows us to transform indices in @env@ into indices in @env'@.
 -- We cannot guarantee the index is present in env', so we use the partiality of ReindexPartial by
 -- returning a Maybe. Uses unsafeCoerce to re-introduce type information implied by the EnvLabels.
-mkReindexPartial :: LabelsEnv env -> LabelsEnv env' -> ReindexPartial Maybe env env'
+mkReindexPartial :: BuffersEnv env -> BuffersEnv env' -> ReindexPartial Maybe env env'
 mkReindexPartial env env' idx = go env'
   where
     -- The EnvLabel in the original environment
     e = fst $ lookupIdxInEnv idx env
-    go :: forall e a. LabelsEnv e -> Maybe (Idx e a)
+    go :: forall e a. BuffersEnv e -> Maybe (Idx e a)
     go ((e',_) :>>: rest) -- e' is the ELabel in the new environment
       -- Here we have to convince GHC that the top element in the environment
       -- really does have the same type as the one we were searching for.
@@ -773,3 +814,11 @@ unprotected l f s = (\s' -> s & l .~ s'^.l) <$> f s
 --   value, then restores the original value.
 with :: Lens' s a -> a -> Lens' s s
 with l a f s = (l .~ s^.l) <$> f (s & l .~ a)
+
+
+-- | Converts a singleton set into a value.
+--
+-- This function is partial and will throw an error if the set is not singleton.
+fromSingletonSet :: Set a -> a
+fromSingletonSet (S.toList -> [x]) = x
+fromSingletonSet _ = error "fromSingletonSet: Set is not singleton."

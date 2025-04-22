@@ -23,7 +23,7 @@ import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (MakesILP)
 import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph as Graph (Var)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (var)
 import qualified Data.Map as M
 
 import Numeric.Optimization.MIP hiding (Bounds, Constraint, Var, Solution, name)
@@ -51,13 +51,13 @@ instance (MakesILP op, MIP.IsSolver s IO) => ILPSolver (MIP s) op where
       vs = allVars ilp
       ((),(names, _)) = runState (mapM_ var' vs) ((mempty, mempty),"")
 
-      readerProblem = Problem (Just "AccelerateILP") 
-        <$> (mkFun dir <$> expr n obj) 
+      readerProblem = Problem (Just "AccelerateILP")
+        <$> (mkFun dir <$> expr n obj)
         <*> cons n constr
-        <*> pure [] 
-        <*> pure [] 
+        <*> pure []
+        <*> pure []
         <*> vartypes -- If any variables are not given a type, they won't get fixed by `solveCondensedSoluton` (and I'm also not sure whether Integer is the default).
-        <*> bounds bnds 
+        <*> bounds bnds
       problem = runReader readerProblem names
 
       -- varsOf :: [MIP.Constraint Scientific] -> [MIP.Var]
@@ -70,14 +70,14 @@ instance (MakesILP op, MIP.IsSolver s IO) => ILPSolver (MIP s) op where
 
 
       -- addZeroes :: MIP.Problem Scientific -> MIP.Solution Scientific -> MIP.Solution Scientific
-      -- addZeroes problem (MIP.Solution stat obj solmap) = 
+      -- addZeroes problem (MIP.Solution stat obj solmap) =
       --   -- Map.union is left-biased: only values not present in the solution are added.
       --   MIP.Solution stat obj $ M.union solmap (M.fromSet (const 0) (vars problem))
 
 var :: Ord (Graph.Var op) => Graph.Var op -> Reader (Names op) MIP.Var
 var y = asks (toVar . (M.! y) . snd)
 
--- MIP has a Num instance for expressions, but it's scary (because 
+-- MIP has a Num instance for expressions, but it's scary (because
 -- you can't guarantee linearity with arbitrary multiplications).
 -- We use that instance here, knowing that our own Expression can only be linear.
 expr :: MakesILP op => Int -> Expression op -> Reader (Names op) (MIP.Expr Scientific)
@@ -116,7 +116,7 @@ bounds NoBounds = pure mempty
 --   return [MIP.constExpr (-5) MIP..<=. MIP.varExpr x | x <- vs]
 
 allIntegers :: Reader (Names op) (M.Map MIP.Var VarType)
-allIntegers = asks $ M.fromList . map ((,IntegerVariable) . toVar) . M.keys . fst 
+allIntegers = asks $ M.fromList . map ((,IntegerVariable) . toVar) . M.keys . fst
 
 
 

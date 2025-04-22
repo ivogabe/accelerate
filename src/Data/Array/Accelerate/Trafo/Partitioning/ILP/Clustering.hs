@@ -32,8 +32,8 @@ import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.AST.Var
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Type ( scalarType )
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (info)
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels hiding (ELabels)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (readEdges, writeEdges, strictEdges, dataflowEdges, symbols, graph)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels hiding (EnvLabelTupF)
 import Data.Array.Accelerate.Analysis.Match
 import Data.Array.Accelerate.Error
 
@@ -57,14 +57,16 @@ import Data.String (fromString)
 import qualified Data.Array.Accelerate.Pretty.Operation as P
 import qualified Data.Array.Accelerate.Pretty.Exp as P
 
+import Lens.Micro
+
 -- "open research question"
 -- -- Each set of ints corresponds to a set of Constructions, which themselves contain a set of ints (the things they depend on).
 -- -- Some of those ints will refer to nodes in previous clusters, others to nodes in this cluster.
 -- One pass over these datatypes (back-to-front) should identify the 'output type' of each cluster: which nodes are needed in later clusters?
--- Then, we can construct the clusters front-to-back:
+-- Then, we can symbols the clusters front-to-back:
 --    identify the nodes that only depend on nodes outside of the cluster, they are the initials
 --    the `output type` indicates which nodes we will need to keep: they are all either a final node in the cluster, or get diagonally fused
--- How exactly we can use this information (and a dep. graph) to construct a cluster of ver,hor,diag is not clear.. Will also depend on the exact cluster definition.
+-- How exactly we can use this information (and a dep. graph) to symbols a cluster of ver,hor,diag is not clear.. Will also depend on the exact cluster definition.
 
 {-
 Within each cluster (Labels), we do a topological sort using the edges in Graph
@@ -102,8 +104,9 @@ foldC f x (ExecL ls) = foldr f x ls
 foldC f x (NonExecL l) = f l x
 
 topSort :: forall op. MakesILP op => Bool -> Graph -> Labels Comp -> M.Map (Label Comp) (Symbol op) -> [ClusterL]
-topSort _ _ (S.toList -> [l]) _ = [ExecL [l]]
-topSort singletons graph cluster construct = if singletons then concatMap (map (ExecL . pure)) topsorteds else map ExecL topsorteds
+topSort _ _ (S.toList -> [l]) _ = [ExecL [l]]  -- If the cluster is empty.
+topSort singletons (Graph _ _ strictEdges dataflowEdges) cluster symbols =
+  if singletons then concatMap (map (ExecL . pure)) topsorteds else map ExecL topsorteds
   where
     buildGraph
       = G.graphFromEdges
@@ -114,42 +117,50 @@ topSort singletons graph cluster construct = if singletons then concatMap (map (
       . map (,[])
       . S.toList
 
+    fusibleEdges, _infusibleEdges :: S.Set (Label Comp, Label Buff, Label Comp)
+    (fusibleEdges, _infusibleEdges) = S.partition (\(c1, _, c2) -> S.notMember (c1, c2) strictEdges) dataflowEdges
+
 
     -- Make a graph of all these labels and their incoming edges (for horizontal fusion)...
-    fpparents =                    S.unions $ S.map (\l -> (S.\\ cluster) $ S.map (\(a:->_)->a) $ S.filter (\(_:->b)->l==b) fpedges) cluster
-    parents   = (S.\\ fpparents) $ S.unions $ S.map (\l -> (S.\\ cluster) $ S.map (\(a:->_)->a) $ S.filter (\(_:->b)->l==b) fedges ) cluster
+    fpparents =                    S.unions $ S.map (\l -> (S.\\ cluster) $ S.map (^._1) $ S.filter (\(_,  b)->l==b) strictEdges)   cluster
+    parents   = (S.\\ fpparents) $ S.unions $ S.map (\l -> (S.\\ cluster) $ S.map (^._1) $ S.filter (\(_,_,b)->l==b) dataflowEdges) cluster
+    -- fpparents: computations that produce a value for something in the cluster, but are not in the cluster themselves and cannot be fused with the thing in the cluster.
+    -- parents: computations that produce a value for something in the cluster, but are not in the cluster themselves and can be fused with the thing in the cluster.
+
+
     parentsPlusEdges :: S.Set (Label Comp, BackendArg op, Label Comp) -- (Parent, Order, Target)
-    parentsPlusEdges = S.unions $ S.unions $ S.map (\l -> let relevantEdges = S.filter (\(a:->b)->l==a && b `S.member` cluster) (fedges S.\\ fpedges)
-                                                              orders :: S.Set (BackendArg op)
-                                                              orders = S.map readOrderOf relevantEdges
-                                                              ordersWithEdges = S.map (\o -> S.map (\(_:->b) -> (l,o,b)) $ S.filter (\e-> readOrderOf e == o) relevantEdges) orders
+    parentsPlusEdges = S.unions $ S.unions $ S.map (\l -> let relevantEdges   = S.filter (\(a,_,b)->l==a && b `S.member` cluster) fusibleEdges
+                                                              orders          = S.map readOrderOf relevantEdges
+                                                              ordersWithEdges = S.map (\o -> S.map (\(_,_,b) -> (l,o,b)) $ S.filter (\e-> readOrderOf e == o) relevantEdges) orders
                                                           in ordersWithEdges) parents
+
     nodes = S.map (,defaultBA @op) cluster <> S.map (\(x,y,_)-> (x,y)) parentsPlusEdges
-    edges = S.union parentsPlusEdges $ S.map (\(a:->b) -> (a,defaultBA @op,b)) fedges
+    edges = S.union parentsPlusEdges $ S.map (\(a,_,b) -> (a,defaultBA @op,b)) dataflowEdges
     (graph, getAdj, _) = buildGraph nodes
 
     -- .. split it into connected components and remove those parents from last step,
-    components = map (S.filter (\(l,_)->l `S.member` cluster) . S.fromList . map ((\(x,_,_)->x) . getAdj) . T.flatten) $ G.components graph
+    components = map (S.filter (\(l,_)->l `S.member` cluster) . S.fromList . map ((^._1) . getAdj) . T.flatten) $ G.components graph
     -- and make a graph of each of them...
     graphs = if singletons then [buildGraph $ S.map (,defaultBA @op) cluster] else map buildGraph components
     -- .. and finally, topologically sort each of those to get the labels per cluster sorted on dependencies
     topsorteds = map (\(graph', getAdj', _) -> map (view (_1 . _1) . getAdj') $ G.topSort graph') graphs
 
-    readOrderOf :: Edge -> BackendArg op
-    readOrderOf (p:->l) = case construct M.!? l of
-      Just (SExe _ args _) -> getOrder args p
+    readOrderOf :: (Label Comp, Label Buff, Label Comp) -> BackendArg op
+    readOrderOf (_,b,l) = case symbols M.!? l of
+      Just (SExe' _ args _) -> getOrder args b
       _ -> error "can't get readorder"
-    getOrder :: LabelledArgsOp op env args -> Label Comp -> BackendArg op
+
+    getOrder :: LabelledArgsOp op env args -> Label Buff -> BackendArg op
     getOrder ArgsNil _ = error "can't get readorder"
-    getOrder (LOp (ArgArray In _ _ _) (_,ls) b :>: args) p
-      | p `S.member` ls = b
-      | otherwise = getOrder args p
-    getOrder (_ :>: args) p = getOrder args p
+    getOrder (LOp (ArgArray In _ _ _) (_,deps) b :>: args) buff
+      | buff `S.member` deps = b
+      | otherwise = getOrder args buff
+    getOrder (_ :>: args) buff = getOrder args buff
 
 
 openReconstruct   :: MakesILP op
                   => Bool
-                  -> LabelsEnv aenv
+                  -> BuffersEnv aenv
                   -> Graph
                   -> [ClusterLs]
                   -> M.Map (Label Comp) [ClusterLs]
@@ -158,7 +169,7 @@ openReconstruct   :: MakesILP op
 openReconstruct  a b c d   e f = (\(Left x) -> x) $ openReconstruct' a b c d Nothing e f
 openReconstructF  :: MakesILP op
                   => Bool
-                  -> LabelsEnv aenv
+                  -> BuffersEnv aenv
                   -> Graph
                   -> [ClusterLs]
                   -> Label Comp
@@ -167,8 +178,8 @@ openReconstructF  :: MakesILP op
                   -> Exists (PreOpenAfun (Clustered op) aenv)
 openReconstructF a b c d l e f = (\(Right x) -> x) $ openReconstruct' a b c d (Just l) e f
 
-openReconstruct' :: forall op aenv. MakesILP op => Bool -> LabelsEnv aenv -> Graph -> [ClusterLs] -> Maybe (Label Comp) -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op)  -> Either (Exists (PreOpenAcc (Clustered op) aenv)) (Exists (PreOpenAfun (Clustered op) aenv))
-openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap construct =
+openReconstruct' :: forall op aenv. MakesILP op => Bool -> BuffersEnv aenv -> Graph -> [ClusterLs] -> Maybe (Label Comp) -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op)  -> Either (Exists (PreOpenAcc (Clustered op) aenv)) (Exists (PreOpenAfun (Clustered op) aenv))
+openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symbols =
   case mlab of
   Just l  -> Right $ makeASTF labelenv l mempty
   Nothing -> Left $ makeAST labelenv clusters mempty
@@ -179,10 +190,10 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap cons
     -- Those are stored in the 'prev' argument.
     -- Note also that we currently assume that the final cluster is the return argument: If all computations are relevant
     -- and our analysis is sound, the return argument should always appear last. If not.. oops
-    makeAST :: forall env. LabelsEnv env -> [ClusterL] -> M.Map (Label Comp) (Exists (PreOpenAcc (Clustered op) env)) -> Exists (PreOpenAcc (Clustered op) env)
+    makeAST :: forall env. BuffersEnv env -> [ClusterL] -> M.Map (Label Comp) (Exists (PreOpenAcc (Clustered op) env)) -> Exists (PreOpenAcc (Clustered op) env)
     makeAST _ [] _ = error "empty AST"
     makeAST env [cluster] prev = case makeCluster env cluster of
-      Fold c args -> Exists $ Exec c $ unLabelOp args
+      Fold c args -> Exists $ Exec c $ unlabelop args
       InitFold o l args -> singleton l args o $
                             \c args' ->
                                 Exists $ Exec c (mapArgs (\(LOp a _ _) -> a) args')
@@ -230,9 +241,9 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap cons
                   _ -> error "nope"
                 NonExecL _ -> makeAST env ctail $ foldC (`M.insert` res) prev cluster
 
-    makeASTF :: forall env. LabelsEnv env -> Label Comp -> M.Map (Label Comp) (Exists (PreOpenAcc (Clustered op) env)) -> Exists (PreOpenAfun (Clustered op) env)
+    makeASTF :: forall env. BuffersEnv env -> Label Comp -> M.Map (Label Comp) (Exists (PreOpenAcc (Clustered op) env)) -> Exists (PreOpenAfun (Clustered op) env)
     makeASTF env l prev = case makeCluster env (NonExecL l) of
-      NotFold (SBod l') -> case makeAST env (subcluster l) prev of
+      NotFold (SBod _) -> case makeAST env (subcluster l) prev of
         --  fromJust $ l' ^. parent) prev of
           Exists acc -> Exists $ Abody acc
       NotFold (SFun lhs l') -> createLHS lhs env $ \env' lhs' ->
@@ -244,8 +255,8 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap cons
     findTopOfF :: [ClusterL] -> Label Comp
     findTopOfF [] = error "empty list"
     findTopOfF [NonExecL x] = x
-    findTopOfF (x@(NonExecL l):xs) = case construct !?? l of
-      SBod l' -> findTopOfF xs
+    findTopOfF (x@(NonExecL l):xs) = case symbols !?? l of
+      SBod _    -> findTopOfF xs
       SFun _ l' -> findTopOfF $ filter (\(NonExecL l'') -> l'' /= l') xs ++ [x]
       _ -> error "should be a function"
       -- findTopOfF $ filter (\(NonExecL l) -> Just l /= p) xs ++ [x]
@@ -254,26 +265,26 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap cons
     -- do the topological sorting for each set
     -- TODO: add 'backend-specific' edges to the graph for sorting, see 3.3.1 in the PLDI paper
     clusters = concatMap (\case
-                      Execs ls -> topSort singletons graph ls construct
+                      Execs ls -> topSort singletons graph ls symbols
                       NonExec l -> [NonExecL l]) clusterslist
     subclusters = M.map (concatMap ( \case
-                      Execs ls -> topSort singletons graph ls construct
+                      Execs ls  -> topSort singletons graph ls symbols
                       NonExec l -> [NonExecL l])) subclustersmap
     subcluster l = subclusters !?? l
 
-    makeCluster :: LabelsEnv env -> ClusterL -> FoldType op env
+    makeCluster :: BuffersEnv env -> ClusterL -> FoldType op env
     makeCluster env (ExecL ls) =
        foldr1 (flip fuseCluster)
-                    $ map ( \l -> case construct !?? l of
+                    $ map ( \l -> case symbols !?? l of
                               -- At first thought, this `fromJust` might error if we fuse an array away.
                               -- It does not: The array will still be in the environment, but after we finish
                               -- the `foldr1`, the input argument will dissapear. The output argument does not:
                               -- we clean that up in the SLV pass, if this was vertical fusion. If this is diagonal fusion,
                               -- it stays.
-                              SExe env' args op -> InitFold op l (fromJust $ reindexLabelledArgsOp (mkReindexPartial env' env) args)
-                              _                 -> error "avoid this next refactor" -- c -> NotFold c
+                              SExe' env' args op -> InitFold op l (fromJust $ reindexLabelledArgsOp (mkReindexPartial env' env) args)
+                              _                  -> error "avoid this next refactor" -- c -> NotFold c
                           ) ls
-    makeCluster _ (NonExecL l) = NotFold $ construct !?? l
+    makeCluster _ (NonExecL l) = NotFold $ symbols !?? l
 
     fuseCluster :: FoldType op env -> FoldType op env -> FoldType op env
     fuseCluster (Fold cluster cargs) (InitFold op l largs) =
@@ -325,11 +336,6 @@ consCluster l lop op lcluster cluster k = singleton l lop op $ \c lop' ->
     cluster
     fuseVertically
     $ flip k
-
-foo :: M.Map Edge Int -> Label Comp -> ArgLabels a -> Int
-foo orderinfo l (_, ls)
-  | S.null ls = 0
-  | otherwise = orderinfo M.! (S.findMin ls :-> l)
 
 fuseVertically :: LabelledArgOp op env (Out sh e) -> LabelledArgOp op env (In sh e) -> LabelledArgOp op env (Var' sh)
 fuseVertically

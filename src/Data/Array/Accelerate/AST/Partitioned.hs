@@ -63,7 +63,7 @@ import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Trafo.Var
 import Data.Array.Accelerate.Trafo.Exp.Substitution
 import Data.Array.Accelerate.Trafo.Substitution
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (LabelledArgs, LabelledArg (..), Label(..), ArgIsArray (..), EnvLabel, LabelType (..), TupF (TupF), EnvLabelTupF)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (LabelledArgs, LabelledArg (..), Label(..), ArgIsArray (..), EnvLabel, LabelType (..), TupF (TupF), EnvLabelTup)
 import Data.List (sortOn, partition, groupBy, nubBy)
 import qualified Data.Functor.Const as C
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (LabelledArgOp (..), BackendClusterArg, MakesILP (..), LabelledArgsOp, BackendCluster)
@@ -477,7 +477,7 @@ createClusterArg _ sorted (LOp (ArgArray (m :: Modifier m) (ArrayR (shr :: Shape
     inOrOut Out = True
     inOrOut _   = False
 
-    go :: TypeR t -> EnvLabelTupF t -> ClusterArgBuffers (FunToEnv sorted) m sh t
+    go :: TypeR t -> EnvLabelTup t -> ClusterArgBuffers (FunToEnv sorted) m sh t
     go TupRunit (TupF TupRunit)
       = ClusterArgBuffersLive TupRunit $ findUnit sorted
     go (TupRsingle t) (TupF (TupRsingle (C.Const label)))

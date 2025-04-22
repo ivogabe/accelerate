@@ -8,7 +8,7 @@
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve where
 
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (readEdges, writeEdges, strictEdges, dataflowEdges, constraints, bounds)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (bufferNodes, computationNodes, strictEdges, dataflowEdges, constraints, bounds)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
     (Label, parent, Labels, LabelType (..) )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (finalize)
@@ -47,18 +47,10 @@ data Objective
 -- that reward putting non-siblings in the same cluster) this is fine: We will interpret 'cluster 3'
 -- with parents `Nothing` as a different cluster than 'cluster 3' with parents `Just 5`.
 makeILP :: forall op. MakesILP op => Objective -> FusionILP op -> ILP op
-makeILP obj (FusionILP (Graph readEdges writeEdges strictEdges dataflowEdges) constraints bounds) = combine graphILP
+makeILP obj (FusionILP (Graph bufferNodes computationNodes strictEdges dataflowEdges) constraints bounds) = combine graphILP
   where
     fusibleEdges, infusibleEdges :: S.Set (Label Comp, Label Buff, Label Comp)
-    (fusibleEdges, infusibleEdges) = S.partition (\(c1, _, c2) -> S.notMember (c1, c2) strictEdges) dataflowEdges
-
-    bufferNodes      :: S.Set (Label Buff)
-    computationNodes :: S.Set (Label Comp)
-    (bufferNodes, computationNodes) = S.foldr  biinsert         mempty readEdges
-                                   <> S.foldr (biinsert . swap) mempty writeEdges
-
-    biinsert :: (Ord a, Ord b) => (a, b) -> (S.Set a, S.Set b) -> (S.Set a, S.Set b)
-    biinsert (a, b) (as, bs) = (S.insert a as, S.insert b bs)
+    (fusibleEdges, infusibleEdges) = S.partition (\(w, _, r) -> S.notMember (w, r) strictEdges) dataflowEdges
 
     combine :: ILP op -> ILP op
     combine (ILP dir fun cons bnds _) =
@@ -108,11 +100,11 @@ makeILP obj (FusionILP (Graph readEdges writeEdges strictEdges dataflowEdges) co
           nConsumers = S.size consumers
       readPis    <- replicateM nConsumers readPiVar
       readOrders <- replicateM nConsumers readOrderVar
-      (subConstraint, subBounds) <- flip foldMapM consumers $ \read@(_,consumer) -> do
+      (subConstraint, subBounds) <- flip foldMapM consumers $ \(buff,cons) -> do
         useVars <- replicateM nConsumers useVar -- these are the n^2 variables: For each consumer, n variables which each check the equality of pi to readpi
         let constraint = foldMap
-              (\(uv, rp, ro) -> isEqualRangeN (var rp) (pi consumer)  (var uv)
-                             <> isEqualRangeN (var ro) (readDir read) (var uv))
+              (\(uv, rp, ro) -> isEqualRangeN (var rp) (pi cons)           (var uv)
+                             <> isEqualRangeN (var ro) (readDir buff cons) (var uv))
               (zip3 useVars readPis readOrders)
         return (constraint <> foldl (.+.) (int 0) (map var useVars) .<=. int (nConsumers-1), foldMap binary useVars)
       readPi0s <- replicateM nConsumers readPi0Var
@@ -157,8 +149,8 @@ makeILP obj (FusionILP (Graph readEdges writeEdges strictEdges dataflowEdges) co
 
 
     orderConstraints = flip foldMap fusibleEdges $ \(i,b,j) ->
-                    timesN (fused i j) .>=. readDir (b, j) .-. writeDir (i, b)
-        <> (-1) .*. timesN (fused i j) .<=. readDir (b, j) .-. writeDir (i, b)
+                    timesN (fused i j) .>=. readDir b j .-. writeDir i b
+        <> (-1) .*. timesN (fused i j) .<=. readDir b j .-. writeDir i b
 
     myBounds :: Bounds op
                    --  0 <= pi_i <= n

@@ -240,6 +240,11 @@ tupFlike TupRunit       _ = TupFunit
 tupFlike (TupRsingle _) b = TupFsingle b
 tupFlike (TupRpair l r) b = TupFpair (tupFlike l b) (tupFlike r b)
 
+-- | Tuple of 'Labels' of type 'Buff'.
+type BuffersTup t = TupF t (Labels Buff)
+
+-- | Tuple of 'Labels' of type 'Comp'.
+type ComputationsTup t = TupF t (Labels Comp)
 
 
 --------------------------------------------------------------------------------
@@ -250,58 +255,98 @@ tupFlike (TupRpair l r) b = TupFpair (tupFlike l b) (tupFlike r b)
 newtype EnvLabel = EnvLabel { unELabel :: Int }
   deriving (Show, Eq, Ord, Num)
 
--- | A 'TupF' of 'EnvLabel'.
-type EnvLabelTupF t = TupF t EnvLabel
+-- | An 'EnvLabel' and all buffers associated with it.
+type EnvLabels t = (EnvLabel, BuffersTup t)
 
+-- | A 'TupF' of 'EnvLabel'.
+type EnvLabelTup t = TupF t EnvLabel
+
+-- | Create a fresh 'EnvLabel' from the current state.
 freshE' :: State EnvLabel EnvLabel
 freshE' = id <%= (+1)
-
--- | Tuple of 'Labels' of type 'Buff' to be stored in the environment.
---
--- We use a tuple of labels instead of a single label because after an
--- if-then-else there are now two labels that could be referenced depending
--- on the branch taken.
-type BuffersTupF t = TupF t (Labels Buff)
 
 -- | The environment used during graph construction.
 --
 -- The environment is basically just a fixed length list of buffers with some
 -- associated type information.
 --
--- The buffers are stored as a map, mapping the buffer to its current producer.
--- We need to know which computation produces the buffer to make sure we don't
--- create fusible edges when a buffer has multiple writes. In such a case it
--- could be that we write, then read, then write again. Without this information
--- a fusible edge would be created between the reader and the last writer, even
--- though the reader is reading the data of the first writer, not the second.
+-- We use a tuple of labels instead of a single label because after an
+-- if-then-else there are now two labels that could be referenced depending
+-- on the branch taken.
 --
-data LabelsEnv env where
+data BuffersEnv env where
   -- | The empty environment.
-  EnvNil :: LabelsEnv ()
+  EnvNil :: BuffersEnv ()
   -- | The non-empty environment.
-  (:>>:) :: (EnvLabel, BuffersTupF t)  -- ^ A pair of 'EnvLabel' and 'BuffersTupF'.
-         -> LabelsEnv env              -- ^ The rest of the environment.
-         -> LabelsEnv (env, t)
+  (:>>:) :: EnvLabels t     -- ^ See 'EnvLabels'.
+         -> BuffersEnv env  -- ^ The rest of the environment.
+         -> BuffersEnv (env, t)
 
-instance Semigroup (LabelsEnv env) where
-  (<>) :: LabelsEnv env -> LabelsEnv env -> LabelsEnv env
+-- TODO: Is this instance necessary?
+instance Semigroup (BuffersEnv env) where
+  (<>) :: BuffersEnv env -> BuffersEnv env -> BuffersEnv env
   (<>) EnvNil EnvNil = EnvNil
   (<>) ((e1, bs1) :>>: env1) ((e2, bs2) :>>: env2)
     | e1 == e2  = (e1, bs1 <> bs2) :>>: (env1 <> env2)
     | otherwise = error "mappend: Encountered diverging EnvLabels."
 
-
--- | Constructs a new 'LabelsEnv' by prepending labels for each element in the
+-- | Constructs a new 'BuffersEnv' by prepending labels for each element in the
 --   left-hand side.
 --
 -- The case where the left-hand side and the right-hand side are incompatible
--- should neven happen. But in case it does happen I already have an
--- implementation prepared that will duplicate the 'TupRsingle_'.
-weakenEnv :: LeftHandSide s v env env' -> BuffersTupF v -> LabelsEnv env -> State EnvLabel (LabelsEnv env')
+-- should neven happen, but in case it does just replicate the labels.
+weakenEnv :: LeftHandSide s v env env' -> BuffersTup v -> BuffersEnv env -> State EnvLabel (BuffersEnv env')
 weakenEnv LeftHandSideWildcard{} _                  = pure
 weakenEnv LeftHandSideSingle{}   bs                 = \lenv -> freshE' >>= \e -> return ((e, bs) :>>: lenv)
 weakenEnv (LeftHandSidePair l r) (TupFpair lbs rbs) = weakenEnv l lbs >=> weakenEnv r rbs
 weakenEnv (LeftHandSidePair _ _) _ = error "consLHS: Inaccesible left-hand side."
+
+
+
+--------------------------------------------------------------------------------
+-- Bound left-hand side
+--------------------------------------------------------------------------------
+
+-- | A 'LeftHandSide' with the values bound at its leaves.
+data BoundLHS s v env env' where
+  BoundLHSsingle
+    :: EnvLabels v
+    -> s v
+    -> BoundLHS s v env (env, v)
+
+  BoundLHSwildcard
+    :: TupR s v
+    -> BoundLHS s v env env
+
+  BoundLHSpair
+    :: BoundLHS s v1       env  env'
+    -> BoundLHS s v2       env' env''
+    -> BoundLHS s (v1, v2) env  env''
+
+type BoundGLHS = BoundLHS GroundR
+
+-- | Get bindings from the environment and bind them to the left-hand side.
+bindLHS :: LeftHandSide s v env env' -> BuffersEnv env' -> BoundLHS s v env env'
+bindLHS (LeftHandSideSingle s) (l :>>: _) = BoundLHSsingle l s
+bindLHS (LeftHandSideWildcard t) _ = BoundLHSwildcard t
+bindLHS (LeftHandSidePair l r) env = BoundLHSpair (bindLHS l (stripLHS r env)) (bindLHS r env)
+
+-- | Remove values bound by the left-hand side from the environment.
+stripLHS :: LeftHandSide s v env env' -> BuffersEnv env' -> BuffersEnv env
+stripLHS (LeftHandSideSingle _) (_ :>>: le') = le'
+stripLHS (LeftHandSideWildcard _) le = le
+stripLHS (LeftHandSidePair l r) le = stripLHS l (stripLHS r le)
+
+createLHS :: BoundLHS s v _env _env'
+          -> BuffersEnv env
+          -> (forall env'. BuffersEnv env' -> LeftHandSide s v env env' -> r)
+          -> r
+createLHS (BoundLHSsingle e g) env k = k (e :>>: env) (LeftHandSideSingle g)
+createLHS (BoundLHSwildcard t) env k = k env (LeftHandSideWildcard t)
+createLHS (BoundLHSpair l r)   env k =
+  createLHS   l env  $ \env'  l' ->
+    createLHS r env' $ \env'' r' ->
+      k env'' (LeftHandSidePair l' r')
 
 
 
@@ -328,7 +373,7 @@ can therefore not be fused.
 --   array or not, and if so, which buffers it is associated with as a 'TupF'.
 data ArgIsArray t where
   -- | The argument is an array.
-  Arr    :: EnvLabelTupF e  -- ^ The array (as structure-of-arrays).
+  Arr    :: EnvLabelTup e  -- ^ The array (as structure-of-arrays).
          -> ArgIsArray (m sh e)
   -- | The argument is a scalar 'Var'', 'Exp'' or 'Fun''.
   NotArr :: ArgIsArray (t e)
@@ -346,13 +391,13 @@ data LabelledArg env t = L (Arg env t) (ArgLabels t)
 type LabelledArgs env = PreArgs (LabelledArg env)
 
 -- | Label the arguments to a function using the given environment.
-labelArgs :: Args env args -> LabelsEnv env -> LabelledArgs env args
+labelArgs :: Args env args -> BuffersEnv env -> LabelledArgs env args
 labelArgs ArgsNil _ = ArgsNil
 labelArgs (arg :>: args) env =
   L arg (getArgLabels arg env) :>: labelArgs args env
 
--- | Get the 'ArgLabels' associated with 'Arg' from 'LabelsEnv'.
-getArgLabels :: Arg env t -> LabelsEnv env -> ArgLabels t
+-- | Get the 'ArgLabels' associated with 'Arg' from 'BuffersEnv'.
+getArgLabels :: Arg env t -> BuffersEnv env -> ArgLabels t
 getArgLabels (ArgVar vars) env = (NotArr, getVarsDeps vars env)
 getArgLabels (ArgExp exp)  env = (NotArr, getExpDeps  exp  env)
 getArgLabels (ArgFun fun)  env = (NotArr, getFunDeps  fun  env)
@@ -362,8 +407,8 @@ getArgLabels (ArgArray _ (ArrayR _ tp) sh bu) env
   = (unbuffers tp $ Arr buEs, fold shBs <> fold buBs)
 getArgLabels _ _ = error "getArgLabels: Inaccessible left-hand side."
 
--- | Get the values associated with 'Vars' from 'LabelsEnv'.
-getVarsFromEnv :: Vars a env b -> LabelsEnv env -> (ArgIsArray (m sh b), BuffersTupF b)
+-- | Get the values associated with 'Vars' from 'BuffersEnv'.
+getVarsFromEnv :: Vars a env b -> BuffersEnv env -> (ArgIsArray (m sh b), BuffersTup b)
 getVarsFromEnv TupRunit         _   = (Arr TupFunit, TupFunit)
 getVarsFromEnv (TupRsingle var) env = getVarFromEnv var env
 getVarsFromEnv (TupRpair l r)   env | (Arr l', bs1) <- getVarsFromEnv l env
@@ -371,26 +416,26 @@ getVarsFromEnv (TupRpair l r)   env | (Arr l', bs1) <- getVarsFromEnv l env
                                     = (Arr (TupFpair l' r'), TupFpair bs1 bs2)
 getVarsFromEnv _ _ = error "getVarsFromEnv: Inaccessible left-hand side."
 
--- | Get the value associated with a 'Var' from 'LabelsEnv'.
-getVarFromEnv :: Var a env b -> LabelsEnv env -> (ArgIsArray (m sh b), BuffersTupF b)
+-- | Get the value associated with a 'Var' from 'BuffersEnv'.
+getVarFromEnv :: Var a env b -> BuffersEnv env -> (ArgIsArray (m sh b), BuffersTup b)
 getVarFromEnv (varIdx -> idx) = first (Arr . TupFsingle) . lookupIdxInEnv idx
 
--- | Get the value associated with an 'Idx' from 'LabelsEnv'.
-lookupIdxInEnv :: Idx env a -> LabelsEnv env -> (EnvLabel, BuffersTupF a)
+-- | Get the value associated with an 'Idx' from 'BuffersEnv'.
+lookupIdxInEnv :: Idx env a -> BuffersEnv env -> (EnvLabel, BuffersTup a)
 lookupIdxInEnv ZeroIdx       (bs :>>: _)   = bs
 lookupIdxInEnv (SuccIdx idx) (_  :>>: env) = lookupIdxInEnv idx env
 
 
 -- | Get the dependencies of a tuple of variables.
-getVarsDeps :: Vars s env t -> LabelsEnv env -> Labels Buff
+getVarsDeps :: Vars s env t -> BuffersEnv env -> Labels Buff
 getVarsDeps vars = fold . snd . getVarsFromEnv vars
 
 -- | Get the dependencies of a tuple of variables.
-getVarDeps :: Var s env t -> LabelsEnv env -> Labels Buff
+getVarDeps :: Var s env t -> BuffersEnv env -> Labels Buff
 getVarDeps var = fold . snd . getVarFromEnv var
 
 -- | Get the dependencies of an expression.
-getExpDeps :: OpenExp x env y -> LabelsEnv env -> Labels Buff
+getExpDeps :: OpenExp x env y -> BuffersEnv env -> Labels Buff
 getExpDeps (ArrayInstr (Index     var) poe) env = getVarDeps var  env <> getExpDeps poe  env
 getExpDeps (ArrayInstr (Parameter var) poe) env = getVarDeps var  env <> getExpDeps poe  env
 getExpDeps (Let _ poe1 poe2)                env = getExpDeps poe1 env <> getExpDeps poe2 env
@@ -421,7 +466,7 @@ getExpDeps (Undef _)                        _   = mempty
 getExpDeps  Coerce{}                        _   = mempty
 
 -- | Get the dependencies of a function.
-getFunDeps :: OpenFun x env y -> LabelsEnv env -> Labels Buff
+getFunDeps :: OpenFun x env y -> BuffersEnv env -> Labels Buff
 getFunDeps (Body  poe) env = getExpDeps poe env
 getFunDeps (Lam _ fun) env = getFunDeps fun env
 
@@ -445,22 +490,22 @@ unbuffers _ _ = error "Not an array"
 --------------------------------------------------------------------------------
 
 -- | Map a function over the labels in the environment.
-mapLEnv :: (forall t. BuffersTupF t -> BuffersTupF t) -> LabelsEnv env -> LabelsEnv env
+mapLEnv :: (forall t. BuffersTup t -> BuffersTup t) -> BuffersEnv env -> BuffersEnv env
 mapLEnv _ EnvNil = EnvNil
 mapLEnv f ((e, bs) :>>: env) = (e, f bs) :>>: mapLEnv f env
 
 -- | Flipped version of 'mapLEnv'.
-forLEnv :: LabelsEnv env -> (forall t. BuffersTupF t -> BuffersTupF t) -> LabelsEnv env
+forLEnv :: BuffersEnv env -> (forall t. BuffersTup t -> BuffersTup t) -> BuffersEnv env
 forLEnv env f = mapLEnv f env
 {-# INLINE forLEnv #-}
 
 -- | Fold over the labels in the environment.
-foldMapLEnv :: Monoid m => (forall t. BuffersTupF t -> m) -> LabelsEnv env -> m
+foldMapLEnv :: Monoid m => (forall t. BuffersTup t -> m) -> BuffersEnv env -> m
 foldMapLEnv _ EnvNil = mempty
 foldMapLEnv f ((_, bs) :>>: env) = f bs <> foldMapLEnv f env
 
 -- | Map a monadic function over the labels in the environment.
-mapLEnvM :: Monad m => (forall t. BuffersTupF t -> m (BuffersTupF t)) -> LabelsEnv env -> m (LabelsEnv env)
+mapLEnvM :: Monad m => (forall t. BuffersTup t -> m (BuffersTup t)) -> BuffersEnv env -> m (BuffersEnv env)
 mapLEnvM _ EnvNil = return EnvNil
 mapLEnvM f ((e, bs) :>>: env) = do
   bs'  <- f bs
@@ -468,17 +513,17 @@ mapLEnvM f ((e, bs) :>>: env) = do
   return ((e, bs') :>>: env')
 
 -- | Flipped version of 'mapLEnvM'.
-forLEnvM :: Monad m => LabelsEnv env -> (forall t. BuffersTupF t -> m (BuffersTupF t)) -> m (LabelsEnv env)
+forLEnvM :: Monad m => BuffersEnv env -> (forall t. BuffersTup t -> m (BuffersTup t)) -> m (BuffersEnv env)
 forLEnvM env f = mapLEnvM f env
 {-# INLINE forLEnvM #-}
 
 -- | Map a monadic action over the labels in the environment and discard the result.
-mapLEnvM_ :: Monad m => (forall t. BuffersTupF t -> m ()) -> LabelsEnv env -> m ()
+mapLEnvM_ :: Monad m => (forall t. BuffersTup t -> m ()) -> BuffersEnv env -> m ()
 mapLEnvM_ _ EnvNil = return ()
 mapLEnvM_ f ((_, bs) :>>: env) = f bs >> mapLEnvM_ f env
 
 -- | Flipped version of 'mapLEnvM_'.
-forLEnvM_ :: Monad m => LabelsEnv env -> (forall t. BuffersTupF t -> m ()) -> m ()
+forLEnvM_ :: Monad m => BuffersEnv env -> (forall t. BuffersTup t -> m ()) -> m ()
 forLEnvM_ env f = mapLEnvM_ f env
 {-# INLINE forLEnvM_ #-}
 

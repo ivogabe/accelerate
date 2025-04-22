@@ -3,12 +3,12 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DataKinds #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP where
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
-    ( MakesILP (), Information(Info), makeFullGraph, Construction, makeFullGraphF, Graph, backendConstruc, fusibleEdges, Edge (..), constr, fused, infusibleEdges ) 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
-    ( interpretSolution, makeILP, splitExecs, ClusterLs, Objective (..) ) 
+    ( interpretSolution, makeILP, splitExecs, ClusterLs, Objective (..) )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
     ( reconstruct, reconstructF )
 import Data.Array.Accelerate.AST.Partitioned
@@ -21,7 +21,7 @@ import Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP
     ( cbc, cplex, glpsol, gurobiCl, lpSolve, scip, MIP(..) )
 
 import System.IO.Unsafe (unsafePerformIO)
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Label)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Label, LabelType(..))
 import Data.Map (Map)
 import qualified Data.Array.Accelerate.Pretty.Operation as Pretty
 import Data.Function ((&))
@@ -63,21 +63,21 @@ ilpFusionF'' (MIPSolver s) = case s of
 
 
 ilpFusion  :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
-ilpFusion solver objective acc = ilpFusion' makeFullGraph  (reconstruct (groundsR acc) False) solver objective acc
+ilpFusion solver objective acc = ilpFusion' mkFullGraph  (reconstruct (groundsR acc) False) solver objective acc
 
 ilpFusionF :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
-ilpFusionF solver objective fun = ilpFusion' makeFullGraphF (reconstructF fun False) solver objective fun
+ilpFusionF solver objective fun = ilpFusion' mkFullGraphF (reconstructF fun False) solver objective fun
 
-ilpFusion' :: (MakesILP op, ILPSolver s op) 
-           => (x -> (Information op, Map Label (Construction op))) 
-           -> (Graph -> [ClusterLs] -> Map Label [ClusterLs] -> Map Label (Construction op) -> y) 
-           -> s 
+ilpFusion' :: (MakesILP op, ILPSolver s op)
+           => (x -> (FusionILP op, Symbols op))
+           -> (Graph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
+           -> s
            -> Objective
-           -> x 
+           -> x
            -> y
 ilpFusion' k1 k2 s obj acc = fusedAcc
   where
-    (info@(Info graph _ _), constrM') = k1 acc
+    (info@(FusionILP graph _ _), constrM') = k1 acc
     constrM = backendConstruc solution constrM'
     ilp                               = makeILP obj info
     solution                          = solve' ilp
@@ -91,16 +91,16 @@ ilpFusion' k1 k2 s obj acc = fusedAcc
 -- for benchmarking: make all edges infusible
 -- note: does allow for horizontal fusion!
 -- more rigorous is to change 'topSort' in Clustering.hs into separating each cluster completely
-noFusion' :: (MakesILP op, ILPSolver s op) 
-           => (x -> (Information op, Map Label (Construction op))) 
-           -> (Graph -> [ClusterLs] -> Map Label [ClusterLs] -> Map Label (Construction op) -> y) 
-           -> s 
+noFusion' :: (MakesILP op, ILPSolver s op)
+           => (x -> (FusionILP op, Symbols op))
+           -> (Graph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
+           -> s
            -> Objective
-           -> x 
+           -> x
            -> y
 noFusion' k1 k2 s obj acc = fusedAcc
   where
-    (info@(Info graph' _ _), constrM') = k1 acc
+    (info@(FusionILP graph' _ _), constrM') = k1 acc
     graph = graph'&infusibleEdges<>~graph'^.fusibleEdges
     constrM = backendConstruc solution constrM'
     ilp                               = makeILP obj info
@@ -117,28 +117,28 @@ noFusion' k1 k2 s obj acc = fusedAcc
 -- note that this is perhaps still too generous. For example, anything that can fuse into 1 loop will still be fully fused!
 -- it's perhaps more of an 'alternative' than a 'baseline'
 greedyFusion' :: forall s op x y. (MakesILP op, ILPSolver s op)
-                    => (x -> (Information op, Map Label (Construction op))) 
-                    -> (Graph -> [ClusterLs] -> Map Label [ClusterLs] -> Map Label (Construction op) -> y) 
+                    => (x -> (FusionILP op, Symbols op))
+                    -> (Graph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
                     -> s
                     -> Benchmarking
                     -> Objective
-                    -> x 
+                    -> x
                     -> y
 greedyFusion' k1 k2 s b obj acc = fusedAcc
   where
-    (info'@(Info graph _ _), constrM') = k1 acc
+    (info'@(FusionILP graph _ _), constrM') = k1 acc
     nedges = (graph^.fusibleEdges) Set.\\ (graph^.infusibleEdges) & Set.size
-    go :: Int -> Information op -> Information op
+    go :: Int -> FusionILP op -> FusionILP op
     go n info -- loop over all fusible edges. Try to set the current one to fused, if there's still a legal solution, keep it fused and continue.
       | n >= nedges = info
       | otherwise = let
         i:->j = (graph^.fusibleEdges) Set.\\ (graph^.infusibleEdges)&Set.elemAt (case b of
-          GreedyUp -> n 
+          GreedyUp -> n
           GreedyDown -> nedges - n - 1
           _ -> error "nope")
         info'' = info&constr<>~(fused i j .==. int 0)
         in go (n+1) $ if check info'' then info'' else info
-    check :: Information op -> Bool
+    check :: FusionILP op -> Bool
     check info = let
       ilp = makeILP @op obj info
       in isJust $ unsafePerformIO (solve s ilp)
@@ -169,10 +169,10 @@ greedyF = greedyFusionF (MIP gurobiCl)
 noF :: (MakesILP op, Pretty.PrettyOp (Cluster op)) => Objective -> OperationAfun op () a -> PartitionedAfun op () a
 noF = noFusionF (MIP gurobiCl)
 greedyFusion  :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Benchmarking -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
-greedyFusion  solver b objective acc = greedyFusion' makeFullGraph  (reconstruct (groundsR acc) False) solver b objective acc
+greedyFusion  solver b objective acc = greedyFusion' mkFullGraph  (reconstruct (groundsR acc) False) solver b objective acc
 greedyFusionF :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Benchmarking -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
-greedyFusionF solver b objective fun = greedyFusion' makeFullGraphF (reconstructF fun False) solver b objective fun
+greedyFusionF solver b objective fun = greedyFusion' mkFullGraphF (reconstructF fun False) solver b objective fun
 noFusion      :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
-noFusion      solver objective acc =     noFusion' makeFullGraph  (reconstruct (groundsR acc) True) solver objective acc
+noFusion      solver objective acc =     noFusion' mkFullGraph  (reconstruct (groundsR acc) True) solver objective acc
 noFusionF     :: (MakesILP op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
-noFusionF     solver objective fun =     noFusion' makeFullGraphF (reconstructF fun True) solver objective fun
+noFusionF     solver objective fun =     noFusion' mkFullGraphF (reconstructF fun True) solver objective fun
