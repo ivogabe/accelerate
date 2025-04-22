@@ -124,35 +124,36 @@ greedyFusion' :: forall s op x y. (MakesILP op, ILPSolver s op)
                     -> Objective
                     -> x
                     -> y
-greedyFusion' k1 k2 s b obj acc = fusedAcc
-  where
-    (info'@(FusionILP graph _ _), constrM') = k1 acc
-    nedges = (graph^.fusibleEdges) Set.\\ (graph^.infusibleEdges) & Set.size
-    go :: Int -> FusionILP op -> FusionILP op
-    go n info -- loop over all fusible edges. Try to set the current one to fused, if there's still a legal solution, keep it fused and continue.
-      | n >= nedges = info
-      | otherwise = let
-        i:->j = (graph^.fusibleEdges) Set.\\ (graph^.infusibleEdges)&Set.elemAt (case b of
-          GreedyUp -> n
-          GreedyDown -> nedges - n - 1
-          _ -> error "nope")
-        info'' = info&constr<>~(fused i j .==. int 0)
-        in go (n+1) $ if check info'' then info'' else info
-    check :: FusionILP op -> Bool
-    check info = let
-      ilp = makeILP @op obj info
-      in isJust $ unsafePerformIO (solve s ilp)
-    info = go 0 info'
-    ilp                               = makeILP FusedEdges info
+greedyFusion' = undefined
+-- greedyFusion' k1 k2 s b obj acc = fusedAcc
+--   where
+--     (info'@(FusionILP graph _ _), constrM') = k1 acc
+--     nedges = (graph^.fusibleEdges) Set.\\ (graph^.infusibleEdges) & Set.size
+--     go :: Int -> FusionILP op -> FusionILP op
+--     go n info -- loop over all fusible edges. Try to set the current one to fused, if there's still a legal solution, keep it fused and continue.
+--       | n >= nedges = info
+--       | otherwise = let
+--         i:->j = (graph^.fusibleEdges) Set.\\ (graph^.infusibleEdges)&Set.elemAt (case b of
+--           GreedyUp -> n
+--           GreedyDown -> nedges - n - 1
+--           _ -> error "nope")
+--         info'' = info&constr<>~(fused i j .==. int 0)
+--         in go (n+1) $ if check info'' then info'' else info
+--     check :: FusionILP op -> Bool
+--     check info = let
+--       ilp = makeILP @op obj info
+--       in isJust $ unsafePerformIO (solve s ilp)
+--     info = go 0 info'
+--     ilp                               = makeILP FusedEdges info
 
-    constrM = backendConstruc solution constrM'
-    solution                          = solve' ilp
-    interpreted                       = interpretSolution solution
-    (labelClusters, labelClustersM)   = splitExecs interpreted constrM
-    fusedAcc                          = k2 graph labelClusters labelClustersM constrM
-    solve' x = unsafePerformIO (solve s x) & \case
-      Nothing -> error "Accelerate: No ILP solution found"
-      Just y -> y
+--     constrM = backendConstruc solution constrM'
+--     solution                          = solve' ilp
+--     interpreted                       = interpretSolution solution
+--     (labelClusters, labelClustersM)   = splitExecs interpreted constrM
+--     fusedAcc                          = k2 graph labelClusters labelClustersM constrM
+--     solve' x = unsafePerformIO (solve s x) & \case
+--       Nothing -> error "Accelerate: No ILP solution found"
+--       Just y -> y
 
 bench :: (MakesILP op, Pretty.PrettyOp (Cluster op)) => Benchmarking -> Objective -> OperationAcc op () a -> PartitionedAcc op () a
 bench NoFusion = no
