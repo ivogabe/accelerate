@@ -70,7 +70,7 @@ ilpFusionF solver objective fun = ilpFusion' mkFullGraphF (reconstructF fun Fals
 
 ilpFusion' :: (MakesILP op, ILPSolver s op)
            => (x -> (FusionILP op, Symbols op))
-           -> (Graph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
+           -> (FusionGraph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
            -> s
            -> Objective
            -> x
@@ -93,21 +93,21 @@ ilpFusion' k1 k2 s obj acc = fusedAcc
 -- more rigorous is to change 'topSort' in Clustering.hs into separating each cluster completely
 noFusion' :: (MakesILP op, ILPSolver s op)
            => (x -> (FusionILP op, Symbols op))
-           -> (Graph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
+           -> (FusionGraph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
            -> s
            -> Objective
            -> x
            -> y
 noFusion' k1 k2 s obj acc = fusedAcc
   where
-    (info@(FusionILP graph' _ _), constrM') = k1 acc
-    graph = graph'&infusibleEdges<>~graph'^.fusibleEdges
-    constrM = backendConstruc solution constrM'
-    ilp                               = makeILP obj info
-    solution                          = solve' ilp
-    interpreted                       = interpretSolution solution
-    (labelClusters, labelClustersM)   = splitExecs interpreted constrM
-    fusedAcc                          = k2 graph labelClusters labelClustersM constrM
+    (fusionILP', constrM')          = k1 acc
+    fusionILP''                     = fusionILP' & graph.strictEdges <>~ Set.map (\(w,_,r) -> (w,r)) (fusionILP'^.graph.fusibleEdges)
+    constrM                         = attachBackendLabels solution constrM'
+    ilp                             = makeILP obj fusionILP''
+    solution                        = solve' ilp
+    interpreted                     = interpretSolution solution
+    (labelClusters, labelClustersM) = splitExecs interpreted constrM
+    fusedAcc                        = k2 (fusionILP'^.graph) labelClusters labelClustersM constrM
     solve' x = unsafePerformIO (solve s x) & \case
       Nothing -> error "Accelerate: No ILP solution found"
       Just y -> y
@@ -118,7 +118,7 @@ noFusion' k1 k2 s obj acc = fusedAcc
 -- it's perhaps more of an 'alternative' than a 'baseline'
 greedyFusion' :: forall s op x y. (MakesILP op, ILPSolver s op)
                     => (x -> (FusionILP op, Symbols op))
-                    -> (Graph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
+                    -> (FusionGraph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
                     -> s
                     -> Benchmarking
                     -> Objective

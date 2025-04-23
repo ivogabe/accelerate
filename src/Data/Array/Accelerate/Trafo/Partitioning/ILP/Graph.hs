@@ -56,9 +56,8 @@ import Data.Array.Accelerate.AST.Idx
 data Edge where
   (:->) :: forall a. a -> a -> Edge
 
-
 --------------------------------------------------------------------------------
--- Graph
+-- Fusion Graph
 --------------------------------------------------------------------------------
 
 type ReadEdge      = (Label Buff, Label Comp)
@@ -100,65 +99,65 @@ type InfusibleEdge = DataflowEdge
 -- (fusible, infusible) = S.partition (\(w,_,r) -> S.notMember (w,r) _strictEdges) _dataflowEdges
 -- @
 --
-data Graph = Graph   -- TODO: Use hashmaps and hashsets in production.
+data FusionGraph = FusionGraph   -- TODO: Use hashmaps and hashsets in production.
   {      _bufferNodes :: Set (Label Buff)  -- ^ Buffers in the graph.
   , _computationNodes :: Set (Label Comp)  -- ^ Computations in the graph.
   ,      _strictEdges :: Set StrictEdge    -- ^ Edges that enforce strict ordering.
   ,    _dataflowEdges :: Set DataflowEdge  -- ^ Edges that represent data-flow.
   }
 
-instance Semigroup Graph where
-  (<>) :: Graph -> Graph -> Graph
-  (<>) (Graph r1 w1 f1 i1) (Graph r2 w2 f2 i2) = Graph
+makeClassy ''FusionGraph
+
+instance Semigroup FusionGraph where
+  (<>) :: FusionGraph -> FusionGraph -> FusionGraph
+  (<>) (FusionGraph r1 w1 f1 i1) (FusionGraph r2 w2 f2 i2) = FusionGraph
     (r1 <> r2) (w1 <> w2) (f1 <> f2) (i1 <> i2)
 
-instance Monoid Graph where
-  mempty :: Graph
-  mempty = Graph mempty mempty mempty mempty
-
-makeLenses ''Graph
+instance Monoid FusionGraph where
+  mempty :: FusionGraph
+  mempty = FusionGraph mempty mempty mempty mempty
 
 -- | Insert a buffer node into the graph.
-insertBuffer :: Label Buff -> Graph -> Graph
+insertBuffer :: HasFusionGraph g => Label Buff -> g -> g
 insertBuffer b = bufferNodes %~ S.insert b
 
 -- | Insert a write edge from a computation to a buffer.
-insertComputation :: Label Comp -> Graph -> Graph
+insertComputation :: HasFusionGraph g => Label Comp -> g -> g
 insertComputation c = computationNodes %~ S.insert c
 
 -- | Insert a strict relation between two computations.
-insertStrict :: (Label Comp, Label Comp) -> Graph -> Graph
+insertStrict :: HasFusionGraph g => (Label Comp, Label Comp) -> g -> g
 insertStrict (c1, c2) | c1 == c2  = error "insertStrict: Cannot add reflexive edge."
                       | otherwise = strictEdges %~ S.insert (c1, c2)
 
 -- | Insert a fusible data-flow edge between two computations.
-insertFusible :: DataflowEdge -> Graph -> Graph
+insertFusible :: HasFusionGraph g => DataflowEdge -> g -> g
 insertFusible (c1, b, c2)
   | c1 == c2  = error "fusible: Cannot add reflexive edge."
   | otherwise = dataflowEdges %~ S.insert (c1, b, c2)
 
 -- | Insert an infusible data-flow edge between two computations.
-insertInfusible :: DataflowEdge -> Graph -> Graph
+insertInfusible :: HasFusionGraph g => DataflowEdge -> g -> g
 insertInfusible (c1, b, c2) = insertStrict (c1, c2) . insertFusible (c1, b, c2)
 
 -- | Gets the set of fusible edges.
-fusibleEdges :: SimpleGetter Graph (Set FusibleEdge)
+fusibleEdges :: HasFusionGraph g => SimpleGetter g (Set FusibleEdge)
 fusibleEdges = to (\g -> S.filter (\(w, _, r) -> S.notMember (w, r) (g^.strictEdges)) (g^.dataflowEdges))
 
 -- | Gets the set of infusible edges.
-infusibleEdges :: SimpleGetter Graph (Set InfusibleEdge)
+infusibleEdges :: HasFusionGraph g => SimpleGetter g (Set InfusibleEdge)
 infusibleEdges = to (\g -> S.filter (\(w, _, r) -> S.member (w, r) (g^.strictEdges)) (g^.dataflowEdges))
 
 -- | Gets the set of fusible and infusible edges.
-fusInfusEdges :: SimpleGetter Graph (Set FusibleEdge, Set InfusibleEdge)
+fusInfusEdges :: HasFusionGraph g => SimpleGetter g (Set FusibleEdge, Set InfusibleEdge)
 fusInfusEdges = to (\g -> S.partition (\(w, _, r) -> S.notMember (w, r) (g^.strictEdges)) (g^.dataflowEdges))
 
 -- | Gets the set of read edges.
-readEdges :: SimpleGetter Graph (Set ReadEdge)
+readEdges :: HasFusionGraph g => SimpleGetter g (Set ReadEdge)
 readEdges = to (\g -> S.map (\(_, b, r) -> (b, r)) (g^.dataflowEdges))
 
 -- | Gets the set of write edges.
-writeEdges :: SimpleGetter Graph (Set WriteEdge)
+writeEdges :: HasFusionGraph g => SimpleGetter g (Set WriteEdge)
 writeEdges = to (\g -> S.map (\(w, b, _) -> (w, b)) (g^.dataflowEdges))
 
 
@@ -175,12 +174,16 @@ writeEdges = to (\g -> S.map (\(w, b, _) -> (w, b)) (g^.dataflowEdges))
 -- the solver, which should make the whole process faster.
 -- If not, we can always merge the blocks together later.
 data FusionILP op = FusionILP
-  { _graph       :: Graph
+  { _graph       :: FusionGraph
   , _constraints :: Constraint op
   , _bounds      :: Bounds op
   }
 
 makeLenses ''FusionILP
+
+instance HasFusionGraph (FusionILP op) where
+  fusionGraph :: Lens' (FusionILP op) FusionGraph
+  fusionGraph = graph
 
 instance Semigroup (FusionILP op) where
   (<>) :: FusionILP op -> FusionILP op -> FusionILP op
@@ -288,7 +291,7 @@ class ( ShrinkArg (BackendClusterArg op), Eq (BackendVar op)
   -- The backend is responsible for adding (or removing) edges to (or from) the
   -- graph to enforce any additional constraints the implementation may have.
   --
-  mkBackendGraph
+  mkGraph
     :: Label Comp             -- ^ The label of the operation.
     -> op args                -- ^ The operation.
     -> LabelledArgs env args  -- ^ The arguments to the operation.
@@ -418,7 +421,7 @@ attachBackendLabels sol = M.mapWithKey \cases
 
 
 --------------------------------------------------------------------------------
--- Graph construction
+-- FusionGraph construction
 --------------------------------------------------------------------------------
 
 -- | State for the full graph construction.
@@ -469,15 +472,7 @@ type WritersEnv = Map (Label Buff) (Labels Comp)
 makeLenses ''FullGraphState
 
 initialFullGraphState :: FullGraphState op ()
-initialFullGraphState = FullGraphState
-  { _fusionILP  = mempty
-  , _buffersEnv = EnvNil
-  , _readersEnv = mempty
-  , _writersEnv = mempty
-  , _symbols    = mempty
-  , _currComp   = Label 0 Nothing
-  , _currEnvL   = 0
-  }
+initialFullGraphState = FullGraphState mempty EnvNil mempty mempty mempty (Label 0 Nothing) 0
 
 -- | Lens for getting and setting the writers of a buffer.
 --
@@ -522,7 +517,7 @@ local env' f s = (buffersEnv .~ s^.buffersEnv) <$> f (s & buffersEnv .~ env')
 freshComp :: State (FullGraphState op env) (Label Comp)
 freshComp = do
   comp <- zoom currComp freshL'
-  fusionILP.graph %= insertComputation comp
+  fusionILP %= insertComputation comp
   return comp
 
 -- | Fresh buffer as a singleton set and the corresponding computation label.
@@ -533,7 +528,7 @@ freshComp = do
 freshBuff :: State (FullGraphState op env) (Labels Buff, Label Comp)
 freshBuff = do
   c <- freshComp
-  fusionILP.graph %= insertBuffer (coerce c)
+  fusionILP %= insertBuffer (coerce c)
   return (S.singleton (coerce c), c)
 
 -- | Read from a buffer and be fusisble with its writers.
@@ -595,7 +590,7 @@ freshBuff = do
 
 
 --------------------------------------------------------------------------------
--- Graph construction
+-- Full Graph construction
 --------------------------------------------------------------------------------
 
 mkFullGraph :: MakesILP op => PreOpenAcc op () a -> (FusionILP op, Symbols op)
@@ -609,9 +604,8 @@ mkFullGraphF acc = (s^.fusionILP, s^.symbols)
   where
     (_, s) = runState (mkFullGraphF' acc) initialFullGraphState
 
-
 mkFullGraph' :: forall op env t. (MakesILP op)
-            => FullGraphMaker PreOpenAcc op env t (BuffersTup t)
+             => FullGraphMaker PreOpenAcc op env t (BuffersTup t)
 mkFullGraph' (Exec op args) = do
   lenv <- use buffersEnv
   renv <- use readersEnv
@@ -626,7 +620,7 @@ mkFullGraph' (Exec op args) = do
   zoom ( with readersEnv renv
        . with writersEnv wenv
        . unprotected fusionILP
-       ) (mkBackendGraph c op labelledArgs)
+       ) (mkGraph c op labelledArgs)
   symbols %= M.insert c (SExe lenv labelledArgs op)
   return TupFunit
 

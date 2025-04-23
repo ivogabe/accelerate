@@ -86,11 +86,11 @@ map' !?? key = case map' M.!? key of
 -- (namely, what it was before fusion), via an GroundsR.
 -- Since fusion goes via an untyped ILP, during reconstruction we need to rebuild the program and temporarily
 -- fulfill this contract: if something goes wrong during fusion or at the caller, bad things happen.
-reconstruct :: forall op a. MakesILP op => GroundsR a -> Bool -> Graph -> [ClusterLs] -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op) -> PreOpenAcc (Clustered op) () a
+reconstruct :: forall op a. MakesILP op => GroundsR a -> Bool -> FusionGraph -> [ClusterLs] -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op) -> PreOpenAcc (Clustered op) () a
 reconstruct repr a b c d e = case openReconstruct a EnvNil b c d e of
           Exists res -> expectType repr res
 
-reconstructF :: forall op a. MakesILP op => PreOpenAfun op () a -> Bool -> Graph -> [ClusterLs] -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op)  -> PreOpenAfun (Clustered op) () a
+reconstructF :: forall op a. MakesILP op => PreOpenAfun op () a -> Bool -> FusionGraph -> [ClusterLs] -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op)  -> PreOpenAfun (Clustered op) () a
 reconstructF original a b c d e = case openReconstructF a EnvNil b c (Label 1 Nothing) d e of
           Exists res -> expectFunTypeEqual original res
 
@@ -103,9 +103,9 @@ foldC :: (Label Comp -> b -> b) -> b -> ClusterL -> b
 foldC f x (ExecL ls) = foldr f x ls
 foldC f x (NonExecL l) = f l x
 
-topSort :: forall op. MakesILP op => Bool -> Graph -> Labels Comp -> M.Map (Label Comp) (Symbol op) -> [ClusterL]
+topSort :: forall op. MakesILP op => Bool -> FusionGraph -> Labels Comp -> M.Map (Label Comp) (Symbol op) -> [ClusterL]
 topSort _ _ (S.toList -> [l]) _ = [ExecL [l]]  -- If the cluster is empty.
-topSort singletons (Graph _ _ strictEdges dataflowEdges) cluster symbols =
+topSort singletons (FusionGraph _ _ strictEdges dataflowEdges) cluster symbols =
   if singletons then concatMap (map (ExecL . pure)) topsorteds else map ExecL topsorteds
   where
     buildGraph
@@ -161,7 +161,7 @@ topSort singletons (Graph _ _ strictEdges dataflowEdges) cluster symbols =
 openReconstruct   :: MakesILP op
                   => Bool
                   -> BuffersEnv aenv
-                  -> Graph
+                  -> FusionGraph
                   -> [ClusterLs]
                   -> M.Map (Label Comp) [ClusterLs]
                   -> M.Map (Label Comp) (Symbol op)
@@ -170,7 +170,7 @@ openReconstruct  a b c d   e f = (\(Left x) -> x) $ openReconstruct' a b c d Not
 openReconstructF  :: MakesILP op
                   => Bool
                   -> BuffersEnv aenv
-                  -> Graph
+                  -> FusionGraph
                   -> [ClusterLs]
                   -> Label Comp
                   -> M.Map (Label Comp) [ClusterLs]
@@ -178,7 +178,7 @@ openReconstructF  :: MakesILP op
                   -> Exists (PreOpenAfun (Clustered op) aenv)
 openReconstructF a b c d l e f = (\(Right x) -> x) $ openReconstruct' a b c d (Just l) e f
 
-openReconstruct' :: forall op aenv. MakesILP op => Bool -> BuffersEnv aenv -> Graph -> [ClusterLs] -> Maybe (Label Comp) -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op)  -> Either (Exists (PreOpenAcc (Clustered op) aenv)) (Exists (PreOpenAfun (Clustered op) aenv))
+openReconstruct' :: forall op aenv. MakesILP op => Bool -> BuffersEnv aenv -> FusionGraph -> [ClusterLs] -> Maybe (Label Comp) -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op)  -> Either (Exists (PreOpenAcc (Clustered op) aenv)) (Exists (PreOpenAfun (Clustered op) aenv))
 openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symbols =
   case mlab of
   Just l  -> Right $ makeASTF labelenv l mempty

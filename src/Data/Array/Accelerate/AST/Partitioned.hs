@@ -37,7 +37,7 @@ module Data.Array.Accelerate.AST.Partitioned (
   GroundR(..), NFData'(..), Arg(..),
   AccessGroundR(..),
   PreArgs(..), Modifier(..),
-  Label(..),
+  Label(..), LabelType(..)
 ) where
 
 

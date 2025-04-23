@@ -47,7 +47,7 @@ data Objective
 -- that reward putting non-siblings in the same cluster) this is fine: We will interpret 'cluster 3'
 -- with parents `Nothing` as a different cluster than 'cluster 3' with parents `Just 5`.
 makeILP :: forall op. MakesILP op => Objective -> FusionILP op -> ILP op
-makeILP obj (FusionILP (Graph bufferNodes computationNodes strictEdges dataflowEdges) constraints bounds) = combine graphILP
+makeILP obj (FusionILP (FusionGraph bufferNodes computationNodes strictEdges dataflowEdges) constraints bounds) = combine graphILP
   where
     fusibleEdges, infusibleEdges :: S.Set (Label Comp, Label Buff, Label Comp)
     (fusibleEdges, infusibleEdges) = S.partition (\(w, _, r) -> S.notMember (w, r) strictEdges) dataflowEdges

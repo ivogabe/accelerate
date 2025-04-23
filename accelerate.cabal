@@ -456,7 +456,7 @@ library
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
         -- Data.Array.Accelerate.Trafo.Partitioning.ILP.HiGHS
         Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP
-        Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap
+        -- Data.Array.Accelerate.Trafo.Partitioning.ILP.Multimap
         Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
