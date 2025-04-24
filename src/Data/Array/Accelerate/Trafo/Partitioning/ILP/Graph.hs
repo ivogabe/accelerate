@@ -628,13 +628,13 @@ mkFullGraph' (Alet LeftHandSideUnit _ bnd scp) =
   mkFullGraph' bnd >> mkFullGraph' scp
 
 mkFullGraph' (Alet lhs u bnd scp) = do
-  lenv     <- use buffersEnv
-  c        <- freshComp
-  bndRes   <- mkFullGraph' bnd
-  bndResWs <- traverse (use . allWriters) bndRes
+  lenv    <- use buffersEnv
+  c       <- freshComp
+  bndRes  <- mkFullGraph' bnd
+  bndResW <- traverse (use . allWriters) bndRes
   for_ bndRes $ traverse_ (<--> c)
   lenv' <- zoom currEnvL (weakenEnv lhs bndRes lenv)
-  symbols %= M.insert c (SLet (bindLHS lhs lenv') (fromSingletonSet $ fold bndResWs) u)
+  symbols %= M.insert c (SLet (bindLHS lhs lenv') (fromSingletonSet $ fold bndResW) u)
   zoom (local lenv') (mkFullGraph' scp)
 
 mkFullGraph' (Return vars) = do
@@ -707,9 +707,9 @@ mkFullGraphF' :: forall op env t. (MakesILP op)
 mkFullGraphF' (Abody acc) = do
   c <- freshComp
   zoom (scope c) do
-    res   <- mkFullGraph' acc
-    resWs <- traverse (use . allWriters) res
-    symbols %= M.insert c (SBod (fromSingletonSet $ fold resWs))
+    res  <- mkFullGraph' acc
+    resW <- traverse (use . allWriters) res
+    symbols %= M.insert c (SBod (fromSingletonSet $ fold resW))
     return (unsafeCoerce res)
 
 mkFullGraphF' (Alam lhs f) = do
@@ -717,8 +717,8 @@ mkFullGraphF' (Alam lhs f) = do
   (b, c) <- freshBuff
   lenv'  <- zoom currEnvL (weakenEnv lhs (tupFlike (lhsToTupR lhs) b) lenv)
   res    <- zoom (local lenv') (mkFullGraphF' f)
-  resWs  <- traverse (use . allWriters) res
-  symbols %= M.insert c (SFun (bindLHS lhs lenv') (fromSingletonSet $ fold resWs))
+  resW   <- traverse (use . allWriters) res
+  symbols %= M.insert c (SFun (bindLHS lhs lenv') (fromSingletonSet $ fold resW))
   return res
 
 
