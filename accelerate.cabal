@@ -373,7 +373,7 @@ library
   exposed-modules:
         -- The core language and reference implementation
         Data.Array.Accelerate
-        -- Data.Array.Accelerate.Interpreter
+        Data.Array.Accelerate.Interpreter
 
         -- Prelude-like
         Data.Array.Accelerate.Control.Monad
