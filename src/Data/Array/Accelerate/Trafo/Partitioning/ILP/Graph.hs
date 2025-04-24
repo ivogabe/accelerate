@@ -610,9 +610,9 @@ mkFullGraph' (Exec op args) = do
   lenv <- use buffersEnv
   renv <- use readersEnv
   wenv <- use writersEnv
-  c <- freshComp
+  c    <- freshComp
   let labelledArgs = labelArgs args lenv
-  forLArgsM_ labelledArgs \case
+  forLArgs_ labelledArgs \case
     (L (ArgArray In  _ _ _) (Arr  _, bs)) -> for_ bs (---> c)
     (L (ArgArray Out _ _ _) (Arr  _, bs)) -> for_ bs (<=== c)
     (L (ArgArray Mut _ _ _) (Arr  _, bs)) -> for_ bs (<==> c)
@@ -628,39 +628,39 @@ mkFullGraph' (Alet LeftHandSideUnit _ bnd scp) =
   mkFullGraph' bnd >> mkFullGraph' scp
 
 mkFullGraph' (Alet lhs u bnd scp) = do
-  lenv <- use buffersEnv
-  c <- freshComp
-  bndRes <- mkFullGraph' bnd
-  bndResComp <- traverse (use.allWriters) bndRes
+  lenv     <- use buffersEnv
+  c        <- freshComp
+  bndRes   <- mkFullGraph' bnd
+  bndResWs <- traverse (use . allWriters) bndRes
   for_ bndRes $ traverse_ (<--> c)
   lenv' <- zoom currEnvL (weakenEnv lhs bndRes lenv)
-  symbols %= M.insert c (SLet (bindLHS lhs lenv') (fromSingletonSet $ fold bndResComp) u)
+  symbols %= M.insert c (SLet (bindLHS lhs lenv') (fromSingletonSet $ fold bndResWs) u)
   zoom (local lenv') (mkFullGraph' scp)
 
 mkFullGraph' (Return vars) = do
   lenv <- use buffersEnv
-  c <- freshComp
+  c    <- freshComp
   let (_, bs) = getVarsFromEnv vars lenv
   for_ bs $ traverse_ (<--> c)
   symbols %= M.insert c (SRet lenv vars)
   return bs
 
 mkFullGraph' (Compute expr) = do
-  lenv <- use buffersEnv
+  lenv   <- use buffersEnv
   (b, c) <- freshBuff
   for_ (getExpDeps expr lenv) (===> c)
   symbols %= M.insert c (SCmp lenv expr)
   return (tupFlike (expType expr) b)
 
 mkFullGraph' (Alloc shr e sh) = do
-  lenv <- use buffersEnv
+  lenv   <- use buffersEnv
   (b, c) <- freshBuff
   for_ (getVarsDeps sh lenv) (===> c)
   symbols %= M.insert c (SAlc lenv shr e sh)
   return (TupFsingle b)
 
 mkFullGraph' (Unit v) = do
-  lenv <- use buffersEnv
+  lenv   <- use buffersEnv
   (b, c) <- freshBuff
   for_ (getVarDeps v lenv) (===> c)
   symbols %= M.insert c (SUnt lenv v)
@@ -672,7 +672,7 @@ mkFullGraph' (Use sctype n buff) = do
   return (TupFsingle b)
 
 mkFullGraph' (Acond cond tacc facc) = do
-  lenv <- use buffersEnv
+  lenv    <- use buffersEnv
   c_cond  <- freshComp
   c_true  <- freshComp
   c_false <- freshComp
@@ -687,7 +687,7 @@ mkFullGraph' (Acond cond tacc facc) = do
   return res
 
 mkFullGraph' (Awhile u cond body init) = do
-  lenv <- use buffersEnv
+  lenv    <- use buffersEnv
   c_while <- freshComp
   c_cond  <- freshComp
   c_body  <- freshComp
@@ -707,18 +707,18 @@ mkFullGraphF' :: forall op env t. (MakesILP op)
 mkFullGraphF' (Abody acc) = do
   c <- freshComp
   zoom (scope c) do
-    res <- mkFullGraph' acc
-    resComp <- traverse (use.allWriters) res
-    symbols %= M.insert c (SBod (fromSingletonSet $ fold resComp))
+    res   <- mkFullGraph' acc
+    resWs <- traverse (use . allWriters) res
+    symbols %= M.insert c (SBod (fromSingletonSet $ fold resWs))
     return (unsafeCoerce res)
 
 mkFullGraphF' (Alam lhs f) = do
-  lenv <- use buffersEnv
+  lenv   <- use buffersEnv
   (b, c) <- freshBuff
-  lenv' <- zoom currEnvL (weakenEnv lhs (tupFlike (lhsToTupR lhs) b) lenv)
-  res <- zoom (local lenv') (mkFullGraphF' f)
-  resComp <- traverse (use.allWriters) res
-  symbols %= M.insert c (SFun (bindLHS lhs lenv') (fromSingletonSet $ fold resComp))
+  lenv'  <- zoom currEnvL (weakenEnv lhs (tupFlike (lhsToTupR lhs) b) lenv)
+  res    <- zoom (local lenv') (mkFullGraphF' f)
+  resWs  <- traverse (use . allWriters) res
+  symbols %= M.insert c (SFun (bindLHS lhs lenv') (fromSingletonSet $ fold resWs))
   return res
 
 
@@ -727,7 +727,7 @@ mkFullGraphF' (Alam lhs f) = do
 block :: Label Comp -> FullGraphMaker f op env t (BuffersTup r)
       -> FullGraphMaker f op env t (BuffersTup r, WritersEnv, ReadersEnv)
 block c f x = zoom (scope c . protected writersEnv . protected readersEnv) do
-  res <- f x
+  res  <- f x
   for_ res $ traverse_ (<--> c)  -- TODO: This generates a reflexive edge?
   wenv <- use writersEnv
   renv <- use readersEnv

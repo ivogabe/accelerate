@@ -494,11 +494,6 @@ mapLEnv :: (forall t. BuffersTup t -> BuffersTup t) -> BuffersEnv env -> Buffers
 mapLEnv _ EnvNil = EnvNil
 mapLEnv f ((e, bs) :>>: env) = (e, f bs) :>>: mapLEnv f env
 
--- | Flipped version of 'mapLEnv'.
-forLEnv :: BuffersEnv env -> (forall t. BuffersTup t -> BuffersTup t) -> BuffersEnv env
-forLEnv env f = mapLEnv f env
-{-# INLINE forLEnv #-}
-
 -- | Fold over the labels in the environment.
 foldMapLEnv :: Monoid m => (forall t. BuffersTup t -> m) -> BuffersEnv env -> m
 foldMapLEnv _ EnvNil = mempty
@@ -537,11 +532,6 @@ forLEnvM_ env f = mapLEnvM_ f env
 mapLArgs :: (forall s. LabelledArg env s -> LabelledArg env s) -> LabelledArgs env t -> LabelledArgs env t
 mapLArgs _ ArgsNil = ArgsNil
 mapLArgs f (larg :>: largs) = f larg :>: mapLArgs f largs
-
--- | Flipped version of 'mapLArgs'.
-forLArgs :: LabelledArgs env t -> (forall s. LabelledArg env s -> LabelledArg env s) -> LabelledArgs env t
-forLArgs largs f = mapLArgs f largs
-{-# INLINE forLArgs #-}
 
 -- | Fold over the labelled arguments and combine the resulting monoidal values.
 foldMapLArgs :: Monoid m => (forall s. LabelledArg env s -> m) -> LabelledArgs env t -> m
@@ -583,3 +573,23 @@ mapAccumLArgsM f a (larg :>: largs) = do
 forAccumLArgsM :: Monad m => a -> LabelledArgs env t -> (forall s. a -> LabelledArg env s -> m (a, LabelledArg env s)) -> m (a, LabelledArgs env t)
 forAccumLArgsM a largs f = mapAccumLArgsM f a largs
 {-# INLINE forAccumLArgsM #-}
+
+-- | Traverse over the labelled arguments.
+traverseLArgs :: Applicative f => (forall s. LabelledArg env s -> f (LabelledArg env s)) -> LabelledArgs env t -> f (LabelledArgs env t)
+traverseLArgs _ ArgsNil = pure ArgsNil
+traverseLArgs f (larg :>: largs) = (:>:) <$> f larg <*> traverseLArgs f largs
+
+-- | Flipped version of 'traverseLArgs'.
+forLArgsT :: Applicative f => LabelledArgs env t -> (forall s. LabelledArg env s -> f (LabelledArg env s)) -> f (LabelledArgs env t)
+forLArgsT largs f = traverseLArgs f largs
+{-# INLINE forLArgsT #-}
+
+-- | Traverse over the labelled arguments and discard the result.
+traverseLArgs_ :: Applicative f => (forall s. LabelledArg env s -> f ()) -> LabelledArgs env t -> f ()
+traverseLArgs_ _ ArgsNil = pure ()
+traverseLArgs_ f (larg :>: largs) = f larg *> traverseLArgs_ f largs
+
+-- | Flipped version of 'traverseLArgs_'.
+forLArgs_ :: Applicative f => LabelledArgs env t -> (forall s. LabelledArg env s -> f ()) -> f ()
+forLArgs_ largs f = traverseLArgs_ f largs
+{-# INLINE forLArgs_ #-}
