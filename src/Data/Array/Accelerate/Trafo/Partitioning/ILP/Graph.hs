@@ -1,39 +1,37 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE AllowAmbiguousTypes      #-}
+{-# LANGUAGE BlockArguments           #-}
+{-# LANGUAGE DataKinds                #-}
+{-# LANGUAGE FlexibleContexts         #-}
+{-# LANGUAGE FlexibleInstances        #-}
+{-# LANGUAGE FunctionalDependencies   #-}
+{-# LANGUAGE GADTs                    #-}
+{-# LANGUAGE InstanceSigs             #-}
+{-# LANGUAGE KindSignatures           #-}
+{-# LANGUAGE LambdaCase               #-}
+{-# LANGUAGE RankNTypes               #-}
+{-# LANGUAGE ScopedTypeVariables      #-}
+{-# LANGUAGE StandaloneDeriving       #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
-{-# LANGUAGE TypeFamilyDependencies #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE TupleSections            #-}
+{-# LANGUAGE TypeApplications         #-}
+{-# LANGUAGE TypeFamilyDependencies   #-}
+{-# LANGUAGE UndecidableInstances     #-}
+{-# LANGUAGE ViewPatterns             #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph where
 
 import Prelude hiding ( init, reads )
 
 -- Accelerate imports
-import Data.Array.Accelerate.Array.Buffer
+import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Operation hiding (Var)
+import Data.Array.Accelerate.Analysis.Hash.Exp
+import Data.Array.Accelerate.Array.Buffer
+import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Trafo.Operation.LiveVars
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
-import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Type
-import Data.Array.Accelerate.Analysis.Hash.Exp
 
 -- Data structures (including custom Multimap)
 import Data.Set (Set)
@@ -42,7 +40,6 @@ import qualified Data.Set as S
 import qualified Data.Map as M
 
 import Lens.Micro
-import Lens.Micro.TH
 import Lens.Micro.Mtl
 import Lens.Micro.Internal
 
@@ -50,11 +47,6 @@ import Control.Monad.State (State, runState)
 import Data.Foldable
 import Data.Kind (Type)
 import Unsafe.Coerce (unsafeCoerce)
-import Data.Array.Accelerate.AST.Idx
-
--- Temoprarily added to make HLS work.
-data Edge where
-  (:->) :: forall a. a -> a -> Edge
 
 --------------------------------------------------------------------------------
 -- Fusion Graph
@@ -100,13 +92,11 @@ type InfusibleEdge = DataflowEdge
 -- @
 --
 data FusionGraph = FusionGraph   -- TODO: Use hashmaps and hashsets in production.
-  {      _bufferNodes :: Set (Label Buff)  -- ^ Buffers in the graph.
-  , _computationNodes :: Set (Label Comp)  -- ^ Computations in the graph.
+  {      _bufferNodes :: Labels Buff       -- ^ Buffers in the graph.
+  , _computationNodes :: Labels Comp       -- ^ Computations in the graph.
   ,      _strictEdges :: Set StrictEdge    -- ^ Edges that enforce strict ordering.
   ,    _dataflowEdges :: Set DataflowEdge  -- ^ Edges that represent data-flow.
   }
-
-makeClassy ''FusionGraph
 
 instance Semigroup FusionGraph where
   (<>) :: FusionGraph -> FusionGraph -> FusionGraph
@@ -116,6 +106,45 @@ instance Semigroup FusionGraph where
 instance Monoid FusionGraph where
   mempty :: FusionGraph
   mempty = FusionGraph mempty mempty mempty mempty
+
+-- | Class for types that contain a fusion graph.
+--
+-- This is a manually written version of what microlens-th would generate when
+-- using @makeClassy@.
+class HasFusionGraph g where
+  fusionGraph :: Lens' g FusionGraph
+
+  bufferNodes :: Lens' g (Labels Buff)
+  bufferNodes = fusionGraph.bufferNodes
+
+  computationNodes :: Lens' g (Labels Comp)
+  computationNodes = fusionGraph.computationNodes
+
+  strictEdges :: Lens' g (Set StrictEdge)
+  strictEdges = fusionGraph.strictEdges
+
+  dataflowEdges :: Lens' g (Set DataflowEdge)
+  dataflowEdges = fusionGraph.dataflowEdges
+
+-- | Base instance of 'HasFusionGraph' for 'FusionGraph'.
+--
+-- This instance cannot make use of lenses defined in 'HasFusionGraph' because
+-- it is the base instance and would otherwise cause a loop.
+instance HasFusionGraph FusionGraph where
+  fusionGraph :: Lens' FusionGraph FusionGraph
+  fusionGraph = id
+
+  bufferNodes :: Lens' FusionGraph (Set (Label Buff))
+  bufferNodes f s = f (_bufferNodes s) <&> \bs -> s{_bufferNodes = bs}
+
+  computationNodes :: Lens' FusionGraph (Set (Label Comp))
+  computationNodes f s = f (_computationNodes s) <&> \cs -> s{_computationNodes = cs}
+
+  strictEdges :: Lens' FusionGraph (Set StrictEdge)
+  strictEdges f s = f (_strictEdges s) <&> \es -> s{_strictEdges = es}
+
+  dataflowEdges :: Lens' FusionGraph (Set DataflowEdge)
+  dataflowEdges f s = f (_dataflowEdges s) <&> \es -> s{_dataflowEdges = es}
 
 -- | Insert a buffer node into the graph.
 insertBuffer :: HasFusionGraph g => Label Buff -> g -> g
@@ -179,12 +208,6 @@ data FusionILP op = FusionILP
   , _bounds      :: Bounds op
   }
 
-makeLenses ''FusionILP
-
-instance HasFusionGraph (FusionILP op) where
-  fusionGraph :: Lens' (FusionILP op) FusionGraph
-  fusionGraph = graph
-
 instance Semigroup (FusionILP op) where
   (<>) :: FusionILP op -> FusionILP op -> FusionILP op
   (<>) (FusionILP g1 c1 b1) (FusionILP g2 c2 b2) =
@@ -194,9 +217,30 @@ instance Monoid (FusionILP op) where
   mempty :: FusionILP op
   mempty = FusionILP mempty mempty mempty
 
+-- | Class for accessing the fusion ILP field of a data structure.
+--
+-- We make this because there are at least two data structures that contain a
+-- fusion ILP: 'FullGraphState' and the result of graph construction. This is
+-- the same as what microlens-th would generate when using @makeFields@.
+class HasFusionILP s op | s -> op where
+  fusionILP :: Lens' s (FusionILP op)
+
+graph :: Lens' (FusionILP op) FusionGraph
+graph f s = f (_graph s) <&> \g -> s{_graph = g}
+
+constraints :: Lens' (FusionILP op) (Constraint op)
+constraints f s = f (_constraints s) <&> \c -> s{_constraints = c}
+
+bounds :: Lens' (FusionILP op) (Bounds op)
+bounds f s = f (_bounds s) <&> \b -> s{_bounds = b}
+
+instance HasFusionGraph (FusionILP op) where
+  fusionGraph :: Lens' (FusionILP op) FusionGraph
+  fusionGraph = graph
+
 -- | Safely add a strict relation between two computations.
 before :: Label Comp -> Label Comp -> FusionILP op -> FusionILP op
-before c1 c2 = graph %~ insertStrict (c1', c2')
+before c1 c2 = fusionGraph %~ insertStrict (c1', c2')
   where c1' = findParentIsAncestorC c1 c2
         c2' = findParentIsAncestorC c2 c1
 
@@ -206,7 +250,7 @@ before c1 c2 = graph %~ insertStrict (c1', c2')
 -- an infusible edge.
 fusible :: Label Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 fusible prod buff cons = if prod^.parent == cons^.parent
-  then graph %~ insertFusible (prod, buff, cons)
+  then fusionGraph %~ insertFusible (prod, buff, cons)
   else infusible prod buff cons
 
 -- | Safely add an infusible edge between two computations.
@@ -214,7 +258,7 @@ fusible prod buff cons = if prod^.parent == cons^.parent
 -- Infusible edges are only added to computations that share the same parent.
 -- If they don't share the same parent, find the first ancestors that do.
 infusible :: Label Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
-infusible prod buff cons = graph %~ insertInfusible (prod', buff, cons')
+infusible prod buff cons = fusionGraph %~ insertInfusible (prod', buff, cons')
   where prod' = findParentIsAncestorC prod cons
         cons' = findParentIsAncestorC cons prod
 
@@ -457,22 +501,46 @@ attachBackendLabels sol = M.mapWithKey \cases
 -- depending on which branch is taken.
 --
 data FullGraphState op env = FullGraphState
-  { _fusionILP  :: FusionILP op   -- ^ The ILP information.
+  { _fusionILP  :: FusionILP op    -- ^ The ILP information.
   , _buffersEnv :: BuffersEnv env  -- ^ The label environment.
-  , _readersEnv :: ReadersEnv     -- ^ Mapping from buffers to consumers.
-  , _writersEnv :: WritersEnv     -- ^ Mapping from buffers to producers.
-  , _symbols    :: Symbols op     -- ^ The symbols for the ILP.
-  , _currComp   :: Label Comp     -- ^ The current computation label.
-  , _currEnvL   :: EnvLabel       -- ^ The current environment label.
+  , _readersEnv :: ReadersEnv      -- ^ Mapping from buffers to consumers.
+  , _writersEnv :: WritersEnv      -- ^ Mapping from buffers to producers.
+  , _symbols    :: Symbols op      -- ^ The symbols for the ILP.
+  , _currComp   :: Label Comp      -- ^ The current computation label.
+  , _currEnvL   :: EnvLabel        -- ^ The current environment label.
   }
 
 type ReadersEnv = Map (Label Buff) (Labels Comp)
 type WritersEnv = Map (Label Buff) (Labels Comp)
 
-makeLenses ''FullGraphState
-
 initialFullGraphState :: FullGraphState op ()
 initialFullGraphState = FullGraphState mempty EnvNil mempty mempty mempty (Label 0 Nothing) 0
+
+instance HasFusionILP (FullGraphState op env) op where
+  fusionILP :: Lens' (FullGraphState op env) (FusionILP op)
+  fusionILP f s = f (_fusionILP s) <&> \ilp -> s{_fusionILP = ilp}
+
+buffersEnv :: Lens (FullGraphState op env) (FullGraphState op env') (BuffersEnv env) (BuffersEnv env')
+buffersEnv f s = f (_buffersEnv s) <&> \env -> s{_buffersEnv = env}
+
+readersEnv :: Lens' (FullGraphState op env) ReadersEnv
+readersEnv f s = f (_readersEnv s) <&> \env -> s{_readersEnv = env}
+
+writersEnv :: Lens' (FullGraphState op env) WritersEnv
+writersEnv f s = f (_writersEnv s) <&> \env -> s{_writersEnv = env}
+
+class HasSymbols s op | s -> op where
+  symbols :: Lens' s (Symbols op)
+
+instance HasSymbols (FullGraphState op env) op where
+  symbols :: Lens' (FullGraphState op env) (Symbols op)
+  symbols f s = f (_symbols s) <&> \sym -> s{_symbols = sym}
+
+currComp :: Lens' (FullGraphState op env) (Label Comp)
+currComp f s = f (_currComp s) <&> \c -> s{_currComp = c}
+
+currEnvL :: Lens' (FullGraphState op env) EnvLabel
+currEnvL f s = f (_currEnvL s) <&> \l -> s{_currEnvL = l}
 
 -- | Lens for getting and setting the writers of a buffer.
 --
@@ -593,12 +661,25 @@ freshBuff = do
 -- Full Graph construction
 --------------------------------------------------------------------------------
 
+
+
+-- The 2 instances below can be used to clean up the code in ILP.hs a bit.
+instance HasFusionILP  (FusionILP op, Symbols op) op where
+  fusionILP :: Lens'  (FusionILP op, Symbols op) (FusionILP op)
+  fusionILP f (ilp, sym) = f ilp <&> (,sym)
+
+instance HasSymbols  (FusionILP op, Symbols op) op where
+  symbols :: Lens'  (FusionILP op, Symbols op) (Symbols op)
+  symbols f (ilp, sym) = f sym <&> (ilp,)
+
+-- | Construct the full fusion graph for a program.
 mkFullGraph :: MakesILP op => PreOpenAcc op () a -> (FusionILP op, Symbols op)
 mkFullGraph acc = (s^.fusionILP & constraints <>~ manifestRes, s^.symbols)
   where
     (res, s) = runState (mkFullGraph' acc) initialFullGraphState
     manifestRes = foldMap (foldMap (\b -> manifest b .==. int 0)) res
 
+-- | Construct the full fusion graph for a function.
 mkFullGraphF :: MakesILP op => PreOpenAfun op () a -> (FusionILP op, Symbols op)
 mkFullGraphF acc = (s^.fusionILP, s^.symbols)
   where
