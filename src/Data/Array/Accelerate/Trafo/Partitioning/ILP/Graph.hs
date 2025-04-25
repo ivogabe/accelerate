@@ -41,12 +41,12 @@ import qualified Data.Map as M
 
 import Lens.Micro
 import Lens.Micro.Mtl
-import Lens.Micro.Internal
 
 import Control.Monad.State (State, runState)
-import Data.Foldable
+import Data.Foldable ( Foldable(fold, foldl'), for_, traverse_ )
 import Data.Kind (Type)
 import Unsafe.Coerce (unsafeCoerce)
+import Data.Coerce (coerce)
 
 --------------------------------------------------------------------------------
 -- Fusion Graph
@@ -295,6 +295,31 @@ allInfusible prods buff cons ilp = foldl' (\ilp' prod -> infusible prod buff con
 -- Backend specific definitions
 --------------------------------------------------------------------------------
 
+-- | The backend has access to a small state so it doesn't accidentally break
+--   the state used by the frontend construction algorithm.
+data BackendGraphState op env = BackendGraphState
+  { _backendFusionILP  :: FusionILP op    -- ^ The entire ILP.
+  , _backendBuffersEnv :: BuffersEnv env  -- ^ The buffers environment (read only).
+  , _backendReadersEnv :: ReadersEnv      -- ^ The readers environment (read only).
+  , _backendWritersEnv :: WritersEnv      -- ^ The writers environment (read only).
+  }
+
+instance HasFusionILP (BackendGraphState op env) op where
+  fusionILP :: Lens' (BackendGraphState op env) (FusionILP op)
+  fusionILP f s = f (_backendFusionILP s) <&> \ilp -> s{_backendFusionILP = ilp}
+
+instance HasBuffersEnv (BackendGraphState op env) (BackendGraphState op env') env env' where
+  buffersEnv :: Lens (BackendGraphState op env) (BackendGraphState op env') (BuffersEnv env) (BuffersEnv env')
+  buffersEnv f s = f (_backendBuffersEnv s) <&> \env -> s{_backendBuffersEnv = env}
+
+instance HasReadersEnv (BackendGraphState op env) where
+  readersEnv :: Lens' (BackendGraphState op env) ReadersEnv
+  readersEnv f s = f (_backendReadersEnv s) <&> \env -> s{_backendReadersEnv = env}
+
+instance HasWritersEnv (BackendGraphState op env) where
+  writersEnv :: Lens' (BackendGraphState op env) WritersEnv
+  writersEnv f s = f (_backendWritersEnv s) <&> \env -> s{_backendWritersEnv = env}
+
 type BackendCluster op = PreArgs (BackendClusterArg op)
 
 class ( ShrinkArg (BackendClusterArg op), Eq (BackendVar op)
@@ -339,7 +364,7 @@ class ( ShrinkArg (BackendClusterArg op), Eq (BackendVar op)
     :: Label Comp             -- ^ The label of the operation.
     -> op args                -- ^ The operation.
     -> LabelledArgs env args  -- ^ The arguments to the operation.
-    -> State (FullGraphState op env) ()
+    -> State (BackendGraphState op env) ()
 
   -- | This function lets the backend define additional constraints on the ILP.
   finalize :: [Label Buff] -> [Label Comp] -> Constraint op
@@ -398,7 +423,7 @@ manifest :: Label Buff -> Expression op
 manifest = var . Manifest
 
 -- | Safe constructor for 'Fused' variables.
-fused :: HasCallStack => Label Comp -> Label Comp -> Expression op
+fused :: Label Comp -> Label Comp -> Expression op
 fused prod cons
   | prod' == cons' = error $ "reflexive fused variable " <> show prod'
   | otherwise      = var $ Fused prod' cons'
@@ -520,14 +545,26 @@ instance HasFusionILP (FullGraphState op env) op where
   fusionILP :: Lens' (FullGraphState op env) (FusionILP op)
   fusionILP f s = f (_fusionILP s) <&> \ilp -> s{_fusionILP = ilp}
 
-buffersEnv :: Lens (FullGraphState op env) (FullGraphState op env') (BuffersEnv env) (BuffersEnv env')
-buffersEnv f s = f (_buffersEnv s) <&> \env -> s{_buffersEnv = env}
+class HasBuffersEnv s t env env' | s -> env, t -> env' where
+  buffersEnv :: Lens s t (BuffersEnv env) (BuffersEnv env')
 
-readersEnv :: Lens' (FullGraphState op env) ReadersEnv
-readersEnv f s = f (_readersEnv s) <&> \env -> s{_readersEnv = env}
+instance HasBuffersEnv (FullGraphState op env) (FullGraphState op env') env env' where
+  buffersEnv :: Lens (FullGraphState op env) (FullGraphState op env') (BuffersEnv env) (BuffersEnv env')
+  buffersEnv f s = f (_buffersEnv s) <&> \env -> s{_buffersEnv = env}
 
-writersEnv :: Lens' (FullGraphState op env) WritersEnv
-writersEnv f s = f (_writersEnv s) <&> \env -> s{_writersEnv = env}
+class HasReadersEnv s where
+  readersEnv :: Lens' s ReadersEnv
+
+instance HasReadersEnv (FullGraphState op env) where
+  readersEnv :: Lens' (FullGraphState op env) ReadersEnv
+  readersEnv f s = f (_readersEnv s) <&> \env -> s{_readersEnv = env}
+
+class HasWritersEnv s where
+  writersEnv :: Lens' s WritersEnv
+
+instance HasWritersEnv (FullGraphState op env) where
+  writersEnv :: Lens' (FullGraphState op env) WritersEnv
+  writersEnv f s = f (_writersEnv s) <&> \env -> s{_writersEnv = env}
 
 class HasSymbols s op | s -> op where
   symbols :: Lens' s (Symbols op)
@@ -542,31 +579,44 @@ currComp f s = f (_currComp s) <&> \c -> s{_currComp = c}
 currEnvL :: Lens' (FullGraphState op env) EnvLabel
 currEnvL f s = f (_currEnvL s) <&> \l -> s{_currEnvL = l}
 
+-- | Lens for creating the backend graph state.
+--
+-- This lens sets new values for the readers and writers environments because
+-- the backend needs to work with the environment from before the computation
+-- was added. We don't need to do the same for the buffers environment, because
+-- it only changes when a new variable is introduced.
+--
+-- The fusion ILP is the only value that the backend may modify, so its the only
+-- value that is retrieved from the backend graph state afterwards.
+backendGraphState :: ReadersEnv -> WritersEnv -> Lens' (FullGraphState op env) (BackendGraphState op env)
+backendGraphState renv wenv f s = f (BackendGraphState (s^.fusionILP) (s^.buffersEnv) renv wenv)
+  <&> \b -> s & fusionILP .~ b^.fusionILP
+
 -- | Lens for getting and setting the writers of a buffer.
 --
 -- The default value for the producer of a buffer is the buffer itself casted to
 -- a computation label. This actually has some meaning, in that a buffer which
 -- has yet to be written to is "produced" by its allocator (which has the same
 -- label).
-writers :: Label Buff -> Lens' (FullGraphState op env) (Labels Comp)
+writers :: HasWritersEnv s => Label Buff -> Lens' s (Labels Comp)
 writers b f s = f (M.findWithDefault (S.singleton (coerce b)) b (s^.writersEnv))
   <&> (\cs -> s & writersEnv %~ M.insert b cs)
 
 -- | Lens for getting all writers of buffers.
-allWriters :: Foldable f => f (Label Buff) -> SimpleGetter (FullGraphState op env) (Labels Comp)
+allWriters :: (Foldable f, HasWritersEnv s) => f (Label Buff) -> SimpleGetter s (Labels Comp)
 allWriters bs = to (\s -> foldMap (\b -> s^.writers b) bs)
 -- allWriters bs = to (\s -> traverse (\b -> s^.writers b) bs)
 
 -- | Lens for getting and setting the readers of a buffer.
 --
 -- By default a buffer isn't read by any computations.
-readers :: Label Buff -> Lens' (FullGraphState op env) (Labels Comp)
+readers :: HasReadersEnv s => Label Buff -> Lens' s (Labels Comp)
 readers b f s = f (M.findWithDefault mempty b (s^.readersEnv)) <&> \case
   cs | S.null cs -> s & readersEnv %~ M.delete b
      | otherwise -> s & readersEnv %~ M.insert b cs
 
 -- | Lens for getting all readers of buffers.
-allReaders :: Foldable f => f (Label Buff) -> SimpleGetter (FullGraphState op env) (Labels Comp)
+allReaders :: (Foldable f, HasReadersEnv s) => f (Label Buff) -> SimpleGetter s (Labels Comp)
 allReaders bs = to (\s -> foldMap (\b -> s^.readers b) bs)
 
 -- | Lens for working under the scope of a computation.
@@ -698,10 +748,7 @@ mkFullGraph' (Exec op args) = do
     (L (ArgArray Out _ _ _) (Arr  _, bs)) -> for_ bs (<=== c)
     (L (ArgArray Mut _ _ _) (Arr  _, bs)) -> for_ bs (<==> c)
     (L _                    (NotArr, bs)) -> for_ bs (===> c)
-  zoom ( with readersEnv renv
-       . with writersEnv wenv
-       . unprotected fusionILP
-       ) (mkGraph c op labelledArgs)
+  zoom (backendGraphState renv wenv) (mkGraph c op labelledArgs)
   symbols %= M.insert c (SExe lenv labelledArgs op)
   return TupFunit
 
