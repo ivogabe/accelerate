@@ -94,18 +94,20 @@ type InfusibleEdge = DataflowEdge
 data FusionGraph = FusionGraph   -- TODO: Use hashmaps and hashsets in production.
   {      _bufferNodes :: Labels Buff       -- ^ Buffers in the graph.
   , _computationNodes :: Labels Comp       -- ^ Computations in the graph.
+  ,        _readEdges :: Set ReadEdge      -- ^ Edges that represent reads.
+  ,       _writeEdges :: Set WriteEdge     -- ^ Edges that represent writes.
   ,      _strictEdges :: Set StrictEdge    -- ^ Edges that enforce strict ordering.
   ,    _dataflowEdges :: Set DataflowEdge  -- ^ Edges that represent data-flow.
   }
 
 instance Semigroup FusionGraph where
   (<>) :: FusionGraph -> FusionGraph -> FusionGraph
-  (<>) (FusionGraph r1 w1 f1 i1) (FusionGraph r2 w2 f2 i2) = FusionGraph
-    (r1 <> r2) (w1 <> w2) (f1 <> f2) (i1 <> i2)
+  (<>) (FusionGraph b1 c1 r1 w1 f1 i1) (FusionGraph b2 c2 r2 w2 f2 i2) = FusionGraph
+    (b1 <> b2) (c1 <> c2) (r1 <> r2) (w1 <> w2) (f1 <> f2) (i1 <> i2)
 
 instance Monoid FusionGraph where
   mempty :: FusionGraph
-  mempty = FusionGraph mempty mempty mempty mempty
+  mempty = FusionGraph mempty mempty mempty mempty mempty mempty
 
 -- | Class for types that contain a fusion graph.
 --
@@ -125,6 +127,12 @@ class HasFusionGraph g where
 
   dataflowEdges :: Lens' g (Set DataflowEdge)
   dataflowEdges = fusionGraph.dataflowEdges
+
+  readEdges :: Lens' g (Set ReadEdge)
+  readEdges = fusionGraph.readEdges
+
+  writeEdges :: Lens' g (Set WriteEdge)
+  writeEdges = fusionGraph.writeEdges
 
 -- | Base instance of 'HasFusionGraph' for 'FusionGraph'.
 --
@@ -146,6 +154,12 @@ instance HasFusionGraph FusionGraph where
   dataflowEdges :: Lens' FusionGraph (Set DataflowEdge)
   dataflowEdges f s = f (_dataflowEdges s) <&> \es -> s{_dataflowEdges = es}
 
+  readEdges :: Lens' FusionGraph (Set ReadEdge)
+  readEdges f s = f (_readEdges s) <&> \es -> s{_readEdges = es}
+
+  writeEdges :: Lens' FusionGraph (Set WriteEdge)
+  writeEdges f s = f (_writeEdges s) <&> \es -> s{_writeEdges = es}
+
 -- | Insert a buffer node into the graph.
 insertBuffer :: HasFusionGraph g => Label Buff -> g -> g
 insertBuffer b = bufferNodes %~ S.insert b
@@ -154,16 +168,27 @@ insertBuffer b = bufferNodes %~ S.insert b
 insertComputation :: HasFusionGraph g => Label Comp -> g -> g
 insertComputation c = computationNodes %~ S.insert c
 
+-- | Insert a read edge from a buffer to a computation.
+insertRead :: HasFusionGraph g => ReadEdge -> g -> g
+insertRead (b, c) = readEdges %~ S.insert (b, c)
+
+-- | Insert a write edge from a computation to a buffer.
+insertWrite :: HasFusionGraph g => WriteEdge -> g -> g
+insertWrite (c, b) = writeEdges %~ S.insert (c, b)
+
 -- | Insert a strict relation between two computations.
 insertStrict :: HasFusionGraph g => (Label Comp, Label Comp) -> g -> g
-insertStrict (c1, c2) | c1 == c2  = error "insertStrict: Cannot add reflexive edge."
-                      | otherwise = strictEdges %~ S.insert (c1, c2)
+insertStrict (c1, c2)
+  | c1 == c2  = error "insertStrict: Cannot add reflexive edge."
+  | otherwise = strictEdges %~ S.insert (c1, c2)
 
 -- | Insert a fusible data-flow edge between two computations.
 insertFusible :: HasFusionGraph g => DataflowEdge -> g -> g
-insertFusible (c1, b, c2)
+insertFusible (c1, b, c2) g
+  | S.notMember (c1, b) (g^.writeEdges) = error "fusible: Cannot add edge without write edge."
+  | S.notMember (b, c2) (g^.readEdges)  = error "fusible: Cannot add edge without read edge."
   | c1 == c2  = error "fusible: Cannot add reflexive edge."
-  | otherwise = dataflowEdges %~ S.insert (c1, b, c2)
+  | otherwise = g & dataflowEdges %~ S.insert (c1, b, c2)
 
 -- | Insert an infusible data-flow edge between two computations.
 insertInfusible :: HasFusionGraph g => DataflowEdge -> g -> g
@@ -178,16 +203,8 @@ infusibleEdges :: HasFusionGraph g => SimpleGetter g (Set InfusibleEdge)
 infusibleEdges = to (\g -> S.filter (\(w, _, r) -> S.member (w, r) (g^.strictEdges)) (g^.dataflowEdges))
 
 -- | Gets the set of fusible and infusible edges.
-fusInfusEdges :: HasFusionGraph g => SimpleGetter g (Set FusibleEdge, Set InfusibleEdge)
-fusInfusEdges = to (\g -> S.partition (\(w, _, r) -> S.notMember (w, r) (g^.strictEdges)) (g^.dataflowEdges))
-
--- | Gets the set of read edges.
-readEdges :: HasFusionGraph g => SimpleGetter g (Set ReadEdge)
-readEdges = to (\g -> S.map (\(_, b, r) -> (b, r)) (g^.dataflowEdges))
-
--- | Gets the set of write edges.
-writeEdges :: HasFusionGraph g => SimpleGetter g (Set WriteEdge)
-writeEdges = to (\g -> S.map (\(w, b, _) -> (w, b)) (g^.dataflowEdges))
+fusionEdges :: HasFusionGraph g => SimpleGetter g (Set FusibleEdge, Set InfusibleEdge)
+fusionEdges = to (\g -> S.partition (\(w, _, r) -> S.notMember (w, r) (g^.strictEdges)) (g^.dataflowEdges))
 
 
 
@@ -221,7 +238,7 @@ instance Monoid (FusionILP op) where
 --
 -- We make this because there are at least two data structures that contain a
 -- fusion ILP: 'FullGraphState' and the result of graph construction. This is
--- the same as what microlens-th would generate when using @makeFields@.
+-- similar to what microlens-th would generate when using @makeFields@.
 class HasFusionILP s op | s -> op where
   fusionILP :: Lens' s (FusionILP op)
 
@@ -237,6 +254,32 @@ bounds f s = f (_bounds s) <&> \b -> s{_bounds = b}
 instance HasFusionGraph (FusionILP op) where
   fusionGraph :: Lens' (FusionILP op) FusionGraph
   fusionGraph = graph
+
+-- | Safely insert a read edge into the graph.
+--
+-- Since we don't know at what level the read will be used we need to make
+-- a read relation between the buffer and all computations in its scope. All of
+-- these read edges should be equal in the ILP, which is enforced by 'readDir'.
+reads :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
+reads c b = fusionGraph %~ flip (foldl' (flip (insertRead . (b,)))) cs'
+  where cs' = traceParentIsAncestorC c b
+
+-- | Safely insert a write edge into the graph.
+--
+-- Since we don't know at what level the write will be used we need to make
+-- a write relation between the buffer and all computations in its scope. All of
+-- these write edges should be equal in the ILP, which is enforced by 'writeDir'.
+writes :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
+writes c b = fusionGraph %~ flip (foldl' (flip (insertWrite . (,b)))) cs'
+  where cs' = traceParentIsAncestorC c b
+
+-- | Safely insert read edges between multiple computations and a buffer.
+read :: Labels Comp -> Label Buff -> FusionILP op -> FusionILP op
+read cs b = flip (foldl' (flip (`reads` b))) cs
+
+-- | Safely insert write edges between multiple computations and a buffer.
+write :: Labels Comp -> Label Buff -> FusionILP op -> FusionILP op
+write cs b = flip (foldl' (flip (`writes` b))) cs
 
 -- | Safely add a strict relation between two computations.
 before :: Label Comp -> Label Comp -> FusionILP op -> FusionILP op
@@ -653,6 +696,7 @@ freshBuff = do
 (--->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (--->) b c = do
   ws <- use $ writers b
+  fusionILP %= c `reads` b
   fusionILP %= ws --|b|-> c
   readers b %= S.insert c
 
@@ -660,6 +704,7 @@ freshBuff = do
 (===>) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (===>) b c = do
   ws <- use $ writers b
+  fusionILP %= c `reads` b
   fusionILP %= ws ==|b|=> c
   readers b %= S.insert c
 
@@ -674,6 +719,7 @@ freshBuff = do
 (<===) b c = do
   rs <- use $ readers b
   ws <- use $ writers b
+  fusionILP %= c `writes` b
   fusionILP %= rs ==|-|=> c
   fusionILP %= ws ==|-|=> c
   writers b .= S.singleton c
@@ -690,6 +736,8 @@ freshBuff = do
 (<==>) b c = do
   rs <- use $ readers b
   ws <- use $ writers b
+  fusionILP %= c `reads` b
+  fusionILP %= c `writes` b
   fusionILP %= rs ==|-|=> c
   fusionILP %= ws ==|b|=> c
   writers b .= S.singleton c
@@ -702,6 +750,8 @@ freshBuff = do
 (<-->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<-->) b c = do
   ws <- use $ writers b
+  fusionILP %= c `reads` b
+  fusionILP %= c `writes` b
   fusionILP %= ws ==|b|=> c
   writers b .= S.singleton c
 
