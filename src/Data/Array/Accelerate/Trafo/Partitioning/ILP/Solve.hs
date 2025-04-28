@@ -47,7 +47,7 @@ data Objective
 -- that reward putting non-siblings in the same cluster) this is fine: We will interpret 'cluster 3'
 -- with parents `Nothing` as a different cluster than 'cluster 3' with parents `Just 5`.
 makeILP :: forall op. MakesILP op => Objective -> FusionILP op -> ILP op
-makeILP obj (FusionILP (FusionGraph bufferNodes computationNodes _ _ strictEdges dataflowEdges) constraints bounds) = combine graphILP
+makeILP obj (FusionILP graph@(FusionGraph bufferNodes computationNodes _ _ strictEdges dataflowEdges) constraints bounds) = combine graphILP
   where
     fusibleEdges, infusibleEdges :: S.Set (Label Comp, Label Buff, Label Comp)
     (fusibleEdges, infusibleEdges) = S.partition (\(w, _, r) -> S.notMember (w, r) strictEdges) dataflowEdges
@@ -137,7 +137,7 @@ makeILP obj (FusionILP (FusionGraph bufferNodes computationNodes _ _ strictEdges
                                              Everything  -> foldMap (\l -> pi l .<=. numberOfClusters) computationNodes
                                              _ -> mempty
 
-    myConstraints = acyclicC <> infusibleC <> manifestC <> numberOfClustersConstraint <> readConstraints <> orderConstraints  -- TODO: Call finalize
+    myConstraints = acyclicC <> infusibleC <> manifestC <> numberOfClustersConstraint <> readConstraints <> orderConstraints <> finalize graph
 
     -- x_ij <= pi_j - pi_i <= n*x_ij for all edges
     acyclicC   = foldMap (\(i,_,j) -> between (fused i j) (pi j .-. pi i) (timesN $ fused i j)) dataflowEdges

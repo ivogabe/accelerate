@@ -8,6 +8,7 @@
 {-# LANGUAGE InstanceSigs             #-}
 {-# LANGUAGE KindSignatures           #-}
 {-# LANGUAGE LambdaCase               #-}
+{-# LANGUAGE PatternSynonyms          #-}
 {-# LANGUAGE RankNTypes               #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
 {-# LANGUAGE StandaloneDeriving       #-}
@@ -205,6 +206,22 @@ infusibleEdges = to (\g -> S.filter (\(w, _, r) -> S.member (w, r) (g^.strictEdg
 -- | Gets the set of fusible and infusible edges.
 fusionEdges :: HasFusionGraph g => SimpleGetter g (Set FusibleEdge, Set InfusibleEdge)
 fusionEdges = to (\g -> S.partition (\(w, _, r) -> S.notMember (w, r) (g^.strictEdges)) (g^.dataflowEdges))
+
+-- | Gets the input edges of a computations.
+inputEdgesOf :: HasFusionGraph g => Label Comp -> SimpleGetter g (Set ReadEdge)
+inputEdgesOf c = to (\g -> S.filter (\(_, r) -> r == c) (g^.readEdges))
+
+-- | Gets the output edges of a computations.
+outputEdgesOf :: HasFusionGraph g => Label Comp -> SimpleGetter g (Set WriteEdge)
+outputEdgesOf c = to (\g -> S.filter (\(w, _) -> w == c) (g^.writeEdges))
+
+-- | Gets the read edges of a buffer.
+readEdgesOf :: HasFusionGraph g => Label Buff -> SimpleGetter g (Set ReadEdge)
+readEdgesOf b = to (\g -> S.filter (\(b', _) -> b' == b) (g^.readEdges))
+
+-- | Gets the write edges of a buffer.
+writeEdgesOf :: HasFusionGraph g => Label Buff -> SimpleGetter g (Set WriteEdge)
+writeEdgesOf b = to (\g -> S.filter (\(_, b') -> b' == b) (g^.writeEdges))
 
 
 
@@ -410,7 +427,7 @@ class ( ShrinkArg (BackendClusterArg op), Eq (BackendVar op)
     -> State (BackendGraphState op env) ()
 
   -- | This function lets the backend define additional constraints on the ILP.
-  finalize :: [Label Buff] -> [Label Comp] -> Constraint op
+  finalize :: FusionGraph -> Constraint op
 
 labelLabelledArgs :: MakesILP op => Solution op -> Label Comp -> LabelledArgs env args -> LabelledArgsOp op env args
 labelLabelledArgs sol l (arg :>: args) = labelLabelledArg sol l arg :>: labelLabelledArgs sol l args
@@ -431,10 +448,14 @@ data Var (op :: Type -> Type)
   | Manifest (Label Buff)
     -- ^ 0 means manifest, 1 is like a `delayed array`.
     -- Binary variable; will we write the output to a manifest array, or is it fused away (i.e. all uses are in its cluster)?
-  | ReadDir (Label Buff) (Label Comp)
-    -- ^ -3 can't fuse with anything, -2 for 'left to right', -1 for 'right to left', n for 'unpredictable, see computation n' (currently only backpermute). DO NOT USE THIS, USE 'readDir' INSTEAD! See 'reads' for the reason.
-  | WriteDir (Label Comp) (Label Buff)
-    -- ^ See 'ReadDir'. DO NOT USE THIS, USE 'writeDir' INSTEAD! See 'writes' for the reason.
+  | ReadDir' (Label Buff) (Label Comp)
+    -- ^ \-3 can't fuse with anything, -2 for 'left to right', -1 for 'right to left', n for 'unknown', see computation n (currently only backpermute). DO NOT USE THIS, USE 'ReadDir' INSTEAD! See 'reads' for the reason.
+  | WriteDir' (Label Comp) (Label Buff)
+    -- ^ See 'ReadDir'. DO NOT USE THIS, USE 'WriteDir' INSTEAD! See 'writes' for the reason.
+  | InDir (Label Comp)
+    -- ^ For backwards compatibility, see 'ReadDir''. For this variable to have any meaning the backend has to call 'useInDir' (or 'useInOutDir').
+  | OutDir (Label Comp)
+    -- ^ For backwards compatibility, see 'WriteDir''. For this variable to have any meaning the backend has to call 'useOutDir' (or 'useInOutDir').
   | InFoldSize (Label Comp)
     -- ^ Keeps track of the fold that's one dimension larger than this operation, and is fused in the same cluster.
     -- This prevents something like @zipWith f (fold g xs) (fold g ys)@ from illegally fusing
@@ -452,6 +473,45 @@ data Var (op :: Type -> Type)
 deriving instance Eq   (BackendVar op) => Eq   (Var op)
 deriving instance Ord  (BackendVar op) => Ord  (Var op)
 deriving instance Show (BackendVar op) => Show (Var op)
+
+-- | Safe pattern for 'ReadDir''.
+pattern ReadDir :: Label Buff -> Label Comp -> Var op
+pattern ReadDir b c <- ReadDir' b c where
+  ReadDir b c = ReadDir' b (findParentIsAncestorC c b)
+
+-- | Safe pattern for 'WriteDir''.
+pattern WriteDir :: Label Comp -> Label Buff -> Var op
+pattern WriteDir c b <- WriteDir' c b where
+  WriteDir c b = WriteDir' (findParentIsAncestorC c b) b
+{-# COMPLETE Pi, Fused, Manifest, ReadDir, WriteDir, InFoldSize, OutFoldSize, Other, BackendSpecific #-}
+
+
+-- | Sets all 'ReadDir' that contain the computation @c@ to be equal to the
+--   'InDir' variable of @c@. If you don't use this fuction, using 'InDir' will
+--   have no effect.
+--
+-- This function makes it so we can write ILP's in the old style, i.e. where
+-- a computation reads/writes in only one direction.
+useInDir :: HasFusionILP g op => Label Comp -> State g ()
+useInDir c = do
+  readDirs <- map (var . uncurry ReadDir) . S.toList <$> use (fusionILP.inputEdgesOf c)
+  fusionILP.constraints %= (<> equals (var (InDir c) : readDirs))
+
+-- | Sets all 'WriteDir' that contain the computation @c@ to be equal to the
+--   'OutDir' variable of @c@. If you don't use this fuction, using 'OutDir'
+--   will have no effect.
+--
+-- This function makes it so we can write ILP's in the old style, i.e. where
+-- a computation reads/writes in only one direction.
+useOutDir :: HasFusionILP g op => Label Comp -> State g ()
+useOutDir c = do
+  writeDirs <- map (var . uncurry WriteDir) . S.toList <$> use (fusionILP.outputEdgesOf c)
+  fusionILP.constraints %= (<> equals (var (OutDir c) : writeDirs))
+
+-- | See 'useInDir' and 'useOutDir'.
+useInOutDir :: HasFusionILP g op => Label Comp -> State g ()
+useInOutDir c = useInDir c >> useOutDir c
+
 
 -- | Constructor for 'Pi' variables.
 pi :: Label Comp -> Expression op
@@ -475,11 +535,11 @@ fused prod cons
 
 -- | Safe constructor for 'ReadDir' variables.
 readDir :: Label Buff -> Label Comp -> Expression op
-readDir buff comp = var $ ReadDir buff (findParentIsAncestorC comp buff)
+readDir buff = var . ReadDir buff
 
 -- | Safe constructor for 'WriteDir' variables.
 writeDir :: Label Comp -> Label Buff -> Expression op
-writeDir comp buff = var $ WriteDir (findParentIsAncestorC comp buff) buff
+writeDir comp = var . WriteDir comp
 
 
 

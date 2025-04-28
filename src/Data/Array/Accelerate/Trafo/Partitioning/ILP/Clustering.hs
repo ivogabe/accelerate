@@ -105,7 +105,7 @@ foldC f x (NonExecL l) = f l x
 
 topSort :: forall op. MakesILP op => Bool -> FusionGraph -> Labels Comp -> M.Map (Label Comp) (Symbol op) -> [ClusterL]
 topSort _ _ (S.toList -> [l]) _ = [ExecL [l]]  -- If the cluster is empty.
-topSort singletons (FusionGraph _ _ strictEdges dataflowEdges) cluster symbols =
+topSort singletons (FusionGraph _ _ _ _ strictEdges dataflowEdges) cluster symbols =
   if singletons then concatMap (map (ExecL . pure)) topsorteds else map ExecL topsorteds
   where
     buildGraph
