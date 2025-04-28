@@ -75,7 +75,9 @@ ilpFusion' :: (MakesILP op, ILPSolver s op)
            -> Objective
            -> x
            -> y
-ilpFusion' k1 k2 s obj acc = fusedAcc
+ilpFusion' k1 k2 s obj acc = unsafePerformIO $ do
+    writeFile "ilp.dot" $ toDOT (fusionILP'^.graph)
+    return fusedAcc
   where
     (fusionILP', symbolTable)       = k1 acc
     symbolTable'                    = attachBackendLabels solution symbolTable

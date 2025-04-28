@@ -210,6 +210,11 @@ infusibleEdges = to (\g -> S.filter (\(w, _, r) -> S.member (w, r) (g^.strictEdg
 fusionEdges :: HasFusionGraph g => SimpleGetter g (Set FusibleEdge, Set InfusibleEdge)
 fusionEdges = to (\g -> S.partition (\(w, _, r) -> S.notMember (w, r) (g^.strictEdges)) (g^.dataflowEdges))
 
+-- | Gets the set of strict edges that are not data-flow edges.
+orderEdges :: HasFusionGraph g => SimpleGetter g (Set StrictEdge)
+orderEdges = to (\g -> let dataflowEdges' = S.map (\(w,_,r) -> (w,r)) (g^.dataflowEdges)
+                        in S.filter (\(w, r) -> S.notMember (w, r) dataflowEdges') (g^.strictEdges))
+
 -- | Gets the input edges of a computations.
 inputEdgesOf :: HasFusionGraph g => Label Comp -> SimpleGetter g (Set ReadEdge)
 inputEdgesOf c = to (\g -> S.filter (\(_, r) -> r == c) (g^.readEdges))
@@ -892,9 +897,9 @@ mkFullGraph' (Alet LeftHandSideUnit _ bnd scp)
 
 mkFullGraph' (Alet lhs u bnd scp) = do
   lenv    <- use buffersEnv
-  c       <- freshComp
   bndRes  <- mkFullGraph' bnd
   bndResW <- traverse (use . allWriters) bndRes
+  c       <- freshComp
   for_ bndRes $ traverse_ (<--> c)
   lenv' <- zoom currEnvL (weakenEnv lhs bndRes lenv)
   symbols %= M.insert c (SLet (bindLHS lhs lenv') (fromSingletonSet $ fold bndResW) u)
@@ -1090,3 +1095,26 @@ fromSingletonSet _ = error "fromSingletonSet: Set is not singleton."
 
 traceWith :: (a -> String) -> a -> a
 traceWith f a = trace (f a) a
+
+
+--------------------------------------------------------------------------------
+-- Converting Graphs to DOT
+--------------------------------------------------------------------------------
+
+-- | Converts a graph to a DOT representation.
+toDOT :: FusionGraph -> String
+toDOT g = "strict digraph {\n" ++
+    -- Make all computation nodes boxes:
+    concatMap (\c -> "  <" ++ show c ++ "> [shape=box];\n") (g^.computationNodes) ++
+    -- Make all buffer nodes circles:
+    concatMap (\b -> "  <" ++ show b ++ "> [shape=circle];\n") (g^.bufferNodes) ++
+    -- Make all read and write edges:
+    concatMap (\(b, c) -> "  <" ++ show b ++ "> -> <" ++ show c ++ "> [];\n") (g^.readEdges) ++
+    concatMap (\(c, b) -> "  <" ++ show c ++ "> -> <" ++ show b ++ "> [];\n") (g^.writeEdges) ++
+    -- Make all fusible edges blue:
+    concatMap (\(c1, _, c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [color=blue];\n") (g^.fusibleEdges) ++
+    -- Make all infusible edges red:
+    concatMap (\(c1, _, c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [color=red];\n") (g^.infusibleEdges) ++
+    -- Make all order edges dashed:
+    concatMap (\(c1, c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [style=dashed];\n") (g^.orderEdges) ++
+    "}\n"
