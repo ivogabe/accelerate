@@ -18,6 +18,7 @@
 {-# LANGUAGE TypeFamilyDependencies   #-}
 {-# LANGUAGE UndecidableInstances     #-}
 {-# LANGUAGE ViewPatterns             #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph where
 
 import Prelude hiding ( init, reads )
@@ -33,6 +34,7 @@ import Data.Array.Accelerate.Trafo.Operation.LiveVars
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
 import Data.Array.Accelerate.Type
+import Data.Array.Accelerate.Error
 
 -- Data structures (including custom Multimap)
 import Data.Set (Set)
@@ -43,11 +45,12 @@ import qualified Data.Map as M
 import Lens.Micro
 import Lens.Micro.Mtl
 
-import Control.Monad.State (State, runState)
+import Control.Monad.State.Strict (State, runState)
 import Data.Foldable ( Foldable(fold, foldl'), for_, traverse_ )
 import Data.Kind (Type)
 import Unsafe.Coerce (unsafeCoerce)
 import Data.Coerce (coerce)
+import Debug.Trace
 
 --------------------------------------------------------------------------------
 -- Fusion Graph
@@ -178,21 +181,21 @@ insertWrite :: HasFusionGraph g => WriteEdge -> g -> g
 insertWrite (c, b) = writeEdges %~ S.insert (c, b)
 
 -- | Insert a strict relation between two computations.
-insertStrict :: HasFusionGraph g => (Label Comp, Label Comp) -> g -> g
+insertStrict :: (HasCallStack, HasFusionGraph g) => (Label Comp, Label Comp) -> g -> g
 insertStrict (c1, c2)
-  | c1 == c2  = error "insertStrict: Cannot add reflexive edge."
+  | c1 == c2  = error $ "strict: Reflexive edge " ++ show (c1, c2)
   | otherwise = strictEdges %~ S.insert (c1, c2)
 
 -- | Insert a fusible data-flow edge between two computations.
-insertFusible :: HasFusionGraph g => DataflowEdge -> g -> g
+insertFusible :: (HasCallStack, HasFusionGraph g) => DataflowEdge -> g -> g
 insertFusible (c1, b, c2) g
-  | S.notMember (c1, b) (g^.writeEdges) = error "fusible: Cannot add edge without write edge."
-  | S.notMember (b, c2) (g^.readEdges)  = error "fusible: Cannot add edge without read edge."
-  | c1 == c2  = error "fusible: Cannot add reflexive edge."
+  | S.notMember (c1, b) (g^.writeEdges) = error $ "fusible: Missing write " ++ show (c1, b)
+  | S.notMember (b, c2) (g^.readEdges)  = error $ "fusible: Missing read " ++ show (b, c2)
+  | c1 == c2  = error $ "fusible: Reflexive edge " ++ show (c1, c2)
   | otherwise = g & dataflowEdges %~ S.insert (c1, b, c2)
 
 -- | Insert an infusible data-flow edge between two computations.
-insertInfusible :: HasFusionGraph g => DataflowEdge -> g -> g
+insertInfusible :: (HasCallStack, HasFusionGraph g) => DataflowEdge -> g -> g
 insertInfusible (c1, b, c2) = insertStrict (c1, c2) . insertFusible (c1, b, c2)
 
 -- | Gets the set of fusible edges.
@@ -278,8 +281,8 @@ instance HasFusionGraph (FusionILP op) where
 -- a read relation between the buffer and all computations in its scope. All of
 -- these read edges should be equal in the ILP, which is enforced by 'readDir'.
 reads :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
-reads c b = fusionGraph %~ flip (foldl' (flip (insertRead . (b,)))) cs'
-  where cs' = traceParentIsAncestorC c b
+reads c b = fusionGraph %~ flip (foldl' (flip (insertRead . (b,)))) cs
+  where cs = allNonAncestors b c
 
 -- | Safely insert a write edge into the graph.
 --
@@ -287,8 +290,8 @@ reads c b = fusionGraph %~ flip (foldl' (flip (insertRead . (b,)))) cs'
 -- a write relation between the buffer and all computations in its scope. All of
 -- these write edges should be equal in the ILP, which is enforced by 'writeDir'.
 writes :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
-writes c b = fusionGraph %~ flip (foldl' (flip (insertWrite . (,b)))) cs'
-  where cs' = traceParentIsAncestorC c b
+writes c b = fusionGraph %~ flip (foldl' (flip (insertWrite . (,b)))) cs
+  where cs = allNonAncestors b c
 
 -- | Safely insert read edges between multiple computations and a buffer.
 read :: Labels Comp -> Label Buff -> FusionILP op -> FusionILP op
@@ -299,16 +302,16 @@ write :: Labels Comp -> Label Buff -> FusionILP op -> FusionILP op
 write cs b = flip (foldl' (flip (`writes` b))) cs
 
 -- | Safely add a strict relation between two computations.
-before :: Label Comp -> Label Comp -> FusionILP op -> FusionILP op
+before :: HasCallStack => Label Comp -> Label Comp -> FusionILP op -> FusionILP op
 before c1 c2 = fusionGraph %~ insertStrict (c1', c2')
-  where c1' = findParentIsAncestorC c1 c2
-        c2' = findParentIsAncestorC c2 c1
+  where c1' = oldestNonAncestor c2 c1
+        c2' = oldestNonAncestor c1 c2
 
 -- | Safely add a fusible edge between two computations.
 --
 -- If the computations share the same parent, add a fusible edge, otherwise add
 -- an infusible edge.
-fusible :: Label Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
+fusible :: HasCallStack => Label Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 fusible prod buff cons = if prod^.parent == cons^.parent
   then fusionGraph %~ insertFusible (prod, buff, cons)
   else infusible prod buff cons
@@ -317,33 +320,33 @@ fusible prod buff cons = if prod^.parent == cons^.parent
 --
 -- Infusible edges are only added to computations that share the same parent.
 -- If they don't share the same parent, find the first ancestors that do.
-infusible :: Label Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
+infusible :: HasCallStack => Label Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 infusible prod buff cons = fusionGraph %~ insertInfusible (prod', buff, cons')
-  where prod' = findParentIsAncestorC prod cons
-        cons' = findParentIsAncestorC cons prod
+  where prod' = oldestNonAncestor cons prod
+        cons' = oldestNonAncestor prod cons
 
 -- | Safely add strict ordering between multiple computations and another computation.
-allBefore :: Labels Comp -> Label Comp -> FusionILP op -> FusionILP op
+allBefore :: HasCallStack => Labels Comp -> Label Comp -> FusionILP op -> FusionILP op
 allBefore cs1 c2 ilp = foldl' (\ilp' c1 -> before c1 c2 ilp') ilp cs1
 
 -- | Safely add fusible edges from all producers to the consumer.
-allFusible :: Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
+allFusible :: HasCallStack => Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 allFusible prods buff cons ilp = foldl' (\ilp' prod -> fusible prod buff cons ilp') ilp prods
 
 -- | Safely add infusible edges from all producers to the consumer.
-allInfusible :: Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
+allInfusible :: HasCallStack => Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 allInfusible prods buff cons ilp = foldl' (\ilp' prod -> infusible prod buff cons ilp') ilp prods
 
 -- | Infix synonym for 'allBefore'.
-(==|-|=>) :: Labels Comp -> Label Comp -> FusionILP op -> FusionILP op
+(==|-|=>) :: HasCallStack => Labels Comp -> Label Comp -> FusionILP op -> FusionILP op
 (==|-|=>) = allBefore
 
 -- | Infix synonym for 'allFusible'.
-(--|) :: Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
+(--|) :: HasCallStack => Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 (--|) = allFusible
 
 -- | Infix synonym for 'allInfusible'.
-(==|) :: Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
+(==|) :: HasCallStack => Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 (==|) = allInfusible
 
 -- | Arrow heads to complete '(--|)' and '(==|)'.
@@ -477,12 +480,12 @@ deriving instance Show (BackendVar op) => Show (Var op)
 -- | Safe pattern for 'ReadDir''.
 pattern ReadDir :: Label Buff -> Label Comp -> Var op
 pattern ReadDir b c <- ReadDir' b c where
-  ReadDir b c = ReadDir' b (findParentIsAncestorC c b)
+  ReadDir b c = ReadDir' b (oldestNonAncestor b c)
 
 -- | Safe pattern for 'WriteDir''.
 pattern WriteDir :: Label Comp -> Label Buff -> Var op
 pattern WriteDir c b <- WriteDir' c b where
-  WriteDir c b = WriteDir' (findParentIsAncestorC c b) b
+  WriteDir c b = WriteDir' (oldestNonAncestor b c) b
 {-# COMPLETE Pi, Fused, Manifest, ReadDir, WriteDir, InFoldSize, OutFoldSize, Other, BackendSpecific #-}
 
 
@@ -526,12 +529,10 @@ manifest :: Label Buff -> Expression op
 manifest = var . Manifest
 
 -- | Safe constructor for 'Fused' variables.
-fused :: Label Comp -> Label Comp -> Expression op
-fused prod cons
-  | prod' == cons' = error $ "reflexive fused variable " <> show prod'
-  | otherwise      = var $ Fused prod' cons'
-  where prod' = findParentIsAncestorC prod cons
-        cons' = findParentIsAncestorC cons prod
+fused :: HasCallStack => Label Comp -> Label Comp -> Expression op
+fused prod cons = var $ Fused prod' cons'
+  where prod' = oldestNonAncestor cons prod
+        cons' = oldestNonAncestor prod cons
 
 -- | Safe constructor for 'ReadDir' variables.
 readDir :: Label Buff -> Label Comp -> Expression op
@@ -644,6 +645,12 @@ type WritersEnv = Map (Label Buff) (Labels Comp)
 initialFullGraphState :: FullGraphState op ()
 initialFullGraphState = FullGraphState mempty EnvNil mempty mempty mempty (Label 0 Nothing) 0
 
+instance Show (FullGraphState op env) where
+  show :: FullGraphState op env -> String
+  show s = "FullGraphState { readersEnv=" ++ show (s^.readersEnv) ++
+            ", writersEnv=" ++ show (s^.writersEnv) ++
+            " }"
+
 instance HasFusionILP (FullGraphState op env) op where
   fusionILP :: Lens' (FullGraphState op env) (FusionILP op)
   fusionILP f s = f (_fusionILP s) <&> \ilp -> s{_fusionILP = ilp}
@@ -702,8 +709,7 @@ backendGraphState renv wenv f s = f (BackendGraphState (s^.fusionILP) (s^.buffer
 -- has yet to be written to is "produced" by its allocator (which has the same
 -- label).
 writers :: HasWritersEnv s => Label Buff -> Lens' s (Labels Comp)
-writers b f s = f (M.findWithDefault (S.singleton (coerce b)) b (s^.writersEnv))
-  <&> (\cs -> s & writersEnv %~ M.insert b cs)
+writers b f s = f (M.findWithDefault (S.singleton (coerce b)) b (s^.writersEnv)) <&> \cs -> s & writersEnv %~ M.insert b cs
 
 -- | Lens for getting all writers of buffers.
 allWriters :: (Foldable f, HasWritersEnv s) => f (Label Buff) -> SimpleGetter s (Labels Comp)
@@ -714,9 +720,7 @@ allWriters bs = to (\s -> foldMap (\b -> s^.writers b) bs)
 --
 -- By default a buffer isn't read by any computations.
 readers :: HasReadersEnv s => Label Buff -> Lens' s (Labels Comp)
-readers b f s = f (M.findWithDefault mempty b (s^.readersEnv)) <&> \case
-  cs | S.null cs -> s & readersEnv %~ M.delete b
-     | otherwise -> s & readersEnv %~ M.insert b cs
+readers b f s = f (M.findWithDefault mempty b (s^.readersEnv)) <&> \cs -> s & readersEnv %~ M.insert b cs
 
 -- | Lens for getting all readers of buffers.
 allReaders :: (Foldable f, HasReadersEnv s) => f (Label Buff) -> SimpleGetter s (Labels Comp)
@@ -745,28 +749,36 @@ freshComp = do
 --
 -- The implementation of 'writers' makes it so by default the buffer is produced
 -- by the computation that allocates it. This is possible because they have the
--- same label just, just different types.
+-- same label just, just different types. We still need to add the read edge to
+-- the graph though.
 freshBuff :: State (FullGraphState op env) (Labels Buff, Label Comp)
 freshBuff = do
   c <- freshComp
   fusionILP %= insertBuffer (coerce c)
+  fusionILP %= insertWrite (c, coerce c)
   return (S.singleton (coerce c), c)
 
 -- | Read from a buffer and be fusisble with its writers.
-(--->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
+(--->) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (--->) b c = do
+  traceM $ "(--->) " ++ show b ++ " " ++ show c
   ws <- use $ writers b
+  traceM $ "  ws <- " ++ show ws
   fusionILP %= c `reads` b
   fusionILP %= ws --|b|-> c
   readers b %= S.insert c
+  traceM $ "  readers " ++ show b ++ " %= insert " ++ show c
 
 -- | Read from a buffer and be infusible with its writers.
-(===>) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
+(===>) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (===>) b c = do
+  traceM $ "(===>) " ++ show b ++ " " ++ show c
   ws <- use $ writers b
+  traceM $ "  ws <- " ++ show ws
   fusionILP %= c `reads` b
   fusionILP %= ws ==|b|=> c
   readers b %= S.insert c
+  traceM $ "  readers " ++ show b ++ " %= insert " ++ show c
 
 -- | Write to a buffer.
 --
@@ -775,15 +787,20 @@ freshBuff = do
 -- 2. All writers run before the computation.
 -- 3. We become the sole writer of the buffer.
 -- 4. We clear the readers of the buffer.
-(<===) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
+(<===) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<===) b c = do
+  traceM $ "(<===) " ++ show b ++ " " ++ show c
   rs <- use $ readers b
+  traceM $ "  rs <- " ++ show rs
   ws <- use $ writers b
+  traceM $ "  ws <- " ++ show ws
   fusionILP %= c `writes` b
   fusionILP %= rs ==|-|=> c
   fusionILP %= ws ==|-|=> c
   writers b .= S.singleton c
+  traceM $ "  writers " ++ show b ++ " .= " ++ show (S.singleton c)
   readers b .= S.empty
+  traceM $ "  readers " ++ show b ++ " .= empty"
 
 -- | Mutate a buffer.
 --
@@ -792,24 +809,31 @@ freshBuff = do
 -- 2. All writers are infusible with this computation.
 -- 3. We become the sole writer of the buffer.
 -- 4. We clear the readers of the buffer.
-(<==>) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
+(<==>) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<==>) b c = do
+  traceM $ "(<==>) " ++ show b ++ " " ++ show c
   rs <- use $ readers b
+  traceM $ "  rs <- " ++ show rs
   ws <- use $ writers b
+  traceM $ "  ws <- " ++ show ws
   fusionILP %= c `reads` b
   fusionILP %= c `writes` b
   fusionILP %= rs ==|-|=> c
   fusionILP %= ws ==|b|=> c
   writers b .= S.singleton c
+  traceM $ "  writers " ++ show b ++ " .= " ++ show (S.singleton c)
   readers b .= S.empty
+  traceM $ "  readers " ++ show b ++ " .= empty"
 
 -- | Mutate a buffer with the identity function, preventing fusion.
 --
 -- This is a special case of mutation where the buffer is not actually changed.
 -- Because of this, we now don't need to enforce rules 1 and 4 from '(<==>)'.
-(<-->) :: Label Buff -> Label Comp -> State (FullGraphState op env) ()
+(<-->) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<-->) b c = do
+  traceM $ "(<-->) " ++ show b ++ " " ++ show c
   ws <- use $ writers b
+  traceM $ "  ws <- " ++ show ws
   fusionILP %= c `reads` b
   fusionILP %= c `writes` b
   fusionILP %= ws ==|b|=> c
@@ -821,15 +845,13 @@ freshBuff = do
 -- Full Graph construction
 --------------------------------------------------------------------------------
 
-
-
 -- The 2 instances below can be used to clean up the code in ILP.hs a bit.
-instance HasFusionILP  (FusionILP op, Symbols op) op where
+instance HasFusionILP (FusionILP op, Symbols op) op where
   fusionILP :: Lens'  (FusionILP op, Symbols op) (FusionILP op)
   fusionILP f (ilp, sym) = f ilp <&> (,sym)
 
-instance HasSymbols  (FusionILP op, Symbols op) op where
-  symbols :: Lens'  (FusionILP op, Symbols op) (Symbols op)
+instance HasSymbols (FusionILP op, Symbols op) op where
+  symbols :: Lens' (FusionILP op, Symbols op) (Symbols op)
   symbols f (ilp, sym) = f sym <&> (ilp,)
 
 -- | Construct the full fusion graph for a program.
@@ -845,25 +867,28 @@ mkFullGraphF acc = (s^.fusionILP, s^.symbols)
   where
     (_, s) = runState (mkFullGraphF' acc) initialFullGraphState
 
-mkFullGraph' :: forall op env t. (MakesILP op)
+mkFullGraph' :: forall op env t. MakesILP op
              => FullGraphMaker PreOpenAcc op env t (BuffersTup t)
 mkFullGraph' (Exec op args) = do
+  traceM $ "Exec _ " ++ show args
   lenv <- use buffersEnv
   renv <- use readersEnv
   wenv <- use writersEnv
   c    <- freshComp
   let labelledArgs = labelArgs args lenv
-  forLArgs_ labelledArgs \case
-    (L (ArgArray In  _ _ _) (Arr  _, bs)) -> for_ bs (---> c)
-    (L (ArgArray Out _ _ _) (Arr  _, bs)) -> for_ bs (<=== c)
-    (L (ArgArray Mut _ _ _) (Arr  _, bs)) -> for_ bs (<==> c)
-    (L _                    (NotArr, bs)) -> for_ bs (===> c)
+  let bsInArr  = selectLArgs  inArr labelledArgs
+  let bsOutArr = selectLArgs outArr labelledArgs
+  let bsNotArr = selectLArgs notArr labelledArgs
+  for_ (bsInArr  `S.difference`   bsOutArr) (---> c)
+  for_ (bsOutArr `S.difference`   bsInArr)  (<=== c)
+  for_ (bsInArr  `S.intersection` bsOutArr) (<==> c)
+  for_  bsNotArr                            (===> c)
   zoom (backendGraphState renv wenv) (mkGraph c op labelledArgs)
   symbols %= M.insert c (SExe lenv labelledArgs op)
   return TupFunit
 
-mkFullGraph' (Alet LeftHandSideUnit _ bnd scp) =
-  mkFullGraph' bnd >> mkFullGraph' scp
+mkFullGraph' (Alet LeftHandSideUnit _ bnd scp)
+  = mkFullGraph' bnd >> mkFullGraph' scp
 
 mkFullGraph' (Alet lhs u bnd scp) = do
   lenv    <- use buffersEnv
@@ -940,8 +965,8 @@ mkFullGraph' (Awhile u cond body init) = do
 
 
 
-mkFullGraphF' :: forall op env t. (MakesILP op)
-             => FullGraphMaker PreOpenAfun op env t (BuffersTup (Result t))
+mkFullGraphF' :: forall op env t. MakesILP op
+              => FullGraphMaker PreOpenAfun op env t (BuffersTup (Result t))
 mkFullGraphF' (Abody acc) = do
   c <- freshComp
   zoom (scope c) do
@@ -962,11 +987,11 @@ mkFullGraphF' (Alam lhs f) = do
 
 -- | A block is a subcomputation that is executed under the scope of another
 --   computation.
-block :: Label Comp -> FullGraphMaker f op env t (BuffersTup r)
+block :: HasCallStack => Label Comp -> FullGraphMaker f op env t (BuffersTup r)
       -> FullGraphMaker f op env t (BuffersTup r, WritersEnv, ReadersEnv)
 block c f x = zoom (scope c . protected writersEnv . protected readersEnv) do
   res  <- f x
-  for_ res $ traverse_ (<--> c)  -- TODO: This generates a reflexive edge?
+  -- for_ res $ traverse_ (<--> c)  -- TODO: This generates a reflexive edge?
   wenv <- use writersEnv
   renv <- use readersEnv
   return (res, wenv, renv)
@@ -1059,6 +1084,9 @@ with l a f s = (l .~ s^.l) <$> f (s & l .~ a)
 -- | Converts a singleton set into a value.
 --
 -- This function is partial and will throw an error if the set is not singleton.
-fromSingletonSet :: Set a -> a
+fromSingletonSet :: HasCallStack => Set a -> a
 fromSingletonSet (S.toList -> [x]) = x
 fromSingletonSet _ = error "fromSingletonSet: Set is not singleton."
+
+traceWith :: (a -> String) -> a -> a
+traceWith f a = trace (f a) a

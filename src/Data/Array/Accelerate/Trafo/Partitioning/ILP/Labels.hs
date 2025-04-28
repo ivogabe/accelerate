@@ -40,13 +40,14 @@ import Data.Array.Accelerate.AST.LeftHandSide
 
 import qualified Data.Functor.Const as C
 import Data.Coerce
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Data.Foldable
 import Data.Typeable
 import Data.Array.Accelerate.Type (ScalarType)
 import Data.Array.Accelerate.Representation.Array
 import Data.Bifunctor (Bifunctor(..))
 import Data.Maybe (fromJust, fromMaybe)
+import Data.List.NonEmpty
 
 
 
@@ -96,9 +97,13 @@ asComp f l = coerce <$> f (coerce l)
 asBuff :: Lens' (Label t) (Label Buff)
 asBuff f l = coerce <$> f (coerce l)
 
-instance Show (Label t) where
-  show :: Label t -> String
-  show l = "L" <> show (l^.labelId) <> "{" <> show (l^.parent) <> "}"
+instance Show (Label Comp) where
+  show :: Label Comp -> String
+  show l = maybe "" ((++ ".") . show) (l^.parent) ++ "C" ++ show (l^.labelId)
+
+instance Show (Label Buff) where
+  show :: Label Buff -> String
+  show l = maybe "" ((++ ".") . show) (l^.parent) ++ "B" ++ show (l^.labelId)
 
 instance Eq (Label t) where
   (==) :: Label t -> Label t -> Bool
@@ -131,7 +136,7 @@ level l = case l^.parent of
 
 -- | Check if a parent label is an ancestor of another label.
 isAncestor :: Parent -> Label t -> Bool
-isAncestor Nothing _ = True  -- The top-level label is always an ancestor.
+isAncestor Nothing _ = True  -- The top-level is always an ancestor
 isAncestor p1 (Label _ p2) = p1 == p2 || maybe False (isAncestor p1) p2
 
 -- | Find the first ancestor of the argument label whose parent is an ancestor
@@ -165,6 +170,26 @@ findParentIsAncestorC l1 = fromMaybe l1 . findParentIsAncestor l1
 -- prepending itself to the trace.
 traceParentIsAncestorC :: Label Comp -> Label t -> [Label Comp]
 traceParentIsAncestorC l1 l2 = l1 : traceParentIsAncestor l1 l2
+
+-- | Given a label, find the oldest ancestor of a computation that is not an
+--   ancestor of the given label.
+oldestNonAncestor :: Label t -> Label Comp -> Label Comp
+oldestNonAncestor l1@(Label _ p1) l2@(Label _ p2) = if p1 == p2
+  then l2
+  else case compare (level l1) (level l2) of
+    LT -> oldestNonAncestor           l1  (fromJust p2)
+    GT -> oldestNonAncestor (fromJust p1)           l2
+    EQ -> oldestNonAncestor (fromJust p1) (fromJust p2)
+
+-- | Given a label, list all ancestors of a computation that are not ancestors
+--   of the given label.
+allNonAncestors :: Label t -> Label Comp -> [Label Comp]
+allNonAncestors l1@(Label _ p1) l2@(Label _ p2) = if p1 == p2
+  then [l2]
+  else case compare (level l1) (level l2) of
+    LT -> l2 : allNonAncestors           l1  (fromJust p2)
+    GT ->      allNonAncestors (fromJust p1)           l2
+    EQ -> l2 : allNonAncestors (fromJust p1) (fromJust p2)
 
 
 -- | Create a new label.
@@ -593,3 +618,22 @@ traverseLArgs_ f (larg :>: largs) = f larg *> traverseLArgs_ f largs
 forLArgs_ :: Applicative f => LabelledArgs env t -> (forall s. LabelledArg env s -> f ()) -> f ()
 forLArgs_ largs f = traverseLArgs_ f largs
 {-# INLINE forLArgs_ #-}
+
+-- | Select the labelled arguments that satisfy the predicate.
+selectLArgs :: (forall s. LabelledArg env s -> Bool) -> LabelledArgs env t -> Labels Buff
+selectLArgs f = foldMapLArgs (\arg@(L _ (_,bs)) -> if f arg then bs else mempty)
+{-# INLINE selectLArgs #-}
+
+inArr :: LabelledArg env t -> Bool
+inArr (L (ArgArray In  _ _ _) _) = True
+inArr (L (ArgArray Mut _ _ _) _) = True
+inArr _ = False
+
+outArr :: LabelledArg env t -> Bool
+outArr (L (ArgArray Out _ _ _) _) = True
+outArr (L (ArgArray Mut _ _ _) _) = True
+outArr _ = False
+
+notArr :: LabelledArg env t -> Bool
+notArr (L _ (NotArr, _)) = True
+notArr _ = False
