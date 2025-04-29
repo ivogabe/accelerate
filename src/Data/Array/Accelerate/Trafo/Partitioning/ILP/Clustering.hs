@@ -276,7 +276,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
                               -- the `foldr1`, the input argument will dissapear. The output argument does not:
                               -- we clean that up in the SLV pass, if this was vertical fusion. If this is diagonal fusion,
                               -- it stays.
-                              SExe' env' args op -> InitFold op l (fromJust . trace ("env:  " ++ show env ++ "\nenv': " ++ show env') $ reindexLabelledArgsOp (mkReindexPartial env' env) args)
+                              SExe' env' args op -> InitFold op l (fromJust $ reindexLabelledArgsOp (mkReindexPartial env' env) args)
                               _                  -> error "avoid this next refactor" -- c -> NotFold c
                           ) ls
     makeCluster _ (NonExecL l) = NotFold $ symbols !?? l

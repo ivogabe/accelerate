@@ -87,7 +87,7 @@ ilpFusion' k1 k2 s obj acc = unsafePerformIO $ do
     ilp                             = makeILP obj fusionILP'
     solution                        = solve' ilp
     interpreted                     = interpretSolution solution
-    (traceShowId -> !labelClusters, traceShowId -> !labelClustersM) = traceShowId $ splitExecs interpreted symbolTable'
+    (labelClusters, labelClustersM) = splitExecs interpreted symbolTable'
     fusedAcc                        = k2 (fusionILP'^.graph) labelClusters labelClustersM symbolTable'
     solve' x = unsafePerformIO (solve s x) & \case
       Nothing -> error "Accelerate: No ILP solution found"

@@ -139,10 +139,15 @@ makeILP obj (FusionILP graph@(FusionGraph bufferNodes computationNodes _ _ stric
                                              Everything  -> foldMap (\l -> pi l .<=. numberOfClusters) computationNodes
                                              _ -> mempty
 
-    myConstraints = acyclicC <> infusibleC <> manifestC <> numberOfClustersConstraint <> readConstraints <> orderConstraints <> finalize graph
+    myConstraints = fusibleAcyclicC <> strictAcyclicC <> infusibleC <> manifestC <> numberOfClustersConstraint <> readConstraints <> orderConstraints <> finalize graph
 
-    -- x_ij <= pi_j - pi_i <= n*x_ij for all edges
-    acyclicC   = foldMap (\(i,_,j) -> between (fused i j) (pi j .-. pi i) (timesN $ fused i j)) dataflowEdges
+    -- x_ij <= pi_j - pi_i <= n*x_ij for all fusible edges
+    fusibleAcyclicC = foldMap (\(i,_,j) -> between (fused i j) (pi j .-. pi i) (timesN $ fused i j)) fusibleEdges
+
+    -- pi_i < pi_j for all strict edges  NEW!
+    strictAcyclicC = foldMap (\(i,j) -> pi i .<. pi j) strictEdges
+
+    -- x_ij == 1 for all infusible edges
     infusibleC = foldMap (\(i,_,j) -> fused i j .==. int 1) infusibleEdges
 
     -- if (i,b,j) is not fused, b has to be manifest
@@ -205,7 +210,7 @@ data ClusterLs = Execs (Labels Comp) | NonExec (Label Comp)
 -- Simply make one cluster per let, before the cluster with execs.
 -- TODO: split the cluster of Execs into connected components
 splitExecs :: ([Labels Comp], M.Map (Label Comp) [Labels Comp]) -> Symbols op -> ([ClusterLs], M.Map (Label Comp) [ClusterLs])
-splitExecs (traceShowId -> (xs, xM)) symbolMap = traceShowId (f xs, M.map f xM)
+splitExecs (xs, xM) symbolMap = (f xs, M.map f xM)
   where
     f :: [Labels Comp] -> [ClusterLs]
     f = concatMap (\ls -> filter (/= Execs mempty) $ map NonExec (S.toList $ S.filter isNonExec ls) ++ [Execs (S.filter isExec ls)])
