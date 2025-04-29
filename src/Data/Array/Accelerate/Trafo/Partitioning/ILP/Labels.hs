@@ -48,6 +48,7 @@ import Data.Array.Accelerate.Representation.Array
 import Data.Bifunctor (Bifunctor(..))
 import Data.Maybe (fromJust, fromMaybe)
 import Data.List.NonEmpty
+import Debug.Trace
 
 
 
@@ -278,7 +279,11 @@ type ComputationsTup t = TupF t (Labels Comp)
 
 -- | An 'ELabel' uniquely identifies an element of the environment.
 newtype EnvLabel = EnvLabel { unELabel :: Int }
-  deriving (Show, Eq, Ord, Num)
+  deriving (Eq, Ord, Num)
+
+instance Show EnvLabel where
+  show :: EnvLabel -> String
+  show (EnvLabel i) = "E" ++ show i
 
 -- | An 'EnvLabel' and all buffers associated with it.
 type EnvLabels t = (EnvLabel, BuffersTup t)
@@ -306,6 +311,11 @@ data BuffersEnv env where
   (:>>:) :: EnvLabels t     -- ^ See 'EnvLabels'.
          -> BuffersEnv env  -- ^ The rest of the environment.
          -> BuffersEnv (env, t)
+
+instance Show (BuffersEnv env) where
+  show :: BuffersEnv env -> String
+  show EnvNil = "EnvNil"
+  show (envl :>>: env) = show envl ++ " :>>: " ++ show env
 
 -- TODO: Is this instance necessary?
 instance Semigroup (BuffersEnv env) where
@@ -348,12 +358,18 @@ data BoundLHS s v env env' where
     -> BoundLHS s v2       env' env''
     -> BoundLHS s (v1, v2) env  env''
 
+instance Show (BoundLHS s v env env') where
+  show :: BoundLHS s v env env' -> String
+  show (BoundLHSsingle e _) = "BLHS(" ++ show e ++ ")"
+  show (BoundLHSwildcard _) = "BLHS_"
+  show (BoundLHSpair l r)   = "BLHS(" ++ show l ++ ", " ++ show r ++ ")"
+
 type BoundGLHS = BoundLHS GroundR
 
 -- | Get bindings from the environment and bind them to the left-hand side.
 bindLHS :: LeftHandSide s v env env' -> BuffersEnv env' -> BoundLHS s v env env'
-bindLHS (LeftHandSideSingle s) (l :>>: _) = BoundLHSsingle l s
-bindLHS (LeftHandSideWildcard t) _ = BoundLHSwildcard t
+bindLHS (LeftHandSideSingle sv) (l :>>: _) = BoundLHSsingle l sv
+bindLHS (LeftHandSideWildcard tr) _ = BoundLHSwildcard tr
 bindLHS (LeftHandSidePair l r) env = BoundLHSpair (bindLHS l (stripLHS r env)) (bindLHS r env)
 
 -- | Remove values bound by the left-hand side from the environment.
@@ -366,9 +382,9 @@ createLHS :: BoundLHS s v _env _env'
           -> BuffersEnv env
           -> (forall env'. BuffersEnv env' -> LeftHandSide s v env env' -> r)
           -> r
-createLHS (BoundLHSsingle e g) env k = k (e :>>: env) (LeftHandSideSingle g)
-createLHS (BoundLHSwildcard t) env k = k env (LeftHandSideWildcard t)
-createLHS (BoundLHSpair l r)   env k =
+createLHS (BoundLHSsingle e sv) env k = k (e :>>: env) (LeftHandSideSingle sv)
+createLHS (BoundLHSwildcard tr) env k = k env (LeftHandSideWildcard tr)
+createLHS (BoundLHSpair l r)    env k =
   createLHS   l env  $ \env'  l' ->
     createLHS r env' $ \env'' r' ->
       k env'' (LeftHandSidePair l' r')
@@ -637,3 +653,10 @@ outArr _ = False
 notArr :: LabelledArg env t -> Bool
 notArr (L _ (NotArr, _)) = True
 notArr _ = False
+
+
+
+
+traceWith :: (Show a) => (a -> String) -> a -> a
+traceWith f x = trace (f x) x
+{-# INLINE traceWith #-}

@@ -31,6 +31,7 @@ import Control.Monad.State
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration (freshName)
 import Data.Foldable
 import Data.Tuple (swap)
+import Debug.Trace
 
 data Objective
   = NumClusters
@@ -202,14 +203,14 @@ data ClusterLs = Execs (Labels Comp) | NonExec (Label Comp)
 -- and their bodies should all be in earlier clusters already.
 -- Simply make one cluster per let, before the cluster with execs.
 -- TODO: split the cluster of Execs into connected components
-splitExecs :: ([Labels Comp], M.Map (Label Comp) [Labels Comp]) -> M.Map (Label Comp) (Symbol op) -> ([ClusterLs], M.Map (Label Comp) [ClusterLs])
-splitExecs (xs, xM) constrM = (f xs, M.map f xM)
+splitExecs :: ([Labels Comp], M.Map (Label Comp) [Labels Comp]) -> Symbols op -> ([ClusterLs], M.Map (Label Comp) [ClusterLs])
+splitExecs (traceShowId -> (xs, xM)) symbolMap = traceShowId (f xs, M.map f xM)
   where
     f :: [Labels Comp] -> [ClusterLs]
     f = concatMap (\ls -> filter (/= Execs mempty) $ map NonExec (S.toList $ S.filter isNonExec ls) ++ [Execs (S.filter isExec ls)])
 
-    isExec l = case constrM M.!? l of
-      Just SExe{}  -> True
+    isExec l = case symbolMap M.!? l of
+      Just SExe {} -> True
       Just SExe'{} -> True
       _ -> False
     isNonExec l = not $ isExec l

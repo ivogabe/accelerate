@@ -24,6 +24,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering where
 
@@ -40,7 +41,7 @@ import Data.Array.Accelerate.Error
 import qualified Data.Map as M
 import qualified Data.Graph as G
 import qualified Data.Set as S
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, fromMaybe)
 import Data.Type.Equality ( type (:~:)(Refl) )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve (ClusterLs (Execs, NonExec))
 import Data.Array.Accelerate.AST.Environment (weakenWithLHS)
@@ -58,6 +59,7 @@ import qualified Data.Array.Accelerate.Pretty.Operation as P
 import qualified Data.Array.Accelerate.Pretty.Exp as P
 
 import Lens.Micro
+import Debug.Trace
 
 -- "open research question"
 -- -- Each set of ints corresponds to a set of Constructions, which themselves contain a set of ints (the things they depend on).
@@ -90,7 +92,7 @@ reconstruct :: forall op a. MakesILP op => GroundsR a -> Bool -> FusionGraph -> 
 reconstruct repr a b c d e = case openReconstruct a EnvNil b c d e of
           Exists res -> expectType repr res
 
-reconstructF :: forall op a. MakesILP op => PreOpenAfun op () a -> Bool -> FusionGraph -> [ClusterLs] -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op)  -> PreOpenAfun (Clustered op) () a
+reconstructF :: forall op a. (HasCallStack, MakesILP op) => PreOpenAfun op () a -> Bool -> FusionGraph -> [ClusterLs] -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op)  -> PreOpenAfun (Clustered op) () a
 reconstructF original a b c d e = case openReconstructF a EnvNil b c (Label 1 Nothing) d e of
           Exists res -> expectFunTypeEqual original res
 
@@ -167,7 +169,7 @@ openReconstruct   :: MakesILP op
                   -> M.Map (Label Comp) (Symbol op)
                   -> Exists (PreOpenAcc (Clustered op) aenv)
 openReconstruct  a b c d   e f = (\(Left x) -> x) $ openReconstruct' a b c d Nothing e f
-openReconstructF  :: MakesILP op
+openReconstructF  :: (HasCallStack, MakesILP op)
                   => Bool
                   -> BuffersEnv aenv
                   -> FusionGraph
@@ -178,7 +180,7 @@ openReconstructF  :: MakesILP op
                   -> Exists (PreOpenAfun (Clustered op) aenv)
 openReconstructF a b c d l e f = (\(Right x) -> x) $ openReconstruct' a b c d (Just l) e f
 
-openReconstruct' :: forall op aenv. MakesILP op => Bool -> BuffersEnv aenv -> FusionGraph -> [ClusterLs] -> Maybe (Label Comp) -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op)  -> Either (Exists (PreOpenAcc (Clustered op) aenv)) (Exists (PreOpenAfun (Clustered op) aenv))
+openReconstruct' :: forall op aenv. (HasCallStack, MakesILP op) => Bool -> BuffersEnv aenv -> FusionGraph -> [ClusterLs] -> Maybe (Label Comp) -> M.Map (Label Comp) [ClusterLs] -> M.Map (Label Comp) (Symbol op)  -> Either (Exists (PreOpenAcc (Clustered op) aenv)) (Exists (PreOpenAfun (Clustered op) aenv))
 openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symbols =
   case mlab of
   Just l  -> Right $ makeASTF labelenv l mempty
@@ -190,7 +192,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
     -- Those are stored in the 'prev' argument.
     -- Note also that we currently assume that the final cluster is the return argument: If all computations are relevant
     -- and our analysis is sound, the return argument should always appear last. If not.. oops
-    makeAST :: forall env. BuffersEnv env -> [ClusterL] -> M.Map (Label Comp) (Exists (PreOpenAcc (Clustered op) env)) -> Exists (PreOpenAcc (Clustered op) env)
+    makeAST :: forall env. HasCallStack => BuffersEnv env -> [ClusterL] -> M.Map (Label Comp) (Exists (PreOpenAcc (Clustered op) env)) -> Exists (PreOpenAcc (Clustered op) env)
     makeAST _ [] _ = error "empty AST"
     makeAST env [cluster] prev = case makeCluster env cluster of
       Fold c args -> Exists $ Exec c $ unlabelop args
@@ -202,17 +204,10 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
         SExe'{}    -> error "should be Fold/InitFold!"
         SUse se  n be             -> Exists $ Use se n be
         SITE env' c t f   -> case (makeAST env (subcluster t) prev, makeAST env (subcluster f) prev) of
-          (Exists tacc, Exists facc) -> Exists $ tryBuildAcond
-            (fromJust $ reindexVar (mkReindexPartial env' env) c)
-            tacc
-            facc
+          (Exists tacc, Exists facc) -> Exists $ tryBuildAcond (fromJust $ reindexVar (mkReindexPartial env' env) c) tacc facc
         SWhl env' c b i u -> case (subcluster c, subcluster b) of
           (findTopOfF -> c', findTopOfF -> b') -> case (makeASTF env c' prev, makeASTF env b' prev) of
-            (Exists cfun, Exists bfun) -> Exists $ tryBuildAwhile
-              u
-              cfun
-              bfun
-              (fromJust $ reindexVars (mkReindexPartial env' env) i)
+            (Exists cfun, Exists bfun) -> Exists $ tryBuildAwhile u cfun bfun (fromJust $ reindexVars (mkReindexPartial env' env) i)
         SLet {} -> error "let without scope"
         SFun {} -> error "wrong type: function"
         SBod {} -> error "wrong type: function"
@@ -241,7 +236,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
                   _ -> error "nope"
                 NonExecL _ -> makeAST env ctail $ foldC (`M.insert` res) prev cluster
 
-    makeASTF :: forall env. BuffersEnv env -> Label Comp -> M.Map (Label Comp) (Exists (PreOpenAcc (Clustered op) env)) -> Exists (PreOpenAfun (Clustered op) env)
+    makeASTF :: forall env. HasCallStack => BuffersEnv env -> Label Comp -> M.Map (Label Comp) (Exists (PreOpenAcc (Clustered op) env)) -> Exists (PreOpenAfun (Clustered op) env)
     makeASTF env l prev = case makeCluster env (NonExecL l) of
       NotFold (SBod _) -> case makeAST env (subcluster l) prev of
         --  fromJust $ l' ^. parent) prev of
@@ -272,7 +267,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
                       NonExec l -> [NonExecL l])) subclustersmap
     subcluster l = subclusters !?? l
 
-    makeCluster :: BuffersEnv env -> ClusterL -> FoldType op env
+    makeCluster :: HasCallStack => BuffersEnv env -> ClusterL -> FoldType op env
     makeCluster env (ExecL ls) =
        foldr1 (flip fuseCluster)
                     $ map ( \l -> case symbols !?? l of
@@ -281,7 +276,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
                               -- the `foldr1`, the input argument will dissapear. The output argument does not:
                               -- we clean that up in the SLV pass, if this was vertical fusion. If this is diagonal fusion,
                               -- it stays.
-                              SExe' env' args op -> InitFold op l (fromJust $ reindexLabelledArgsOp (mkReindexPartial env' env) args)
+                              SExe' env' args op -> InitFold op l (fromJust . trace ("env:  " ++ show env ++ "\nenv': " ++ show env') $ reindexLabelledArgsOp (mkReindexPartial env' env) args)
                               _                  -> error "avoid this next refactor" -- c -> NotFold c
                           ) ls
     makeCluster _ (NonExecL l) = NotFold $ symbols !?? l

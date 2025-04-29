@@ -28,6 +28,7 @@ import Data.Function ((&))
 import qualified Data.Set as Set
 import Lens.Micro ((^.), (<>~))
 import Data.Maybe (isJust)
+import Debug.Trace
 -- import Data.Array.Accelerate.Trafo.Partitioning.ILP.HiGHS
 
 data Benchmarking = GreedyUp | GreedyDown | NoFusion
@@ -76,7 +77,7 @@ ilpFusion' :: (MakesILP op, ILPSolver s op)
            -> x
            -> y
 ilpFusion' k1 k2 s obj acc = unsafePerformIO $ do
-    writeFile "ilp.dot" $ toDOT (fusionILP'^.graph)
+    writeFile "ilp.dot" $ toDOT (fusionILP'^.graph) symbolTable'
     return fusedAcc
   where
     (fusionILP', symbolTable)       = k1 acc
@@ -84,7 +85,7 @@ ilpFusion' k1 k2 s obj acc = unsafePerformIO $ do
     ilp                             = makeILP obj fusionILP'
     solution                        = solve' ilp
     interpreted                     = interpretSolution solution
-    (labelClusters, labelClustersM) = splitExecs interpreted symbolTable'
+    (labelClusters, labelClustersM) = traceShowId $ splitExecs interpreted symbolTable'
     fusedAcc                        = k2 (fusionILP'^.graph) labelClusters labelClustersM symbolTable'
     solve' x = unsafePerformIO (solve s x) & \case
       Nothing -> error "Accelerate: No ILP solution found"

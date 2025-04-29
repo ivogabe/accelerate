@@ -561,11 +561,26 @@ data Symbol (op :: Type -> Type) where
   SWhl  :: BuffersEnv env -> Label Comp -> Label Comp -> GroundVars env bnd -> Uniquenesses bnd -> Symbol op
   SLet  ::                   BoundGLHS bnd env env' -> Label Comp           -> Uniquenesses bnd -> Symbol op
   SFun  ::                   BoundGLHS bnd env env' -> Label Comp                               -> Symbol op
-  SBod  ::                   Label Comp                                                         -> Symbol op
+  SBod  ::                   BuffersTup a                                                       -> Symbol op
   SRet  :: BuffersEnv env -> GroundVars env a                                                   -> Symbol op
   SCmp  :: BuffersEnv env -> Exp env a                                                          -> Symbol op
   SAlc  :: BuffersEnv env -> ShapeR sh -> ScalarType e -> ExpVars env sh                        -> Symbol op
   SUnt  :: BuffersEnv env -> ExpVar env e                                                       -> Symbol op
+
+instance Show (Symbol op) where
+  show :: Symbol op -> String
+  show (SExe {}) = "Exe"
+  show (SExe'{}) = "Exe'"
+  show (SUse {}) = "Use"
+  show (SITE {}) = "ITE"
+  show (SWhl {}) = "Whl"
+  show (SLet {}) = "Let"
+  show (SFun {}) = "Fun"
+  show (SBod {}) = "Bod"
+  show (SRet {}) = "Ret"
+  show (SCmp {}) = "Cmp"
+  show (SAlc {}) = "Alc"
+  show (SUnt {}) = "Unt"
 
 -- | Mapping from labels to symbols.
 type Symbols op = Map (Label Comp) (Symbol op)
@@ -766,24 +781,24 @@ freshBuff = do
 -- | Read from a buffer and be fusisble with its writers.
 (--->) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (--->) b c = do
-  traceM $ "(--->) " ++ show b ++ " " ++ show c
+  -- traceM $ "(--->) " ++ show b ++ " " ++ show c
   ws <- use $ writers b
-  traceM $ "  ws <- " ++ show ws
+  -- traceM $ "  ws <- " ++ show ws
   fusionILP %= c `reads` b
   fusionILP %= ws --|b|-> c
   readers b %= S.insert c
-  traceM $ "  readers " ++ show b ++ " %= insert " ++ show c
+  -- traceM $ "  readers " ++ show b ++ " %= insert " ++ show c
 
 -- | Read from a buffer and be infusible with its writers.
 (===>) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (===>) b c = do
-  traceM $ "(===>) " ++ show b ++ " " ++ show c
+  -- traceM $ "(===>) " ++ show b ++ " " ++ show c
   ws <- use $ writers b
-  traceM $ "  ws <- " ++ show ws
+  -- traceM $ "  ws <- " ++ show ws
   fusionILP %= c `reads` b
   fusionILP %= ws ==|b|=> c
   readers b %= S.insert c
-  traceM $ "  readers " ++ show b ++ " %= insert " ++ show c
+  -- traceM $ "  readers " ++ show b ++ " %= insert " ++ show c
 
 -- | Write to a buffer.
 --
@@ -794,18 +809,18 @@ freshBuff = do
 -- 4. We clear the readers of the buffer.
 (<===) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<===) b c = do
-  traceM $ "(<===) " ++ show b ++ " " ++ show c
+  -- traceM $ "(<===) " ++ show b ++ " " ++ show c
   rs <- use $ readers b
-  traceM $ "  rs <- " ++ show rs
+  -- traceM $ "  rs <- " ++ show rs
   ws <- use $ writers b
-  traceM $ "  ws <- " ++ show ws
+  -- traceM $ "  ws <- " ++ show ws
   fusionILP %= c `writes` b
   fusionILP %= rs ==|-|=> c
   fusionILP %= ws ==|-|=> c
   writers b .= S.singleton c
-  traceM $ "  writers " ++ show b ++ " .= " ++ show (S.singleton c)
+  -- traceM $ "  writers " ++ show b ++ " .= " ++ show (S.singleton c)
   readers b .= S.empty
-  traceM $ "  readers " ++ show b ++ " .= empty"
+  -- traceM $ "  readers " ++ show b ++ " .= empty"
 
 -- | Mutate a buffer.
 --
@@ -816,19 +831,19 @@ freshBuff = do
 -- 4. We clear the readers of the buffer.
 (<==>) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<==>) b c = do
-  traceM $ "(<==>) " ++ show b ++ " " ++ show c
+  -- traceM $ "(<==>) " ++ show b ++ " " ++ show c
   rs <- use $ readers b
-  traceM $ "  rs <- " ++ show rs
+  -- traceM $ "  rs <- " ++ show rs
   ws <- use $ writers b
-  traceM $ "  ws <- " ++ show ws
+  -- traceM $ "  ws <- " ++ show ws
   fusionILP %= c `reads` b
   fusionILP %= c `writes` b
   fusionILP %= rs ==|-|=> c
   fusionILP %= ws ==|b|=> c
   writers b .= S.singleton c
-  traceM $ "  writers " ++ show b ++ " .= " ++ show (S.singleton c)
+  -- traceM $ "  writers " ++ show b ++ " .= " ++ show (S.singleton c)
   readers b .= S.empty
-  traceM $ "  readers " ++ show b ++ " .= empty"
+  -- traceM $ "  readers " ++ show b ++ " .= empty"
 
 -- | Mutate a buffer with the identity function, preventing fusion.
 --
@@ -836,9 +851,9 @@ freshBuff = do
 -- Because of this, we now don't need to enforce rules 1 and 4 from '(<==>)'.
 (<-->) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
 (<-->) b c = do
-  traceM $ "(<-->) " ++ show b ++ " " ++ show c
+  -- traceM $ "(<-->) " ++ show b ++ " " ++ show c
   ws <- use $ writers b
-  traceM $ "  ws <- " ++ show ws
+  -- traceM $ "  ws <- " ++ show ws
   fusionILP %= c `reads` b
   fusionILP %= c `writes` b
   fusionILP %= ws ==|b|=> c
@@ -875,7 +890,6 @@ mkFullGraphF acc = (s^.fusionILP, s^.symbols)
 mkFullGraph' :: forall op env t. MakesILP op
              => FullGraphMaker PreOpenAcc op env t (BuffersTup t)
 mkFullGraph' (Exec op args) = do
-  traceM $ "Exec _ " ++ show args
   lenv <- use buffersEnv
   renv <- use readersEnv
   wenv <- use writersEnv
@@ -976,8 +990,7 @@ mkFullGraphF' (Abody acc) = do
   c <- freshComp
   zoom (scope c) do
     res  <- mkFullGraph' acc
-    resW <- traverse (use . allWriters) res
-    symbols %= M.insert c (SBod (fromSingletonSet $ fold resW))
+    symbols %= M.insert c (SBod res)
     return (unsafeCoerce res)
 
 mkFullGraphF' (Alam lhs f) = do
@@ -1085,7 +1098,6 @@ unprotected l f s = (\s' -> s & l .~ s'^.l) <$> f s
 with :: Lens' s a -> a -> Lens' s s
 with l a f s = (l .~ s^.l) <$> f (s & l .~ a)
 
-
 -- | Converts a singleton set into a value.
 --
 -- This function is partial and will throw an error if the set is not singleton.
@@ -1093,21 +1105,18 @@ fromSingletonSet :: HasCallStack => Set a -> a
 fromSingletonSet (S.toList -> [x]) = x
 fromSingletonSet _ = error "fromSingletonSet: Set is not singleton."
 
-traceWith :: (a -> String) -> a -> a
-traceWith f a = trace (f a) a
-
 
 --------------------------------------------------------------------------------
 -- Converting Graphs to DOT
 --------------------------------------------------------------------------------
 
 -- | Converts a graph to a DOT representation.
-toDOT :: FusionGraph -> String
-toDOT g = "strict digraph {\n" ++
+toDOT :: FusionGraph -> Symbols op -> String
+toDOT g syms = "strict digraph {\n" ++
     -- Make all computation nodes boxes:
-    concatMap (\c -> "  <" ++ show c ++ "> [shape=box];\n") (g^.computationNodes) ++
+    concatMap (\c -> "  <" ++ show c ++ "> [shape=box, label=\"" ++ show (syms M.! c) ++ show (c^.labelId) ++ "\"];\n") (g^.computationNodes) ++
     -- Make all buffer nodes circles:
-    concatMap (\b -> "  <" ++ show b ++ "> [shape=circle];\n") (g^.bufferNodes) ++
+    concatMap (\b -> "  <" ++ show b ++ "> [shape=circle, label=\"B" ++ show (b^.labelId) ++ "\"];\n") (g^.bufferNodes) ++
     -- Make all read and write edges:
     concatMap (\(b, c) -> "  <" ++ show b ++ "> -> <" ++ show c ++ "> [];\n") (g^.readEdges) ++
     concatMap (\(c, b) -> "  <" ++ show c ++ "> -> <" ++ show b ++ "> [];\n") (g^.writeEdges) ++
