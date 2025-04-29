@@ -4,6 +4,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve where
 

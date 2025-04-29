@@ -47,7 +47,7 @@ import Data.Array.Accelerate.Type (ScalarType)
 import Data.Array.Accelerate.Representation.Array
 import Data.Bifunctor (Bifunctor(..))
 import Data.Maybe (fromJust, fromMaybe)
-import Data.List.NonEmpty
+import Data.List
 import Debug.Trace
 
 
@@ -100,11 +100,14 @@ asBuff f l = coerce <$> f (coerce l)
 
 instance Show (Label Comp) where
   show :: Label Comp -> String
-  show l = maybe "" ((++ ".") . show) (l^.parent) ++ "C" ++ show (l^.labelId)
+  show c = "C" ++ intercalate "." (map show . reverse $ labelIds c)
 
 instance Show (Label Buff) where
   show :: Label Buff -> String
-  show l = maybe "" ((++ ".") . show) (l^.parent) ++ "B" ++ show (l^.labelId)
+  show b = "B" ++ intercalate "." (map show . reverse $ labelIds b)
+
+labelIds :: Label t -> [Int]
+labelIds (Label i p) = i : maybe [] labelIds p
 
 instance Eq (Label t) where
   (==) :: Label t -> Label t -> Bool
