@@ -154,7 +154,7 @@ topSort singletons (FusionGraph _ _ _ _ strictEdges dataflowEdges) cluster symbo
 
     getOrder :: LabelledArgsOp op env args -> Label Buff -> BackendArg op
     getOrder ArgsNil _ = error "can't get readorder"
-    getOrder (LOp (ArgArray In _ _ _) (_,deps) b :>: args) buff
+    getOrder (LOp (ArgArray In _ _ _) (_,deps,_) b :>: args) buff
       | buff `S.member` deps = b
       | otherwise = getOrder args buff
     getOrder (_ :>: args) buff = getOrder args buff
@@ -301,7 +301,7 @@ data FoldType op env
 
 
 louttovar :: LabelledArgOp op env (Out sh e) -> LabelledArgOp op env (Var' sh)
-louttovar (LOp a (_,ls) b) = LOp (outvar a) (NotArr, ls) b -- unsafe marker: maybe this NotArr ends up a problem?
+louttovar (LOp a (_,ls,sh) b) = LOp (outvar a) (NotArr, ls, sh) b -- unsafe marker: maybe this NotArr ends up a problem?
 
 tryUpdateList :: (a -> Bool) -> (a -> a) -> [a] -> Maybe [a]
 tryUpdateList _ _ [] = Nothing
@@ -334,9 +334,9 @@ consCluster l lop op lcluster cluster k = singleton l lop op $ \c lop' ->
 
 fuseVertically :: LabelledArgOp op env (Out sh e) -> LabelledArgOp op env (In sh e) -> LabelledArgOp op env (Var' sh)
 fuseVertically
-  (LOp (ArgArray Out (ArrayR shr _) sh _) (_, ls) b)
-  (LOp (ArgArray In _ _ _) (_, ls') _)
-  = LOp (ArgVar $ groundToExpVar (shapeType shr) sh) (NotArr, ls<>ls') b
+  (LOp (ArgArray Out (ArrayR shr _) sh _) (_, bs, ss) b)
+  (LOp (ArgArray In _ _ _) (_, bs', ss') _)
+  = LOp (ArgVar $ groundToExpVar (shapeType shr) sh) (NotArr, bs<>bs', ss<>ss') b
 
 instance NFData' op => NFData' (Clustered op) where
   rnf' :: NFData' op => Clustered op a -> ()

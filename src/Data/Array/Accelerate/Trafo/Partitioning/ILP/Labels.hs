@@ -20,6 +20,8 @@ either be a computation or a buffer.
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels where
 
 import Data.Array.Accelerate.AST.Operation
@@ -417,15 +419,22 @@ can therefore not be fused.
 --   array or not, and if so, which buffers it is associated with as a 'TupF'.
 data ArgIsArray t where
   -- | The argument is an array.
-  Arr    :: EnvLabelTup e  -- ^ The array (as structure-of-arrays).
-         -> ArgIsArray (m sh e)
+  Arr :: EnvLabelTup e  -- ^ The array (as structure-of-arrays).
+      -> ArgIsArray (m sh e)
   -- | The argument is a scalar 'Var'', 'Exp'' or 'Fun''.
   NotArr :: ArgIsArray (t e)
 
 deriving instance Show (ArgIsArray t)
 
--- | An 'ArgIsArray' and all dependencies of the argument.
-type ArgLabels t = (ArgIsArray t, Labels Buff)
+-- | An 'ArgIsArray', all dependencies of the argument, and all shape
+--   dependencies of the argument.
+--
+-- The first set of buffers contains all dependencies of the argument.
+-- The second set of buffers contains only those dependencies that represent
+-- the shape of the argument.
+-- This means that the second set of buffers is a subset of the first set of
+-- buffers.
+type ArgLabels t = (ArgIsArray t, Labels Buff, Labels Buff)
 
 -- | The argument to a function paired with 'ArgLabels'
 data LabelledArg env t = L (Arg env t) (ArgLabels t)
@@ -442,14 +451,13 @@ labelArgs (arg :>: args) env =
 
 -- | Get the 'ArgLabels' associated with 'Arg' from 'BuffersEnv'.
 getArgLabels :: Arg env t -> BuffersEnv env -> ArgLabels t
-getArgLabels (ArgVar vars) env = (NotArr, getVarsDeps vars env)
-getArgLabels (ArgExp exp)  env = (NotArr, getExpDeps  exp  env)
-getArgLabels (ArgFun fun)  env = (NotArr, getFunDeps  fun  env)
-getArgLabels (ArgArray _ (ArrayR _ tp) sh bu) env
-  | (_       , shBs) <- getVarsFromEnv sh env
-  , (Arr buEs, buBs) <- getVarsFromEnv bu env
-  = (unbuffers tp $ Arr buEs, fold shBs <> fold buBs)
-getArgLabels _ _ = error "getArgLabels: Inaccessible left-hand side."
+getArgLabels (ArgVar vars) env = (NotArr, getVarsDeps vars env, mempty)
+getArgLabels (ArgExp exp)  env = (NotArr, getExpDeps  exp  env, mempty)
+getArgLabels (ArgFun fun)  env = (NotArr, getFunDeps  fun  env, mempty)
+getArgLabels (ArgArray _ (ArrayR _ tp) sh arr) env
+  | (_     , fold ->  sh_bs) <- getVarsFromEnv sh  env
+  , (arr_es, fold -> arr_bs) <- getVarsFromEnv arr env
+  = (unbuffers tp arr_es, arr_bs <> sh_bs, sh_bs)
 
 -- | Get the values associated with 'Vars' from 'BuffersEnv'.
 getVarsFromEnv :: Vars a env b -> BuffersEnv env -> (ArgIsArray (m sh b), BuffersTup b)
@@ -638,28 +646,34 @@ forLArgs_ :: Applicative f => LabelledArgs env t -> (forall s. LabelledArg env s
 forLArgs_ largs f = traverseLArgs_ f largs
 {-# INLINE forLArgs_ #-}
 
--- | Select the labelled arguments that satisfy the predicate.
-selectLArgs :: (forall s. LabelledArg env s -> Bool) -> LabelledArgs env t -> Labels Buff
-selectLArgs f = foldMapLArgs (\arg@(L _ (_,bs)) -> if f arg then bs else mempty)
-{-# INLINE selectLArgs #-}
+-- | All arrays that the function reads from. This includes the shapes.
+inputArrays :: LabelledArgs env t -> Labels Buff
+inputArrays = foldMapLArgs \case
+  L (ArgArray In  _ _ _) (Arr _, deps,  _) -> deps
+  L (ArgArray Mut _ _ _) (Arr _, deps,  _) -> deps
+  L (ArgArray Out _ _ _) (Arr _,    _, sh) -> sh
+  _ -> mempty
 
-inArr :: LabelledArg env t -> Bool
-inArr (L (ArgArray In  _ _ _) _) = True
-inArr (L (ArgArray Mut _ _ _) _) = True
-inArr _ = False
+-- | All arrays that the function writes to. This does not include the shapes.
+outputArrays :: LabelledArgs env t -> Labels Buff
+outputArrays = foldMapLArgs \case
+  L (ArgArray Out _ _ _) (Arr _, deps, sh) -> deps S.\\ sh
+  L (ArgArray Mut _ _ _) (Arr _, deps, sh) -> deps S.\\ sh
+  _ -> mempty
 
-outArr :: LabelledArg env t -> Bool
-outArr (L (ArgArray Out _ _ _) _) = True
-outArr (L (ArgArray Mut _ _ _) _) = True
-outArr _ = False
-
-notArr :: LabelledArg env t -> Bool
-notArr (L _ (NotArr, _)) = True
-notArr _ = False
-
+-- | All arguments that are not arrays.
+notArrays :: LabelledArgs env t -> Labels Buff
+notArrays = foldMapLArgs \case
+  L _ (NotArr, bs, _) -> bs
+  _ -> mempty
 
 
 
+--------------------------------------------------------------------------------
+-- Debugging
+--------------------------------------------------------------------------------
+
+-- | Trace a value using a function to format the output.
 traceWith :: (Show a) => (a -> String) -> a -> a
 traceWith f x = trace (f x) x
 {-# INLINE traceWith #-}
