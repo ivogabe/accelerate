@@ -955,31 +955,31 @@ mkFullGraph' (Use sctype n buff) = do
 mkFullGraph' (Acond cond tacc facc) = do
   lenv    <- use buffersEnv
   c_cond  <- freshComp
-  c_true  <- freshComp
-  c_false <- freshComp
-  getVarDeps cond lenv ===> c_cond
-  symbol c_cond ?= SITE lenv cond c_true c_false
-  (t_res, t_renv, t_wenv) <- block c_true  mkFullGraph' tacc
-  (f_res, f_renv, f_wenv) <- block c_false mkFullGraph' facc
-  readersEnv .= M.unionWith S.union t_renv f_renv
-  writersEnv .= M.unionWith S.union t_wenv f_wenv
-  let res = t_res <> f_res
-  fold res <--> c_cond
-  return res
+  zoom (scope c_cond) do
+    c_true  <- freshComp
+    c_false <- freshComp
+    getVarDeps cond lenv ===> c_cond
+    symbol c_cond ?= SITE lenv cond c_true c_false
+    (t_res, t_renv, t_wenv) <- block c_true  mkFullGraph' tacc
+    (f_res, f_renv, f_wenv) <- block c_false mkFullGraph' facc
+    readersEnv .= M.unionWith S.union t_renv f_renv
+    writersEnv .= M.unionWith S.union t_wenv f_wenv
+    let res = t_res <> f_res
+    return res
 
 mkFullGraph' (Awhile u cond body init) = do
   lenv    <- use buffersEnv
   c_while <- freshComp
-  c_cond  <- freshComp
-  c_body  <- freshComp
-  getVarsDeps init lenv ===> c_while
-  symbol c_while ?= SWhl lenv c_cond c_body init u
-  (_                  , cond_renv, cond_wenv) <- block c_cond mkFullGraphF' cond
-  (unsafeCoerce -> res, body_renv, body_wenv) <- block c_body mkFullGraphF' body
-  readersEnv .= M.unionWith S.union cond_renv body_renv
-  writersEnv .= M.unionWith S.union cond_wenv body_wenv
-  fold res <--> c_while
-  return res
+  zoom (scope c_while) do
+    c_cond  <- freshComp
+    c_body  <- freshComp
+    getVarsDeps init lenv ===> c_while
+    symbol c_while ?= SWhl lenv c_cond c_body init u
+    (_                  , cond_renv, cond_wenv) <- block c_cond mkFullGraphF' cond
+    (unsafeCoerce -> res, body_renv, body_wenv) <- block c_body mkFullGraphF' body
+    readersEnv .= M.unionWith S.union cond_renv body_renv
+    writersEnv .= M.unionWith S.union cond_wenv body_wenv
+    return res
 
 
 
@@ -988,31 +988,29 @@ mkFullGraphF' :: forall op env t. MakesILP op
 mkFullGraphF' (Abody acc) = do
   c <- freshComp
   zoom (scope c) do
-    res  <- mkFullGraph' acc
+    res <- mkFullGraph' acc
     symbol c ?= SBod res
     return (unsafeCoerce res)
 
 mkFullGraphF' (Alam lhs f) = do
   lenv <- use buffersEnv
   (S.singleton -> b, c) <- freshBuff
-  lenv'  <- zoom currEnvL (weakenEnv lhs (tupFlike (lhsToTupR lhs) b) lenv)
-  res    <- zoom (local lenv') (mkFullGraphF' f)
-  resW   <- traverse (use . allWriters) res
+  lenv'<- zoom currEnvL (weakenEnv lhs (tupFlike (lhsToTupR lhs) b) lenv)
+  res  <- zoom (local lenv') (mkFullGraphF' f)
+  resW <- traverse (use . allWriters) res
   symbol c ?= SFun (bindLHS lhs lenv') (fromSingletonSet $ fold resW)
   return res
 
 
--- | A block is a subcomputation that is executed under the scope of another
---   computation.
+
+-- | Helper for if-then-else and while loop blocks.
 block :: HasCallStack => Label Comp -> FullGraphMaker f op env t (BuffersTup r)
       -> FullGraphMaker f op env t (BuffersTup r, ReadersEnv, WritersEnv)
 block c f x = zoom (scope c . protected writersEnv . protected readersEnv) do
   res  <- f x
-  -- for_ res $ traverse_ (<--> c)  -- TODO: This generates a reflexive edge?
   renv <- use readersEnv
   wenv <- use writersEnv
   return (res, renv, wenv)
-
 
 -- | Type of functions that take an AST and produce a graph.
 type FullGraphMaker f op env t r = f op env t -> State (FullGraphState op env) r

@@ -76,7 +76,7 @@ Within each cluster (Labels), we do a topological sort using the edges in Graph
 Data.Graph (containers) has a nice topological sort.
 -}
 
-(!??) :: (Ord a1, Show a1) => M.Map a1 a2 -> a1 -> a2
+(!??) :: (Ord a1, Show a1, HasCallStack) => M.Map a1 a2 -> a1 -> a2
 map' !?? key = case map' M.!? key of
   Just x -> x
   Nothing -> error ("error: map with keys " <> show (M.keys map') <> " does not contain key " <> show key)
