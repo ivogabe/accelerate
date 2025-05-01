@@ -18,13 +18,13 @@ import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.AST.Operation
     ( OperationAcc, OperationAfun )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
-    ( ILPSolver, solve, (.==.), int )
+    ( ILPSolver, solve, (.==.), int, Solution )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP
     ( cbc, cplex, glpsol, gurobiCl, lpSolve, scip, MIP(..) )
 
 import System.IO.Unsafe (unsafePerformIO)
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Label, LabelType(..))
-import Data.Map (Map)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Label, LabelType(..), traceWith)
+import Data.Map (Map, toList, foldMapWithKey)
 import qualified Data.Array.Accelerate.Pretty.Operation as Pretty
 import Data.Function ((&))
 import qualified Data.Set as Set
@@ -85,13 +85,24 @@ ilpFusion' k1 k2 s obj acc = unsafePerformIO $ do
     (fusionILP', symbolTable)       = k1 acc
     symbolTable'                    = attachBackendLabels solution symbolTable
     ilp                             = makeILP obj fusionILP'
-    solution                        = solve' ilp
-    interpreted                     = interpretSolution solution
-    (labelClusters, labelClustersM) = splitExecs interpreted symbolTable'
+    solution                        = traceWith ppSolution $ solve' ilp
+    interpreted                     = traceWith ppScopedClusters $ interpretSolution solution
+    (labelClusters, labelClustersM) = traceWith ppScopedClusters $ splitExecs interpreted symbolTable'
     fusedAcc                        = k2 (fusionILP'^.graph) labelClusters labelClustersM symbolTable'
     solve' x = unsafePerformIO (solve s x) & \case
       Nothing -> error "Accelerate: No ILP solution found"
       Just y -> y
+
+ppSolution :: MakesILP op => Solution op -> String
+ppSolution solution = "solution: " ++ foldMap (\(k,v) -> "\n" ++ show k ++ " == " ++ show v) (toList solution)
+
+ppList :: Show a => [a] -> String
+ppList [] = "[]"
+ppList [x] = "[" ++ show x ++ "]"
+ppList (x:xs) = "[ " ++ show x ++ foldMap (\x -> "\n, " ++ show x) xs ++ "\n]"
+
+ppScopedClusters :: (Show k, Show v) => ([v], Map k [v]) -> String
+ppScopedClusters (top, sub) = "top =\n" ++ ppList top ++ foldMapWithKey (\k v -> "\n" ++ show k ++ " =\n" ++ ppList v) sub
 
 -- for benchmarking: make all edges infusible
 -- note: does allow for horizontal fusion!
