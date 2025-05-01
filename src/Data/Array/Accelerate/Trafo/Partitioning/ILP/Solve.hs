@@ -173,33 +173,29 @@ makeILP obj (FusionILP graph@(FusionGraph bufferNodes computationNodes _ _ stric
 -- Extract the fusion information (ordered list of clusters of Labels) (head is the first cluster).
 -- Output has the top-level clusters in fst, and the rest in snd.
 interpretSolution :: MakesILP op => Solution op -> ([Labels Comp], M.Map (Label Comp) [Labels Comp])
-interpretSolution
-  = (\(x:xs) ->
-      ( x
-      , M.fromList $
-            map
-            (\l ->
-              ( fromJust -- All labels in the Map will have a parent, only the top clusters can have Nothing as parent (depending on whether we have an Acc or an Afun)
-              . view parent
-              . S.findMin -- `head` and `findMin` just to get _any_ element:
-              . head      -- there is at least one and the parents are all identical
-              $ l
-              , l))
-            xs))
-  . map
-    ( map
-      ( S.fromList
-      . map fst)
-    . partition snd)
-  . partition (^. _1.parent)
-  . mapMaybe (_1 fromPi)
-  . M.toList
+interpretSolution sol = do
+  let            piVars  = mapMaybe (_1 fromPi) (M.toList sol)               -- Take the Pi variables.
+  let      scopedPiVars  = partition (^._1.parent) piVars                    -- Partition them by their parent (i.e. the scope they are in).
+  let   clusteredPiVars  = map (partition snd) scopedPiVars                  -- Partition them again by their cluster (i.e. the value of the variable).
+  let    scopedClusters  = map (map $ S.fromList . map fst) clusteredPiVars  -- Remove the cluster numbers and convert each cluster to a set.
+  let       topClusters  = head scopedClusters  -- The first scope in the list is the top-level scope.
+  let subScopedClusters  = tail scopedClusters  -- The rest of the scopes are arbitrarily nested sub-scopes.
+  let subScopedClustersM = M.fromList $ map (\s -> (scopeLabel s, s)) subScopedClusters
+  (topClusters, subScopedClustersM)
   where
+    fromPi :: Var op -> Maybe (Label Comp)
     fromPi (Pi l) = Just l
     fromPi _      = Nothing
 
-    -- groupBy only really does what you want on a sorted list
-    partition f = groupBy ((==) `on` f) . sortOn f
+    scopeLabel :: [Labels Comp] -> Label Comp
+    scopeLabel = fromJust . view parent . S.findMin . head
+
+
+
+-- | `groupBy` except it's equivalent to SQL's `GROUP BY` clause. I.e. the
+-- groups
+partition :: Ord b => (a -> b) -> [a] -> [[a]]
+partition f = groupBy (on (==) f) . sortOn f
 
 -- | Cluster labels, distinguishing between execute and non-execute labels.
 data ClusterLs = Execs (Labels Comp) | NonExec (Label Comp)
@@ -215,11 +211,14 @@ splitExecs (xs, xM) symbolMap = (f xs, M.map f xM)
     f :: [Labels Comp] -> [ClusterLs]
     f = concatMap (\ls -> filter (/= Execs mempty) $ map NonExec (S.toList $ S.filter isNonExec ls) ++ [Execs (S.filter isExec ls)])
 
+    isExec :: Label Comp -> Bool
     isExec l = case symbolMap M.!? l of
       Just SExe {} -> True
       Just SExe'{} -> True
       _ -> False
-    isNonExec l = not $ isExec l
+
+    isNonExec :: Label Comp -> Bool
+    isNonExec = not . isExec
 
 -- Only needs Applicative
 newtype MonadMonoid f m = MonadMonoid { getMonadMonoid :: f m }
