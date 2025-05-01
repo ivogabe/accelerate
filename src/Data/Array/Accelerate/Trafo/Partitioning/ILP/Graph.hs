@@ -46,11 +46,12 @@ import Lens.Micro
 import Lens.Micro.Mtl
 
 import Control.Monad.State.Strict (State, runState)
-import Data.Foldable ( Foldable(fold, foldl'), for_, traverse_ )
+import Data.Foldable ( Foldable(fold, foldl', foldr'), for_, traverse_ )
 import Data.Kind (Type)
 import Unsafe.Coerce (unsafeCoerce)
 import Data.Coerce (coerce)
 import Debug.Trace
+import Control.Monad.Except(ExceptT, runExceptT, throwError, catchError)
 
 --------------------------------------------------------------------------------
 -- Fusion Graph
@@ -191,15 +192,15 @@ insertWrite (c, b) = writeEdges %~ S.insert (c, b)
 -- | Insert a strict relation between two computations.
 insertStrict :: (HasCallStack, HasFusionGraph g) => StrictEdge -> g -> g
 insertStrict (c1, c2)
-  | c1 == c2  = error $ "strict: Reflexive edge " ++ show (c1, c2)
+  | c1 == c2  = error $ "insertStrict " ++ show (c1, c2) ++ ": Reflexive edge"
   | otherwise = strictEdges %~ S.insert (c1, c2)
 
 -- | Insert a fusible data-flow edge between two computations.
 insertFusible :: (HasCallStack, HasFusionGraph g) => DataflowEdge -> g -> g
 insertFusible (c1, b, c2) g
-  | S.notMember (c1, b) (g^.writeEdges) = error $ "fusible: Missing write " ++ show (c1, b)
-  | S.notMember (b, c2) (g^.readEdges)  = error $ "fusible: Missing read " ++ show (b, c2)
-  | c1 == c2  = error $ "fusible: Reflexive edge " ++ show (c1, c2)
+  | S.notMember (c1, b) (g^.writeEdges) = error $ "insertFusible " ++ show (c1, b, c2) ++ ": Missing write"
+  | S.notMember (b, c2) (g^.readEdges)  = error $ "insertFusible " ++ show (c1, b, c2) ++ ": Missing read"
+  | c1 == c2  = error $ "insertFusible " ++ show (c1, b, c2) ++ ": Reflexive edge"
   | otherwise = g & dataflowEdges %~ S.insert (c1, b, c2)
 
 -- | Insert an infusible data-flow edge between two computations.
@@ -294,8 +295,7 @@ instance HasFusionGraph (FusionILP op) where
 -- a read relation between the buffer and all computations in its scope. All of
 -- these read edges should be equal in the ILP, which is enforced by 'readDir'.
 reads :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
-reads c b = fusionGraph %~ flip (foldl' (flip (insertRead . (b,)))) cs
-  where cs = allNonAncestors b c
+reads c b = fusionGraph %~ flip (foldr' (insertRead . (b,))) (allAncestors c)
 
 -- | Safely insert a write edge into the graph.
 --
@@ -303,16 +303,15 @@ reads c b = fusionGraph %~ flip (foldl' (flip (insertRead . (b,)))) cs
 -- a write relation between the buffer and all computations in its scope. All of
 -- these write edges should be equal in the ILP, which is enforced by 'writeDir'.
 writes :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
-writes c b = fusionGraph %~ flip (foldl' (flip (insertWrite . (,b)))) cs
-  where cs = allNonAncestors b c
+writes c b = fusionGraph %~ flip (foldr' (insertWrite . (,b))) (allAncestors c)
 
 -- | Safely insert read edges between multiple computations and a buffer.
 read :: Labels Comp -> Label Buff -> FusionILP op -> FusionILP op
-read cs b = flip (foldl' (flip (`reads` b))) cs
+read cs b = flip (foldr' (`reads` b)) cs
 
 -- | Safely insert write edges between multiple computations and a buffer.
 write :: Labels Comp -> Label Buff -> FusionILP op -> FusionILP op
-write cs b = flip (foldl' (flip (`writes` b))) cs
+write cs b = flip (foldr' (`writes` b)) cs
 
 -- | Safely add a strict relation between two computations.
 before :: HasCallStack => Label Comp -> Label Comp -> FusionILP op -> FusionILP op
@@ -754,6 +753,15 @@ readers b f s = f (M.findWithDefault mempty b (s^.readersEnv)) <&> \cs -> s & re
 allReaders :: (Foldable f, HasReadersEnv s) => f (Label Buff) -> SimpleGetter s (Labels Comp)
 allReaders bs = to (\s -> foldMap (\b -> s^.readers b) bs)
 
+-- | Lens for getting and setting symbol of a computation.
+symbol :: HasSymbols s op => Label Comp -> Lens' s (Maybe (Symbol op))
+symbol c = symbols.(`M.alterF` c)
+
+-- | Lens for getting and setting the allocator of a buffer. 'symbol' but for
+--   buffers.
+allocator :: HasSymbols s op => Label Buff -> Lens' s (Maybe (Symbol op))
+allocator = symbol . coerce
+
 -- | Lens for working under the scope of a computation.
 --
 -- It first sets the parent of the current label to the supplied computation
@@ -788,16 +796,16 @@ freshBuff = do
   return (b, c)
 
 -- | Read from a buffer and be fusisble with its writers.
-(--->) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
-(--->) b c = do
+(--->) :: HasCallStack => Labels Buff -> Label Comp -> State (FullGraphState op env) ()
+(--->) bs c = for_ bs \b -> do
   ws <- use $ writers b
   fusionILP %= c `reads` b
   fusionILP %= ws --|b|-> c
   readers b %= S.insert c
 
 -- | Read from a buffer and be infusible with its writers.
-(===>) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
-(===>) b c = do
+(===>) :: HasCallStack => Labels Buff -> Label Comp -> State (FullGraphState op env) ()
+(===>) bs c = for_ bs \b -> do
   ws <- use $ writers b
   fusionILP %= c `reads` b
   fusionILP %= ws ==|b|=> c
@@ -810,8 +818,8 @@ freshBuff = do
 -- 2. All writers run before the computation.
 -- 3. We become the sole writer of the buffer.
 -- 4. We clear the readers of the buffer.
-(<===) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
-(<===) b c = do
+(<===) :: HasCallStack => Labels Buff -> Label Comp -> State (FullGraphState op env) ()
+(<===) bs c = for_ bs \b -> do
   rs <- use $ readers b
   ws <- use $ writers b
   fusionILP %= c `writes` b
@@ -827,8 +835,8 @@ freshBuff = do
 -- 2. All writers are infusible with this computation.
 -- 3. We become the sole writer of the buffer.
 -- 4. We clear the readers of the buffer.
-(<==>) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
-(<==>) b c = do
+(<==>) :: HasCallStack => Labels Buff -> Label Comp -> State (FullGraphState op env) ()
+(<==>) bs c = for_ bs \b -> do
   rs <- use $ readers b
   ws <- use $ writers b
   fusionILP %= c `reads` b
@@ -842,8 +850,8 @@ freshBuff = do
 --
 -- This is a special case of mutation where the buffer is not actually changed.
 -- Because of this, we now don't need to enforce rules 1 and 4 from '(<==>)'.
-(<-->) :: HasCallStack => Label Buff -> Label Comp -> State (FullGraphState op env) ()
-(<-->) b c = do
+(<-->) :: HasCallStack => Labels Buff -> Label Comp -> State (FullGraphState op env) ()
+(<-->) bs c = for_ bs \b -> do
   ws <- use $ writers b
   fusionILP %= c `reads` b
   fusionILP %= c `writes` b
@@ -886,62 +894,62 @@ mkFullGraph' (Exec op args) = do
   wenv <- use writersEnv
   c    <- freshComp
   let labelledArgs = labelArgs args lenv
-  let  inArrs =  inputArrays labelledArgs
+  let inpArrs =  inputArrays labelledArgs
   let outArrs = outputArrays labelledArgs
   let notArrs =    notArrays labelledArgs
-  for_ ( inArrs `S.difference`   outArrs) (---> c)
-  for_ (outArrs `S.difference`    inArrs) (<=== c)
-  for_ ( inArrs `S.intersection` outArrs) (<==> c)
-  for_  notArrs                           (===> c)
+  inpArrs `S.difference`   outArrs ---> c
+  outArrs `S.difference`   inpArrs <=== c
+  inpArrs `S.intersection` outArrs <==> c
+  notArrs                          ===> c
   zoom (backendGraphState renv wenv) (mkGraph c op labelledArgs)
-  symbols %= M.insert c (SExe lenv labelledArgs op)
+  symbol c ?= SExe lenv labelledArgs op
   return TupFunit
 
 mkFullGraph' (Alet LeftHandSideUnit _ bnd scp)
   = mkFullGraph' bnd >> mkFullGraph' scp
 
 mkFullGraph' (Alet lhs u bnd scp) = do
+  c       <- freshComp
   lenv    <- use buffersEnv
   bndRes  <- mkFullGraph' bnd
   bndResW <- traverse (use . allWriters) bndRes
-  c       <- freshComp
-  for_ bndRes $ traverse_ (<--> c)
+  fold bndRes <--> c
   lenv' <- zoom currEnvL (weakenEnv lhs bndRes lenv)
-  symbols %= M.insert c (SLet (bindLHS lhs lenv') (fromSingletonSet $ fold bndResW) u)
+  symbol c ?= SLet (bindLHS lhs lenv') (fromSingletonSet $ fold bndResW) u
   zoom (local lenv') (mkFullGraph' scp)
 
 mkFullGraph' (Return vars) = do
   lenv <- use buffersEnv
   c    <- freshComp
   let (_, bs) = getVarsFromEnv vars lenv
-  for_ bs $ traverse_ (<--> c)
-  symbols %= M.insert c (SRet lenv vars)
+  fold bs <--> c
+  symbol c ?= SRet lenv vars
   return bs
 
 mkFullGraph' (Compute expr) = do
   lenv   <- use buffersEnv
   (b, c) <- freshBuff
-  for_ (getExpDeps expr lenv) (===> c)
-  symbols %= M.insert c (SCmp lenv expr)
+  getExpDeps expr lenv ===> c
+  symbol c ?= SCmp lenv expr
   return $ tupFlike (expType expr) (S.singleton b)
 
 mkFullGraph' (Alloc shr e sh) = do
   lenv   <- use buffersEnv
   (b, c) <- freshBuff
-  for_ (getVarsDeps sh lenv) (===> c)
-  symbols %= M.insert c (SAlc lenv shr e sh)
+  getVarsDeps sh lenv ===> c
+  symbol c ?= SAlc lenv shr e sh
   return $ TupFsingle (S.singleton b)
 
 mkFullGraph' (Unit v) = do
   lenv   <- use buffersEnv
   (b, c) <- freshBuff
-  for_ (getVarDeps v lenv) (===> c)
-  symbols %= M.insert c (SUnt lenv v)
+  getVarDeps v lenv ===> c
+  symbol c ?= SUnt lenv v
   return $ TupFsingle (S.singleton b)
 
 mkFullGraph' (Use sctype n buff) = do
   (b, c) <- freshBuff
-  symbols %= M.insert c (SUse sctype n buff)
+  symbol c ?= SUse sctype n buff
   return $ TupFsingle (S.singleton b)
 
 mkFullGraph' (Acond cond tacc facc) = do
@@ -949,14 +957,14 @@ mkFullGraph' (Acond cond tacc facc) = do
   c_cond  <- freshComp
   c_true  <- freshComp
   c_false <- freshComp
-  for_ (getVarDeps cond lenv) (===> c_cond)
-  symbols %= M.insert c_cond (SITE lenv cond c_true c_false)
+  getVarDeps cond lenv ===> c_cond
+  symbol c_cond ?= SITE lenv cond c_true c_false
   (t_res, t_renv, t_wenv) <- block c_true  mkFullGraph' tacc
   (f_res, f_renv, f_wenv) <- block c_false mkFullGraph' facc
-  readersEnv .= t_renv <> f_renv
-  writersEnv .= t_wenv <> f_wenv
+  readersEnv .= M.unionWith S.union t_renv f_renv
+  writersEnv .= M.unionWith S.union t_wenv f_wenv
   let res = t_res <> f_res
-  for_ res $ traverse_ (<--> c_cond)
+  fold res <--> c_cond
   return res
 
 mkFullGraph' (Awhile u cond body init) = do
@@ -964,13 +972,13 @@ mkFullGraph' (Awhile u cond body init) = do
   c_while <- freshComp
   c_cond  <- freshComp
   c_body  <- freshComp
-  for_ (getVarsDeps init lenv) (===> c_while)
-  symbols %= M.insert c_while (SWhl lenv c_cond c_body init u)
+  getVarsDeps init lenv ===> c_while
+  symbol c_while ?= SWhl lenv c_cond c_body init u
   (_                  , cond_renv, cond_wenv) <- block c_cond mkFullGraphF' cond
   (unsafeCoerce -> res, body_renv, body_wenv) <- block c_body mkFullGraphF' body
-  readersEnv .= cond_renv <> body_renv
-  writersEnv .= cond_wenv <> body_wenv
-  for_ res $ traverse_ (<--> c_while)
+  readersEnv .= M.unionWith S.union cond_renv body_renv
+  writersEnv .= M.unionWith S.union cond_wenv body_wenv
+  fold res <--> c_while
   return res
 
 
@@ -981,7 +989,7 @@ mkFullGraphF' (Abody acc) = do
   c <- freshComp
   zoom (scope c) do
     res  <- mkFullGraph' acc
-    symbols %= M.insert c (SBod res)
+    symbol c ?= SBod res
     return (unsafeCoerce res)
 
 mkFullGraphF' (Alam lhs f) = do
@@ -990,7 +998,7 @@ mkFullGraphF' (Alam lhs f) = do
   lenv'  <- zoom currEnvL (weakenEnv lhs (tupFlike (lhsToTupR lhs) b) lenv)
   res    <- zoom (local lenv') (mkFullGraphF' f)
   resW   <- traverse (use . allWriters) res
-  symbols %= M.insert c (SFun (bindLHS lhs lenv') (fromSingletonSet $ fold resW))
+  symbol c ?= SFun (bindLHS lhs lenv') (fromSingletonSet $ fold resW)
   return res
 
 
@@ -1097,6 +1105,35 @@ fromSingletonSet (S.toList -> [x]) = x
 fromSingletonSet _ = error "fromSingletonSet: Set is not singleton."
 
 
+-- | Print out information about the given buffer.
+traceBuff :: Label Buff -> State (FullGraphState op env) ()
+traceBuff b = do
+  c_alloc   <- use $ allocator b
+  c_readers <- use $ readers b
+  c_writers <- use $ writers b
+  traceM $ "  Buffer " ++ show b ++ ":"
+  traceM $ "    Allocated by: " ++ show c_alloc
+  traceM $ "    Readers:      " ++ show c_readers
+  traceM $ "    Writers:      " ++ show c_writers
+
+-- | Print out information about the given computation.
+traceComp :: Label Comp -> State (FullGraphState op env) ()
+traceComp c = do
+  c_symb   <- use $ symbol c
+  traceM $ "  Computation " ++ show c ++ ":"
+  traceM $ "    Symbol:       " ++ show c_symb
+
+-- | Print out information about the current environment.
+traceEnv' :: BuffersEnv env' -> State (FullGraphState op env) ()
+traceEnv' env = do
+  traceM "  Environment: "
+  forLEnv_ env \bs -> traceM $ "    " ++ show bs
+
+traceEnv :: State (FullGraphState op env) ()
+traceEnv = use buffersEnv >>= traceEnv'
+
+
+
 --------------------------------------------------------------------------------
 -- Converting Graphs to DOT
 --------------------------------------------------------------------------------
@@ -1104,17 +1141,11 @@ fromSingletonSet _ = error "fromSingletonSet: Set is not singleton."
 -- | Converts a graph to a DOT representation.
 toDOT :: FusionGraph -> Symbols op -> String
 toDOT g syms = "strict digraph {\n" ++
-    -- Make all computation nodes boxes:
-    concatMap (\c -> "  <" ++ show c ++ "> [shape=box, label=\"" ++ show (syms M.! c) ++ show (c^.labelId) ++ "\"];\n") (g^.computationNodes) ++
-    -- Make all buffer nodes circles:
-    concatMap (\b -> "  <" ++ show b ++ "> [shape=circle, label=\"B" ++ show (b^.labelId) ++ "\"];\n") (g^.bufferNodes) ++
-    -- Make all read and write edges:
-    concatMap (\(b,c) -> "  <" ++ show b ++ "> -> <" ++ show c ++ "> [];\n") (g^.readEdges) ++
-    concatMap (\(c,b) -> "  <" ++ show c ++ "> -> <" ++ show b ++ "> [];\n") (g^.writeEdges) ++
-    -- Make all fusible edges green:
-    concatMap (\(c1,_,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [color=green];\n") (g^.fusibleEdges) ++
-    -- Make all infusible edges red:
-    concatMap (\(c1,_,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [color=red];\n") (g^.infusibleEdges) ++
-    -- Make all order edges dashed and red:
-    concatMap (\(c1,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [style=dashed, color=red];\n") (g^.orderEdges) ++
-    "}\n"
+  concatMap (\c -> "  <" ++ show c ++ "> [shape=box, label=\"" ++ maybe "XXX" show (M.lookup c syms) ++ show (c^.labelId) ++ "\"];\n") (g^.computationNodes) ++
+  concatMap (\b -> "  <" ++ show b ++ "> [shape=circle, label=\"B" ++ show (b^.labelId) ++ "\"];\n") (g^.bufferNodes) ++
+  concatMap (\(b,c) -> "  <" ++ show b ++ "> -> <" ++ show c ++ "> [];\n") (g^.readEdges) ++
+  concatMap (\(c,b) -> "  <" ++ show c ++ "> -> <" ++ show b ++ "> [];\n") (g^.writeEdges) ++
+  concatMap (\(c1,_,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [color=green];\n") (g^.fusibleEdges) ++
+  concatMap (\(c1,_,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [color=red];\n") (g^.infusibleEdges) ++
+  concatMap (\(c1,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [style=dashed, color=red];\n") (g^.orderEdges) ++
+  "}\n"
