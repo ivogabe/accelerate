@@ -46,12 +46,11 @@ import Lens.Micro
 import Lens.Micro.Mtl
 
 import Control.Monad.State.Strict (State, runState)
-import Data.Foldable ( Foldable(fold, foldl', foldr'), for_, traverse_ )
+import Data.Foldable ( Foldable(fold, foldl', foldr'), for_ )
 import Data.Kind (Type)
 import Unsafe.Coerce (unsafeCoerce)
 import Data.Coerce (coerce)
 import Debug.Trace
-import Control.Monad.Except(ExceptT, runExceptT, throwError, catchError)
 
 --------------------------------------------------------------------------------
 -- Fusion Graph
@@ -191,21 +190,31 @@ insertWrite (c, b) = writeEdges %~ S.insert (c, b)
 
 -- | Insert a strict relation between two computations.
 insertStrict :: (HasCallStack, HasFusionGraph g) => StrictEdge -> g -> g
-insertStrict (c1, c2)
-  | c1 == c2  = error $ "insertStrict " ++ show (c1, c2) ++ ": Reflexive edge"
-  | otherwise = strictEdges %~ S.insert (c1, c2)
+insertStrict (c1, c2) g
+  | c1 == c2                           = error $ "insertStrict " ++ show (c1, c2) ++ ": Reflexive edge"
+  | c1^.parent /= c2^.parent           = error $ "insertStrict " ++ show (c1, c2) ++ ": Different scopes"
+  | S.member (c2, c1) (g^.strictEdges) = error $ "insertStrict " ++ show (c1, c2) ++ ": Cyclic edge"
+  | otherwise = g & strictEdges %~ S.insert (c1, c2)
 
 -- | Insert a fusible data-flow edge between two computations.
 insertFusible :: (HasCallStack, HasFusionGraph g) => DataflowEdge -> g -> g
 insertFusible (c1, b, c2) g
+  | c1 == c2                            = error $ "insertFusible " ++ show (c1, b, c2) ++ ": Reflexive edge"
+  | c1^.parent /= c2^.parent            = error $ "insertFusible " ++ show (c1, b, c2) ++ ": Different scopes"
+  | S.member (c2, c1) (g^.strictEdges)  = error $ "insertFusible " ++ show (c1, b, c2) ++ ": Cyclic edge"
   | S.notMember (c1, b) (g^.writeEdges) = error $ "insertFusible " ++ show (c1, b, c2) ++ ": Missing write"
   | S.notMember (b, c2) (g^.readEdges)  = error $ "insertFusible " ++ show (c1, b, c2) ++ ": Missing read"
-  | c1 == c2  = error $ "insertFusible " ++ show (c1, b, c2) ++ ": Reflexive edge"
   | otherwise = g & dataflowEdges %~ S.insert (c1, b, c2)
 
 -- | Insert an infusible data-flow edge between two computations.
 insertInfusible :: (HasCallStack, HasFusionGraph g) => DataflowEdge -> g -> g
-insertInfusible (c1, b, c2) = insertStrict (c1, c2) . insertFusible (c1, b, c2)
+insertInfusible (c1, b, c2) g
+  | c1 == c2                            = error $ "insertInfusible " ++ show (c1, b, c2) ++ ": Reflexive edge"
+  | S.member (c2, c1) (g^.strictEdges)  = error $ "insertInfusible " ++ show (c1, b, c2) ++ ": Cyclic edge"
+  | S.notMember (c1, b) (g^.writeEdges) = error $ "insertInfusible " ++ show (c1, b, c2) ++ ": Missing write"
+  | S.notMember (b, c2) (g^.readEdges)  = error $ "insertInfusible " ++ show (c1, b, c2) ++ ": Missing read"
+  | otherwise = g & dataflowEdges %~ S.insert (c1, b, c2)
+                  & strictEdges   %~ S.insert (c1,    c2)
 
 -- | Gets the set of fusible edges.
 fusibleEdges :: HasFusionGraph g => SimpleGetter g (Set FusibleEdge)
@@ -291,19 +300,17 @@ instance HasFusionGraph (FusionILP op) where
 
 -- | Safely insert a read edge into the graph.
 --
--- Since we don't know at what level the read will be used we need to make
--- a read relation between the buffer and all computations in its scope. All of
--- these read edges should be equal in the ILP, which is enforced by 'readDir'.
+-- We don't add edges between higher scoped computations because we would lose
+-- some required information on those edges.
 reads :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
-reads c b = fusionGraph %~ flip (foldr' (insertRead . (b,))) (allAncestors c)
+reads c b = fusionGraph %~ insertRead (b, c)
 
 -- | Safely insert a write edge into the graph.
 --
--- Since we don't know at what level the write will be used we need to make
--- a write relation between the buffer and all computations in its scope. All of
--- these write edges should be equal in the ILP, which is enforced by 'writeDir'.
+-- We don't add edges between higher scoped computations because we would lose
+-- some required information on those edges.
 writes :: Label Comp -> Label Buff -> FusionILP op -> FusionILP op
-writes c b = fusionGraph %~ flip (foldr' (insertWrite . (,b))) (allAncestors c)
+writes c b = fusionGraph %~ insertWrite (c, b)
 
 -- | Safely insert read edges between multiple computations and a buffer.
 read :: Labels Comp -> Label Buff -> FusionILP op -> FusionILP op
@@ -314,10 +321,20 @@ write :: Labels Comp -> Label Buff -> FusionILP op -> FusionILP op
 write cs b = flip (foldr' (`writes` b)) cs
 
 -- | Safely add a strict relation between two computations.
+--
+-- Strict edges can only occur between computations in the same scope, so we
+-- traverse the scopes of the computations until we find two computations within
+-- the same scope. If the computations we find are the same, we do nothing
+-- because reflexive edges are not allowed but our algorithm may try to create
+-- them in certain scenarios (e.g. when returning out of a body).
 before :: HasCallStack => Label Comp -> Label Comp -> FusionILP op -> FusionILP op
-before c1 c2 = fusionGraph %~ insertStrict (c1', c2')
-  where c1' = oldestNonAncestor c2 c1
-        c2' = oldestNonAncestor c1 c2
+before c1 c2
+  | c1         == c2         = id
+  | c1^.parent == c2^.parent = fusionGraph %~ insertStrict (c1, c2)
+  | otherwise                = case compare (level c1) (level c2) of
+      LT -> before  c1           (c2^.parent')
+      GT -> before (c1^.parent')  c2
+      EQ -> before (c1^.parent') (c2^.parent')
 
 -- | Safely add a fusible edge between two computations.
 --
@@ -330,24 +347,22 @@ fusible prod buff cons = if prod^.parent == cons^.parent
 
 -- | Safely add an infusible edge between two computations.
 --
--- Infusible edges are only added to computations that share the same parent.
--- If they don't share the same parent, find the first ancestors that do.
+-- We add an infusible edge between the producer and consumer. We also add a
+-- strict edge between them using the rules described in 'before'.
 infusible :: HasCallStack => Label Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
-infusible prod buff cons = fusionGraph %~ insertInfusible (prod', buff, cons')
-  where prod' = oldestNonAncestor cons prod
-        cons' = oldestNonAncestor prod cons
+infusible prod buff cons = before prod cons . (fusionGraph %~ insertInfusible (prod, buff, cons))
 
 -- | Safely add strict ordering between multiple computations and another computation.
 allBefore :: HasCallStack => Labels Comp -> Label Comp -> FusionILP op -> FusionILP op
-allBefore cs1 c2 ilp = foldl' (\ilp' c1 -> before c1 c2 ilp') ilp cs1
+allBefore cs1 c2 ilp = foldr' (`before` c2) ilp cs1
 
 -- | Safely add fusible edges from all producers to the consumer.
 allFusible :: HasCallStack => Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
-allFusible prods buff cons ilp = foldl' (\ilp' prod -> fusible prod buff cons ilp') ilp prods
+allFusible prods buff cons ilp = foldr' (\prod -> fusible prod buff cons) ilp prods
 
 -- | Safely add infusible edges from all producers to the consumer.
 allInfusible :: HasCallStack => Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
-allInfusible prods buff cons ilp = foldl' (\ilp' prod -> infusible prod buff cons ilp') ilp prods
+allInfusible prods buff cons ilp = foldr' (\prod -> infusible prod buff cons) ilp prods
 
 -- | Infix synonym for 'allBefore'.
 (==|-|=>) :: HasCallStack => Labels Comp -> Label Comp -> FusionILP op -> FusionILP op
@@ -463,10 +478,10 @@ data Var (op :: Type -> Type)
   | Manifest (Label Buff)
     -- ^ 0 means manifest, 1 is like a `delayed array`.
     -- Binary variable; will we write the output to a manifest array, or is it fused away (i.e. all uses are in its cluster)?
-  | ReadDir' (Label Buff) (Label Comp)
-    -- ^ \-3 can't fuse with anything, -2 for 'left to right', -1 for 'right to left', n for 'unknown', see computation n (currently only backpermute). DO NOT USE THIS, USE 'ReadDir' INSTEAD! See 'reads' for the reason.
-  | WriteDir' (Label Comp) (Label Buff)
-    -- ^ See 'ReadDir'. DO NOT USE THIS, USE 'WriteDir' INSTEAD! See 'writes' for the reason.
+  | ReadDir (Label Buff) (Label Comp)
+    -- ^ \-3 can't fuse with anything, -2 for 'left to right', -1 for 'right to left', n for 'unknown', see computation n (currently only backpermute).
+  | WriteDir (Label Comp) (Label Buff)
+    -- ^ See 'ReadDir'.
   | InDir (Label Comp)
     -- ^ For backwards compatibility, see 'ReadDir''. For this variable to have any meaning the backend has to call 'useInDir' (or 'useInOutDir').
   | OutDir (Label Comp)
@@ -488,18 +503,6 @@ data Var (op :: Type -> Type)
 deriving instance Eq   (BackendVar op) => Eq   (Var op)
 deriving instance Ord  (BackendVar op) => Ord  (Var op)
 deriving instance Show (BackendVar op) => Show (Var op)
-
--- | Safe pattern for 'ReadDir''.
-pattern ReadDir :: Label Buff -> Label Comp -> Var op
-pattern ReadDir b c <- ReadDir' b c where
-  ReadDir b c = ReadDir' b (oldestNonAncestor b c)
-
--- | Safe pattern for 'WriteDir''.
-pattern WriteDir :: Label Comp -> Label Buff -> Var op
-pattern WriteDir c b <- WriteDir' c b where
-  WriteDir c b = WriteDir' (oldestNonAncestor b c) b
-{-# COMPLETE Pi, Fused, Manifest, ReadDir, WriteDir, InFoldSize, OutFoldSize, Other, BackendSpecific #-}
-
 
 -- | Sets all 'ReadDir' that contain the computation @c@ to be equal to the
 --   'InDir' variable of @c@. If you don't use this fuction, using 'InDir' will
@@ -542,9 +545,7 @@ manifest = var . Manifest
 
 -- | Safe constructor for 'Fused' variables.
 fused :: HasCallStack => Label Comp -> Label Comp -> Expression op
-fused prod cons = var $ Fused prod' cons'
-  where prod' = oldestNonAncestor cons prod
-        cons' = oldestNonAncestor prod cons
+fused prod cons  = var $ Fused prod cons
 
 -- | Safe constructor for 'ReadDir' variables.
 readDir :: Label Buff -> Label Comp -> Expression op
@@ -569,6 +570,7 @@ data Symbol (op :: Type -> Type) where
   SLet  ::                   BoundGLHS bnd env env' -> Label Comp           -> Uniquenesses bnd -> Symbol op
   SFun  ::                   BoundGLHS bnd env env' -> Label Comp                               -> Symbol op
   SBod  ::                   BuffersTup a                                                       -> Symbol op
+  SBlk  ::                                                                                         Symbol op
   SRet  :: BuffersEnv env -> GroundVars env a                                                   -> Symbol op
   SCmp  :: BuffersEnv env -> Exp env a                                                          -> Symbol op
   SAlc  :: BuffersEnv env -> ShapeR sh -> ScalarType e -> ExpVars env sh                        -> Symbol op
@@ -584,6 +586,7 @@ instance Show (Symbol op) where
   show (SLet {}) = "Let"
   show (SFun {}) = "Fun"
   show (SBod {}) = "Bod"
+  show (SBlk {}) = "Blk"
   show (SRet {}) = "Ret"
   show (SCmp {}) = "Cmp"
   show (SAlc {}) = "Alc"
@@ -965,6 +968,7 @@ mkFullGraph' (Acond cond tacc facc) = do
     readersEnv .= M.unionWith S.union t_renv f_renv
     writersEnv .= M.unionWith S.union t_wenv f_wenv
     let res = t_res <> f_res
+    fold res <--> c_cond
     return res
 
 mkFullGraph' (Awhile u cond body init) = do
@@ -973,13 +977,13 @@ mkFullGraph' (Awhile u cond body init) = do
   zoom (scope c_while) do
     c_cond  <- freshComp
     c_body  <- freshComp
-    getVarsDeps init lenv ===> c_while
+    getVarsDeps init lenv <==> c_while
     symbol c_while ?= SWhl lenv c_cond c_body init u
-    (_                  , cond_renv, cond_wenv) <- block c_cond mkFullGraphF' cond
-    (unsafeCoerce -> res, body_renv, body_wenv) <- block c_body mkFullGraphF' body
+    (_, cond_renv, cond_wenv) <- block c_cond mkFullGraphF' cond
+    (_, body_renv, body_wenv) <- block c_body mkFullGraphF' body
     readersEnv .= M.unionWith S.union cond_renv body_renv
     writersEnv .= M.unionWith S.union cond_wenv body_wenv
-    return res
+    return $ snd (getVarsFromEnv init lenv)
 
 
 
@@ -989,7 +993,9 @@ mkFullGraphF' (Abody acc) = do
   c <- freshComp
   zoom (scope c) do
     res <- mkFullGraph' acc
+    fold res <--> c
     symbol c ?= SBod res
+    fusionILP.constraints %= (<> foldMap ((.==. int 0) . manifest) (fold res))
     return (unsafeCoerce res)
 
 mkFullGraphF' (Alam lhs f) = do
@@ -1007,7 +1013,8 @@ mkFullGraphF' (Alam lhs f) = do
 block :: HasCallStack => Label Comp -> FullGraphMaker f op env t (BuffersTup r)
       -> FullGraphMaker f op env t (BuffersTup r, ReadersEnv, WritersEnv)
 block c f x = zoom (scope c . protected writersEnv . protected readersEnv) do
-  res  <- f x
+  res <- f x
+  symbol c ?= SBlk
   renv <- use readersEnv
   wenv <- use writersEnv
   return (res, renv, wenv)
@@ -1139,10 +1146,10 @@ traceEnv = use buffersEnv >>= traceEnv'
 -- | Converts a graph to a DOT representation.
 toDOT :: FusionGraph -> Symbols op -> String
 toDOT g syms = "strict digraph {\n" ++
-  concatMap (\c -> "  <" ++ show c ++ "> [shape=box, label=\"" ++ maybe "XXX" show (M.lookup c syms) ++ show (c^.labelId) ++ "\"];\n") (g^.computationNodes) ++
-  concatMap (\b -> "  <" ++ show b ++ "> [shape=circle, label=\"B" ++ show (b^.labelId) ++ "\"];\n") (g^.bufferNodes) ++
-  concatMap (\(b,c) -> "  <" ++ show b ++ "> -> <" ++ show c ++ "> [];\n") (g^.readEdges) ++
-  concatMap (\(c,b) -> "  <" ++ show c ++ "> -> <" ++ show b ++ "> [];\n") (g^.writeEdges) ++
+  concatMap (\c -> "  <" ++ show c ++ "> [shape=box, label=\"" ++ show (syms M.! c) ++ tail (show c) ++ "\"];\n") (g^.computationNodes) ++
+  -- concatMap (\b -> "  <" ++ show b ++ "> [shape=circle, label=\"" ++ show b ++ "\"];\n") (g^.bufferNodes) ++
+  -- concatMap (\(b,c) -> "  <" ++ show b ++ "> -> <" ++ show c ++ "> [];\n") (g^.readEdges) ++
+  -- concatMap (\(c,b) -> "  <" ++ show c ++ "> -> <" ++ show b ++ "> [];\n") (g^.writeEdges) ++
   concatMap (\(c1,_,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [color=green];\n") (g^.fusibleEdges) ++
   concatMap (\(c1,_,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [color=red];\n") (g^.infusibleEdges) ++
   concatMap (\(c1,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [style=dashed, color=red];\n") (g^.orderEdges) ++

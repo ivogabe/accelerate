@@ -147,13 +147,13 @@ topSort singletons (FusionGraph _ _ _ _ strictEdges dataflowEdges) cluster symbo
     -- .. and finally, topologically sort each of those to get the labels per cluster sorted on dependencies
     topsorteds = map (\(graph', getAdj', _) -> map (view (_1 . _1) . getAdj') $ G.topSort graph') graphs
 
-    readOrderOf :: (Label Comp, Label Buff, Label Comp) -> BackendArg op
+    readOrderOf :: HasCallStack => (Label Comp, Label Buff, Label Comp) -> BackendArg op
     readOrderOf (_,b,l) = case symbols M.!? l of
       Just (SExe' _ args _) -> getOrder args b
       _ -> error "can't get readorder"
 
-    getOrder :: LabelledArgsOp op env args -> Label Buff -> BackendArg op
-    getOrder ArgsNil _ = error "can't get readorder"
+    getOrder :: HasCallStack => LabelledArgsOp op env args -> Label Buff -> BackendArg op
+    getOrder ArgsNil b = error $ "can't get readorder " ++ show b
     getOrder (LOp (ArgArray In _ _ _) (_,deps,_) b :>: args) buff
       | buff `S.member` deps = b
       | otherwise = getOrder args buff
@@ -208,7 +208,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
         SWhl env' c b i u -> case (subcluster c, subcluster b) of
           (findTopOfF -> c', findTopOfF -> b') -> case (makeASTF env c' prev, makeASTF env b' prev) of
             (Exists cfun, Exists bfun) -> Exists $ tryBuildAwhile u cfun bfun (fromJust $ reindexVars (mkReindexPartial env' env) i)
-        SLet {} -> error "let without scope"
+        SLet {} -> error $ "let without scope " ++ show cluster
         SFun {} -> error "wrong type: function"
         SBod {} -> error "wrong type: function"
         SRet env' vars     -> Exists $ Return      (fromJust $ reindexVars (mkReindexPartial env' env) vars)
@@ -244,7 +244,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
       NotFold (SFun lhs l') -> createLHS lhs env $ \env' lhs' ->
         case makeASTF env' l' (M.map (\(Exists acc) -> Exists $ weakenAcc lhs' acc) $ M.insertWith (\ _ x -> x) l' (Exists undefined) prev) of
           Exists fun -> Exists $ Alam lhs' fun
-      NotFold {} -> error "wrong type: acc"
+      NotFold sym -> error $ "wrong type: acc"
       _ -> error "not a notfold"
 
     findTopOfF :: [ClusterL] -> Label Comp

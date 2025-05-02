@@ -140,30 +140,6 @@ level l = case l^.parent of
   Nothing -> 0
   Just p  -> 1 + level p
 
--- | Given a label, find the oldest ancestor of a computation that is not an
---   ancestor of the given label.
-oldestNonAncestor :: Label t -> Label Comp -> Label Comp
-oldestNonAncestor l1@(Label _ p1) l2@(Label _ p2) = if p1 == p2
-  then l2
-  else case compare (level l1) (level l2) of
-    LT -> oldestNonAncestor           l1  (fromJust p2)
-    GT -> oldestNonAncestor (fromJust p1)           l2
-    EQ -> oldestNonAncestor (fromJust p1) (fromJust p2)
-
--- | Given a label, list all ancestors of a computation that are not ancestors
---   of the given label.
-allNonAncestors :: Label t -> Label Comp -> [Label Comp]
-allNonAncestors l1@(Label _ p1) l2@(Label _ p2) = if p1 == p2
-  then [l2]
-  else case compare (level l1) (level l2) of
-    LT -> l2 : allNonAncestors           l1  (fromJust p2)
-    GT ->      allNonAncestors (fromJust p1)           l2
-    EQ -> l2 : allNonAncestors (fromJust p1) (fromJust p2)
-
--- | Get a list of all ancestors of a computation, including itself.
-allAncestors :: Label Comp -> [Label Comp]
-allAncestors l@(Label _ p) = l : maybe [] allAncestors p
-
 -- | Create a new label.
 freshL' :: State (Label t) (Label t)
 freshL' = id <%= (labelId +~ 1)
