@@ -10,7 +10,7 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP where
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
-    ( interpretSolution, makeILP, splitExecs, ClusterLs, Objective (..) )
+    ( interpretClusters, makeILP, splitExecs, ClusterLs, Objective (..), interpretReadDirs, interpretWriteDirs )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
     ( reconstruct, reconstructF )
 import Data.Array.Accelerate.AST.Partitioned
@@ -28,8 +28,8 @@ import Data.Map (Map, toList, foldMapWithKey)
 import qualified Data.Array.Accelerate.Pretty.Operation as Pretty
 import Data.Function ((&))
 import qualified Data.Set as Set
-import Lens.Micro ((^.), (<>~))
-import Data.Maybe (isJust)
+import Lens.Micro ((^.), (<>~), (<&>))
+import Data.Maybe (isJust, fromMaybe)
 import Debug.Trace
 -- import Data.Array.Accelerate.Trafo.Partitioning.ILP.HiGHS
 
@@ -78,20 +78,19 @@ ilpFusion' :: (MakesILP op, ILPSolver s op)
            -> Objective
            -> x
            -> y
-ilpFusion' k1 k2 s obj acc = unsafePerformIO $ do
-    writeFile "ilp.dot" $ toDOT (fusionILP'^.graph) symbolTable'
-    return fusedAcc
-  where
-    (fusionILP', symbolTable)       = k1 acc
-    symbolTable'                    = attachBackendLabels solution symbolTable
-    ilp                             = makeILP obj fusionILP'
-    solution                        = solve' ilp
-    interpreted                     = interpretSolution solution
-    (labelClusters, labelClustersM) = {- traceWith ppScopedClusters $ -} splitExecs interpreted symbolTable'
-    fusedAcc                        = k2 (fusionILP'^.graph) labelClusters labelClustersM symbolTable'
-    solve' x = unsafePerformIO (solve s x) & \case
-      Nothing -> error "Accelerate: No ILP solution found"
-      Just y -> y
+ilpFusion' toGraph fromGraph s obj acc = do
+  let fullgraph = traceGraph $ toGraph acc
+  let ilp       = makeILP obj (fullgraph^.fusionILP)
+  let solution  = fromMaybe (error "Accelerate: No ILP solution found") (unsafePerformIO $ solve s ilp)
+  let readDirM  = interpretReadDirs  solution
+  let writeDirM = interpretWriteDirs solution
+  let (topClusters, subClustersM) = splitExecs (interpretClusters solution) (fullgraph^.symbols)
+  fromGraph (fullgraph^.fusionILP.graph) topClusters subClustersM (fullgraph^.symbols)
+
+traceGraph :: (FusionILP op, Symbols op) -> (FusionILP op, Symbols op)
+traceGraph g = unsafePerformIO $ do
+  writeFile "ilp.dot" $ toDOT (g^.fusionILP.graph) (g^.symbols)
+  return g
 
 ppSolution :: MakesILP op => Solution op -> String
 ppSolution solution = "solution: " ++ foldMap (\(k,v) -> "\n" ++ show k ++ " == " ++ show v) (toList solution)
@@ -114,19 +113,20 @@ noFusion' :: (MakesILP op, ILPSolver s op)
            -> Objective
            -> x
            -> y
-noFusion' k1 k2 s obj acc = fusedAcc
-  where
-    (fusionILP', constrM')          = k1 acc
-    fusionILP''                     = fusionILP' & graph.strictEdges <>~ Set.map (\(w,_,r) -> (w,r)) (fusionILP'^.graph.fusibleEdges)
-    constrM                         = attachBackendLabels solution constrM'
-    ilp                             = makeILP obj fusionILP''
-    solution                        = solve' ilp
-    interpreted                     = interpretSolution solution
-    (labelClusters, labelClustersM) = splitExecs interpreted constrM
-    fusedAcc                        = k2 (fusionILP'^.graph) labelClusters labelClustersM constrM
-    solve' x = unsafePerformIO (solve s x) & \case
-      Nothing -> error "Accelerate: No ILP solution found"
-      Just y -> y
+noFusion' = undefined
+-- noFusion' k1 k2 s obj acc = fusedAcc
+--   where
+--     (fusionILP', constrM')          = k1 acc
+--     fusionILP''                     = fusionILP' & graph.strictEdges <>~ Set.map (\(w,_,r) -> (w,r)) (fusionILP'^.graph.fusibleEdges)
+--     constrM                         = attachBackendLabels solution constrM'
+--     ilp                             = makeILP obj fusionILP''
+--     solution                        = solve' ilp
+--     interpreted                     = interpretSolution solution
+--     (labelClusters, labelClustersM) = splitExecs interpreted constrM
+--     fusedAcc                        = k2 (fusionILP'^.graph) labelClusters labelClustersM constrM
+--     solve' x = unsafePerformIO (solve s x) & \case
+--       Nothing -> error "Accelerate: No ILP solution found"
+--       Just y -> y
 
 -- for benchmarking: greedily fuse edges
 -- this search is clearly inefficient, but just an easy implementation. We only benchmark its runtime.

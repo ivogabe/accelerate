@@ -100,7 +100,6 @@ makeILP obj (FusionILP graph constraints bounds) = combine graphILP
       FusedEdges         -> (Minimise, numberOfUnfusedEdges)
       Everything         -> (Minimise, numberOfClusters .+. numberOfArrayReadsWrites) -- arrayreadswrites already indictly includes everything else
 
-
     -- objective function that maximises the number of edges we fuse, and minimises the number of array reads if you ignore horizontal fusion
     numberOfUnfusedEdges = foldl' (\e (prod, _, cons) -> e .+. fused prod cons) (int 0) fusibleE
 
@@ -196,12 +195,26 @@ makeILP obj (FusionILP graph constraints bounds) = combine graphILP
 
 
 
+-- | Extract the read directions from the ILP solution.
+interpretReadDirs :: forall op. Solution op -> M.Map ReadEdge Int
+interpretReadDirs = M.fromList . mapMaybe (_1 fromReadDir) . M.toList
+  where
+    fromReadDir :: Var op -> Maybe ReadEdge
+    fromReadDir (ReadDir b c) = Just (b, c)
+    fromReadDir _             = Nothing
 
+-- | Extract the write directions from the ILP solution.
+interpretWriteDirs :: forall op. Solution op -> M.Map WriteEdge Int
+interpretWriteDirs = M.fromList . mapMaybe (_1 fromWriteDir) . M.toList
+  where
+    fromWriteDir :: Var op -> Maybe WriteEdge
+    fromWriteDir (WriteDir c b) = Just (c, b)
+    fromWriteDir _              = Nothing
 
--- Extract the fusion information (ordered list of clusters of Labels) (head is the first cluster).
--- Output has the top-level clusters in fst, and the rest in snd.
-interpretSolution :: MakesILP op => Solution op -> ([Labels Comp], M.Map (Label Comp) [Labels Comp])
-interpretSolution sol = do
+-- | Extract the top-level clusters and the sub-scoped clusters from the ILP
+--   solution.
+interpretClusters :: Solution op -> ([Labels Comp], M.Map (Label Comp) [Labels Comp])
+interpretClusters sol = do
   let            piVars  = mapMaybe (_1 fromPi) (M.toList sol)               -- Take the Pi variables.
   let      scopedPiVars  = partition (^._1.parent) piVars                    -- Partition them by their parent (i.e. the scope they are in).
   let   clusteredPiVars  = map (partition snd) scopedPiVars                  -- Partition them again by their cluster (i.e. the value of the variable).
@@ -217,8 +230,6 @@ interpretSolution sol = do
 
     scopeLabel :: [Labels Comp] -> Label Comp
     scopeLabel = fromJust . view parent . S.findMin . head
-
-
 
 -- | `groupBy` except it's equivalent to SQL's `GROUP BY` clause. I.e. the
 -- groups
@@ -247,6 +258,9 @@ splitExecs (xs, xM) symbolMap = (f xs, M.map f xM)
 
     isNonExec :: Label Comp -> Bool
     isNonExec = not . isExec
+
+
+
 
 -- Only needs Applicative
 newtype MonadMonoid f m = MonadMonoid { getMonadMonoid :: f m }
