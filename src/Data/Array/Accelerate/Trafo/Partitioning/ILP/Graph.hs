@@ -364,19 +364,31 @@ allFusible prods buff cons ilp = foldr' (\prod -> fusible prod buff cons) ilp pr
 allInfusible :: HasCallStack => Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
 allInfusible prods buff cons ilp = foldr' (\prod -> infusible prod buff cons) ilp prods
 
+-- | Infix synonym for 'before'.
+(==|-|=>) :: HasCallStack => Label Comp -> Label Comp -> FusionILP op -> FusionILP op
+(==|-|=>) = before
+
+-- | Infix synonym for 'fusible'.
+(--|) :: HasCallStack => Label Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
+(--|) = fusible
+
+-- | Infix synonym for 'infusible'.
+(==|) :: HasCallStack => Label Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
+(==|) = infusible
+
 -- | Infix synonym for 'allBefore'.
-(==|-|=>) :: HasCallStack => Labels Comp -> Label Comp -> FusionILP op -> FusionILP op
-(==|-|=>) = allBefore
+(>=|-|=>) :: HasCallStack => Labels Comp -> Label Comp -> FusionILP op -> FusionILP op
+(>=|-|=>) = allBefore
 
 -- | Infix synonym for 'allFusible'.
-(--|) :: HasCallStack => Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
-(--|) = allFusible
+(>-|) :: HasCallStack => Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
+(>-|) = allFusible
 
 -- | Infix synonym for 'allInfusible'.
-(==|) :: HasCallStack => Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
-(==|) = allInfusible
+(>=|) :: HasCallStack => Labels Comp -> Label Buff -> Label Comp -> FusionILP op -> FusionILP op
+(>=|) = allInfusible
 
--- | Arrow heads to complete '(--|)' and '(==|)'.
+-- | Arrow heads to complete '(--|)', '(>-|)', '(==|)' and '(>=|)'.
 (|->), (|=>) :: (a -> b) -> a -> b
 (|->) = ($)
 (|=>) = ($)
@@ -803,7 +815,7 @@ freshBuff = do
 (--->) bs c = for_ bs \b -> do
   ws <- use $ writers b
   fusionILP %= c `reads` b
-  fusionILP %= ws --|b|-> c
+  fusionILP %= ws >-|b|-> c
   readers b %= S.insert c
 
 -- | Read from a buffer and be infusible with its writers.
@@ -811,7 +823,7 @@ freshBuff = do
 (===>) bs c = for_ bs \b -> do
   ws <- use $ writers b
   fusionILP %= c `reads` b
-  fusionILP %= ws ==|b|=> c
+  fusionILP %= ws >=|b|=> c
   readers b %= S.insert c
 
 -- | Write to a buffer.
@@ -826,8 +838,8 @@ freshBuff = do
   rs <- use $ readers b
   ws <- use $ writers b
   fusionILP %= c `writes` b
-  fusionILP %= rs ==|-|=> c
-  fusionILP %= ws ==|-|=> c
+  fusionILP %= rs >=|-|=> c
+  fusionILP %= ws >=|-|=> c
   writers b .= S.singleton c
   readers b .= S.empty
 
@@ -844,8 +856,8 @@ freshBuff = do
   ws <- use $ writers b
   fusionILP %= c `reads` b
   fusionILP %= c `writes` b
-  fusionILP %= rs ==|-|=> c
-  fusionILP %= ws ==|b|=> c
+  fusionILP %= rs >=|-|=> c
+  fusionILP %= ws >=|b|=> c
   writers b .= S.singleton c
   readers b .= S.empty
 
@@ -858,7 +870,22 @@ freshBuff = do
   ws <- use $ writers b
   fusionILP %= c `reads` b
   fusionILP %= c `writes` b
-  fusionILP %= ws ==|b|=> c
+  fusionILP %= ws >=|b|=> c
+  writers b .= S.singleton c
+
+-- | Sequential composition of computations.
+--
+-- Some buffers are produced using values produced by this computations.
+-- Basically, we act as it the buffer is a function that still requires a value,
+-- which is the value produced by us.
+-- This operation is similar to '(<-->)', except the resulting infusible edges
+-- are inverted and no read edges are created.
+-- One could also interpret this as writing nothing to the buffer.
+(>>==) :: HasCallStack => Label Comp -> Labels Buff -> State (FullGraphState op env) ()
+(>>==) c bs = for_ bs \b -> do
+  ws <- use $ writers b
+  fusionILP %= c `writes` b
+  fusionILP %= flip (foldr' (c==|-|=>)) ws
   writers b .= S.singleton c
 
 
@@ -919,7 +946,9 @@ mkFullGraph' (Alet lhs u bnd scp) = do
   fold bndRes <--> c
   lenv' <- zoom currEnvL (weakenEnv lhs bndRes lenv)
   symbol c ?= SLet (bindLHS lhs lenv') (fromSingletonSet $ fold bndResW) u
-  zoom (local lenv') (mkFullGraph' scp)
+  res <- zoom (local lenv') (mkFullGraph' scp)
+  c >>== fold res
+  return res
 
 mkFullGraph' (Return vars) = do
   lenv <- use buffersEnv
@@ -985,7 +1014,6 @@ mkFullGraph' (Awhile u cond body init) = do
     writersEnv .= M.unionWith S.union cond_wenv body_wenv
     fold res <--> c_while
     return res
-    -- return $ snd (getVarsFromEnv init lenv)
 
 
 
@@ -1007,6 +1035,7 @@ mkFullGraphF' (Alam lhs f) = do
   res  <- zoom (local lenv') (mkFullGraphF' f)
   resW <- traverse (use . allWriters) res
   symbol c ?= SFun (bindLHS lhs lenv') (fromSingletonSet $ fold resW)
+  c >>== fold res
   return res
 
 
@@ -1111,7 +1140,6 @@ fromSingletonSet :: HasCallStack => Set a -> a
 fromSingletonSet (S.toList -> [x]) = x
 fromSingletonSet _ = error "fromSingletonSet: Set is not singleton."
 
-
 -- | Print out information about the given buffer.
 traceBuff :: Label Buff -> State (FullGraphState op env) ()
 traceBuff b = do
@@ -1148,7 +1176,7 @@ traceEnv = use buffersEnv >>= traceEnv'
 -- | Converts a graph to a DOT representation.
 toDOT :: FusionGraph -> Symbols op -> String
 toDOT g syms = "strict digraph {\n" ++
-  concatMap (\c -> "  <" ++ show c ++ "> [shape=box, label=\"" ++ show (syms M.! c) ++ [last (show c)] ++ "\"];\n") (g^.computationNodes) ++
+  concatMap (\c -> "  <" ++ show c ++ "> [shape=box, label=\"" ++ show (syms M.! c) ++ tail (show c) ++ "\"];\n") (g^.computationNodes) ++
   -- concatMap (\b -> "  <" ++ show b ++ "> [shape=circle, label=\"" ++ show b ++ "\"];\n") (g^.bufferNodes) ++
   -- concatMap (\(b,c) -> "  <" ++ show b ++ "> -> <" ++ show c ++ "> [];\n") (g^.readEdges) ++
   -- concatMap (\(c,b) -> "  <" ++ show c ++ "> -> <" ++ show b ++ "> [];\n") (g^.writeEdges) ++
