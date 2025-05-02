@@ -977,13 +977,15 @@ mkFullGraph' (Awhile u cond body init) = do
   zoom (scope c_while) do
     c_cond  <- freshComp
     c_body  <- freshComp
-    getVarsDeps init lenv <==> c_while
+    getVarsDeps init lenv ===> c_while
     symbol c_while ?= SWhl lenv c_cond c_body init u
-    (_, cond_renv, cond_wenv) <- block c_cond mkFullGraphF' cond
-    (_, body_renv, body_wenv) <- block c_body mkFullGraphF' body
+    (_                  , cond_renv, cond_wenv) <- block c_cond mkFullGraphF' cond
+    (unsafeCoerce -> res, body_renv, body_wenv) <- block c_body mkFullGraphF' body
     readersEnv .= M.unionWith S.union cond_renv body_renv
     writersEnv .= M.unionWith S.union cond_wenv body_wenv
-    return $ snd (getVarsFromEnv init lenv)
+    fold res <--> c_while
+    return res
+    -- return $ snd (getVarsFromEnv init lenv)
 
 
 
@@ -1147,9 +1149,9 @@ traceEnv = use buffersEnv >>= traceEnv'
 toDOT :: FusionGraph -> Symbols op -> String
 toDOT g syms = "strict digraph {\n" ++
   concatMap (\c -> "  <" ++ show c ++ "> [shape=box, label=\"" ++ show (syms M.! c) ++ tail (show c) ++ "\"];\n") (g^.computationNodes) ++
-  -- concatMap (\b -> "  <" ++ show b ++ "> [shape=circle, label=\"" ++ show b ++ "\"];\n") (g^.bufferNodes) ++
-  -- concatMap (\(b,c) -> "  <" ++ show b ++ "> -> <" ++ show c ++ "> [];\n") (g^.readEdges) ++
-  -- concatMap (\(c,b) -> "  <" ++ show c ++ "> -> <" ++ show b ++ "> [];\n") (g^.writeEdges) ++
+  concatMap (\b -> "  <" ++ show b ++ "> [shape=circle, label=\"" ++ show b ++ "\"];\n") (g^.bufferNodes) ++
+  concatMap (\(b,c) -> "  <" ++ show b ++ "> -> <" ++ show c ++ "> [];\n") (g^.readEdges) ++
+  concatMap (\(c,b) -> "  <" ++ show c ++ "> -> <" ++ show b ++ "> [];\n") (g^.writeEdges) ++
   concatMap (\(c1,_,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [color=green];\n") (g^.fusibleEdges) ++
   concatMap (\(c1,_,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [color=red];\n") (g^.infusibleEdges) ++
   concatMap (\(c1,c2) -> "  <" ++ show c1 ++ "> -> <" ++ show c2 ++ "> [style=dashed, color=red];\n") (g^.orderEdges) ++
