@@ -7,12 +7,13 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ViewPatterns #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP where
+-- No joke, this really needs to get a massive refactor...
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
     ( interpretClusters, makeILP, splitExecs, ClusterLs, Objective (..), interpretReadDirs, interpretWriteDirs )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
-    ( reconstruct, reconstructF )
+    ( reconstruct, reconstructF, ReadDirM )
 import Data.Array.Accelerate.AST.Partitioned
     ( PartitionedAcc, PartitionedAfun, Cluster, groundsR )
 import Data.Array.Accelerate.AST.Operation
@@ -73,19 +74,20 @@ ilpFusionF solver objective fun = ilpFusion' mkFullGraphF (reconstructF fun Fals
 
 ilpFusion' :: (MakesILP op, ILPSolver s op)
            => (x -> (FusionILP op, Symbols op))
-           -> (FusionGraph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
+           -> (FusionGraph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> ReadDirM -> y)
            -> s
            -> Objective
            -> x
            -> y
 ilpFusion' toGraph fromGraph s obj acc = do
-  let fullgraph = traceGraph $ toGraph acc
+  let fullgraph = {- traceGraph $ -} toGraph acc
   let ilp       = makeILP obj (fullgraph^.fusionILP)
   let solution  = fromMaybe (error "Accelerate: No ILP solution found") (unsafePerformIO $ solve s ilp)
+  let symbols'  = attachBackendLabels solution (fullgraph^.symbols)
   let readDirM  = interpretReadDirs  solution
-  let writeDirM = interpretWriteDirs solution
-  let (topClusters, subClustersM) = splitExecs (interpretClusters solution) (fullgraph^.symbols)
-  fromGraph (fullgraph^.fusionILP.graph) topClusters subClustersM (fullgraph^.symbols)
+  -- let writeDirM = interpretWriteDirs solution
+  let (topClusters, subClustersM) = splitExecs (interpretClusters solution) symbols'
+  fromGraph (fullgraph^.fusionILP.graph) topClusters subClustersM symbols' readDirM
 
 traceGraph :: (FusionILP op, Symbols op) -> (FusionILP op, Symbols op)
 traceGraph g = unsafePerformIO $ do
@@ -108,7 +110,7 @@ ppScopedClusters (top, sub) = "top =\n" ++ ppList top ++ foldMapWithKey (\k v ->
 -- more rigorous is to change 'topSort' in Clustering.hs into separating each cluster completely
 noFusion' :: (MakesILP op, ILPSolver s op)
            => (x -> (FusionILP op, Symbols op))
-           -> (FusionGraph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
+           -> (FusionGraph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> ReadDirM -> y)
            -> s
            -> Objective
            -> x
@@ -134,7 +136,7 @@ noFusion' = undefined
 -- it's perhaps more of an 'alternative' than a 'baseline'
 greedyFusion' :: forall s op x y. (MakesILP op, ILPSolver s op)
                     => (x -> (FusionILP op, Symbols op))
-                    -> (FusionGraph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> y)
+                    -> (FusionGraph -> [ClusterLs] -> Map (Label Comp) [ClusterLs] -> Symbols op -> ReadDirM -> y)
                     -> s
                     -> Benchmarking
                     -> Objective
