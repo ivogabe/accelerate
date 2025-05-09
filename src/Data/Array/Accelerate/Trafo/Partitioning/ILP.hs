@@ -94,8 +94,14 @@ traceGraph g = unsafePerformIO $ do
   writeFile "ilp.dot" $ toDOT (g^.fusionILP.graph) (g^.symbols)
   return g
 
-ppSolution :: MakesILP op => Solution op -> String
-ppSolution solution = "solution: " ++ foldMap (\(k,v) -> "\n" ++ show k ++ " == " ++ show v) (toList solution)
+ppSolution :: forall op. MakesILP op => Solution op -> String
+ppSolution solution = "solution: " ++ foldMap ppVar (toList solution)
+  where
+    ppVar :: (Var op, Int) -> String
+    ppVar (k, v) = case k of
+      Pi{} -> "\n" ++ show k ++ " == " ++ show v
+      Fused{} | v == 0 -> "\n" ++ show k
+      _ -> ""
 
 ppList :: Show a => [a] -> String
 ppList [] = "[]"
