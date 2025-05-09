@@ -240,7 +240,7 @@ class NFData' op => DesugarAcc (op :: Type -> Type) where
   mkScan dir f Nothing (ArgArray _ (ArrayR shr tp) sh input) argOut
   -- (inc, tmp) = awhile (\(inc, _) -> inc < (n+1) / 2) (\(inc, a) -> (inc*2, generate {\i -> reduce i and i +/- inc in a})) input
   -- generate {\i -> reduce i and i +/- inc in tmp}
-  -- 
+  --
   -- Note that the last iteration of the loop is decoupled, as that will output into argOut,
   -- instead of a temporary array.
     | DeclareVars lhsTmp   kTmp   valueTmp   <- declareVars $ buffersR tp
@@ -333,7 +333,7 @@ class NFData' op => DesugarAcc (op :: Type -> Type) where
   -- When this is true, a 0-dimensional generate or map will
   -- be converted to Compute nodes, instead of Exec nodes.
   desugarPreferNoScalar :: Bool
-  desugarPreferNoScalar = True
+  desugarPreferNoScalar = False
 
 desugar :: (HasCallStack, DesugarAcc op) => Named.Acc a -> OperationAcc op () (DesugaredArrays a)
 desugar = desugarOpenAcc Empty
@@ -942,7 +942,7 @@ isUndef Nil = True
 isUndef (Pair a b) = isUndef a && isUndef b
 isUndef _ = False
 
-fixprimmaybepermute :: forall s sh a aenv. DeclareVars s (Buffers (PrimMaybe (((),sh),a))) aenv 
+fixprimmaybepermute :: forall s sh a aenv. DeclareVars s (Buffers (PrimMaybe (((),sh),a))) aenv
                     -> PrimMaybeDeclareVars s sh a aenv
 fixprimmaybepermute (DeclareVars lhs w k) =
   DeclareVarsPrimMaybe lhs w $ \w' -> case k w' of

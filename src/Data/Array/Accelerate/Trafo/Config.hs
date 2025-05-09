@@ -27,7 +27,6 @@ import Data.Array.Accelerate.Debug.Internal.Flags                   as F
 import Data.Word
 import System.IO.Unsafe
 import Foreign.Storable
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve (Objective(..))
 
 
 data Config = Config
@@ -47,4 +46,3 @@ defaultOptions = unsafePerformIO $!
 -- Extra options not covered by command line flags
 --
 -- float_out_acc          = Flag 31
-

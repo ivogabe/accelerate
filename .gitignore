@@ -17,3 +17,4 @@
 *.hi
 *.o
 /gurobi.log
+/.vscode

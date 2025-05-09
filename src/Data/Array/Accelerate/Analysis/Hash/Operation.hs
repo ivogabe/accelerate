@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE DataKinds           #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Analysis.Hash
@@ -40,7 +41,7 @@ class EncodeOperation op where
   encodeOperation :: op t -> Builder
 
 instance (MakesILP op, EncodeOperation op) => EncodeOperation (Clustered op) where
-  encodeOperation (Clustered cluster backendCluster) = 
+  encodeOperation (Clustered cluster backendCluster) =
     encodePreArgs encodeBackendClusterArg backendCluster <> encodeCluster cluster
 
 encodePreArgs :: (forall t. arg t -> Builder) -> PreArgs arg f -> Builder
@@ -65,7 +66,7 @@ encodeCluster (SingleOp op label)
 encodeCluster (Fused fusion left right)
   = intHost $(hashQ "Fused") <> encodeFusion fusion <> encodeCluster left <> encodeCluster right
 
-encodeLabel :: Label -> Builder
+encodeLabel :: Label Comp -> Builder
 encodeLabel (Label idx Nothing) = intHost idx <> intHost $(hashQ "Nothing")
 encodeLabel (Label idx (Just l)) = intHost idx <> intHost $(hashQ "Just") <> encodeLabel l
 
