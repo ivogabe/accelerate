@@ -111,33 +111,30 @@ makeILP obj (FusionILP graph constraints bounds) = combine graphILP
     -- note, it's only quadratic in the number of consumers of a specific array.
     -- We also check for the 'order': horizontal fusion only happens when the two fused accesses are in the same order.
     numberOfReads = nReads .+. numberOfUnfusedEdges
-    -- (nReads, readConstraints, readBounds)
-    --   = foldl (<>) mempty
-    --   . flip evalState ""
-    --   . forM (S.toList computationNodes) $ \computation -> do
-    --   let consumers  = S.map (\(_,b,c) -> (b,c)) $ S.filter (\(c,_,_) -> c == computation) fusibleEdges
-    --       nConsumers = S.size consumers
-    --   readPis    <- replicateM nConsumers readPiVar
-    --   readOrders <- replicateM nConsumers readOrderVar
-    --   (subConstraint, subBounds) <- flip foldMapM consumers $ \(buff,cons) -> do
-    --     useVars <- replicateM nConsumers useVar -- these are the n^2 variables: For each consumer, n variables which each check the equality of pi to readpi
-    --     let constraint = foldMap
-    --           (\(uv, rp, ro) -> isEqualRangeN (var rp) (pi cons)           (var uv)
-    --                          <> isEqualRangeN (var ro) (readDir buff cons) (var uv))
-    --           (zip3 useVars readPis readOrders)
-    --     return (constraint <> foldl (.+.) (int 0) (map var useVars) .<=. int (nConsumers-1), foldMap binary useVars)
-    --   readPi0s <- replicateM nConsumers readPi0Var
-    --   return ( foldl (.+.) (int 0) (map var readPi0s)
-    --          , subConstraint <> fold (zipWith (\p p0 -> var p .<=. timesN (var p0)) readPis readPi0s)
-    --          , subBounds <> foldMap (\v -> lowerUpper 0 v n) readPis <> foldMap binary readPi0s)
-    --
-    -- readOrderVar = Other <$> freshName "ReadOrder"
-    -- readPiVar    = Other <$> freshName "ReadPi"   -- non-zero signifies that at least one consumer reads this array from a certain pi
-    -- readPi0Var   = Other <$> freshName "Read0Pi"  -- signifies whether the corresponding readPi variable is 0
-    -- useVar       = Other <$> freshName "ReadUse"  -- signifies whether a consumer corresponds with a readPi variable; because its pi == readpi
+    (nReads, readC, readB)
+      = foldl (<>) mempty
+      . flip evalState ""
+      . forM (S.toList compN) $ \computation -> do
+      let consumers  = S.map (\(_,b,c) -> (b,c)) $ S.filter (\(c,_,_) -> c == computation) fusibleE
+          nConsumers = S.size consumers
+      readPis    <- replicateM nConsumers readPiVar
+      readOrders <- replicateM nConsumers readOrderVar
+      (subConstraint, subBounds) <- flip foldMapM consumers $ \(buff,cons) -> do
+        useVars <- replicateM nConsumers useVar -- these are the n^2 variables: For each consumer, n variables which each check the equality of pi to readpi
+        let constraint = foldMap
+              (\(uv, rp, ro) -> isEqualRangeN (var rp) (pi cons)           (var uv)
+                             <> isEqualRangeN (var ro) (readDir buff cons) (var uv))
+              (zip3 useVars readPis readOrders)
+        return (constraint <> foldl (.+.) (int 0) (map var useVars) .<=. int (nConsumers-1), foldMap binary useVars)
+      readPi0s <- replicateM nConsumers readPi0Var
+      return ( foldl (.+.) (int 0) (map var readPi0s)
+             , subConstraint <> fold (zipWith (\p p0 -> var p .<=. timesN (var p0)) readPis readPi0s)
+             , subBounds <> foldMap (\v -> lowerUpper 0 v n) readPis <> foldMap binary readPi0s)
 
-    -- The old version of the read constraints is cool and all, but with the new fusion ilp and explicit buffers we can simplify it a lot:
-    nReads = foldl' (\e (w,_,r) -> e .+. notB (fused w r)) (int 0) fusibleE
+    readOrderVar = Other <$> freshName "ReadOrder"
+    readPiVar    = Other <$> freshName "ReadPi"   -- non-zero signifies that at least one consumer reads this array from a certain pi
+    readPi0Var   = Other <$> freshName "Read0Pi"  -- signifies whether the corresponding readPi variable is 0
+    useVar       = Other <$> freshName "ReadUse"  -- signifies whether a consumer corresponds with a readPi variable; because its pi == readpi
 
     -- objective function that maximises the number of fused away arrays, and thus minimises the number of array writes
     -- using .-. instead of notB to factor the constants out of the cost function; if we use (1 - manifest l) as elsewhere Gurobi thinks the 1 is a variable name
@@ -161,7 +158,7 @@ makeILP obj (FusionILP graph constraints bounds) = combine graphILP
       _ -> mempty
 
     myConstraints = fusibleAcyclicC <> strictAcyclicC <> infusibleC <> manifestC
-      <> numberOfClustersC {- <> readConstraints -} <> orderC <> finalize graph
+      <> numberOfClustersC <> readC <> orderC <> finalize graph
 
     -- x_ij <= pi_j - pi_i <= n*x_ij for all fusible edges
     fusibleAcyclicC = foldMap (\(i,_,j) -> between (fused i j) (pi j .-. pi i) (timesN $ fused i j)) fusibleE
@@ -182,7 +179,7 @@ makeILP obj (FusionILP graph constraints bounds) = combine graphILP
       <> (-1) .*. timesN (fused i j) .<=. readDir b j .-. writeDir i b
 
     myBounds :: Bounds op
-    myBounds = piB <> fusedB <> manifestB
+    myBounds = piB <> fusedB <> manifestB <> readB
 
     --  0 <= pi_i <= n
     piB = foldMap (\i -> lowerUpper 0 (Pi i) n) compN

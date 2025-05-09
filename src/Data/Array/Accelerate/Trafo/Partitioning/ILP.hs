@@ -80,9 +80,9 @@ ilpFusion' :: (MakesILP op, ILPSolver s op)
            -> x
            -> y
 ilpFusion' toGraph fromGraph s obj acc = do
-  let fullgraph = {- traceGraph $ -} toGraph acc
+  let fullgraph = traceGraph $ toGraph acc
   let ilp       = makeILP obj (fullgraph^.fusionILP)
-  let solution  = fromMaybe (error "Accelerate: No ILP solution found") (unsafePerformIO $ solve s ilp)
+  let solution  = traceWith ppSolution $ fromMaybe (error "Accelerate: No ILP solution found") (unsafePerformIO $ solve s ilp)
   let symbols'  = attachBackendLabels solution (fullgraph^.symbols)
   let readDirM  = interpretReadDirs  solution
   -- let writeDirM = interpretWriteDirs solution
