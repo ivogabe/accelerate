@@ -233,6 +233,8 @@ instance Show EnvLabel where
   show (EnvLabel i) = "E" ++ show i
 
 -- | An 'EnvLabel' and all buffers associated with it.
+--
+-- 'EnvLabel' can probably be removed because its equivalent to @BufferTup t@.
 type EnvLabels t = (EnvLabel, BuffersTup t)
 
 -- | A 'TupF' of 'EnvLabel'.
