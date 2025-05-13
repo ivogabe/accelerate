@@ -1,27 +1,28 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns        #-}
-{-# LANGUAGE BlockArguments      #-}
-{-# LANGUAGE EmptyCase           #-}
-{-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE FlexibleInstances   #-}
-{-# LANGUAGE GADTs               #-}
-{-# LANGUAGE InstanceSigs        #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE MagicHash           #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE PatternGuards       #-}
-{-# LANGUAGE PatternSynonyms     #-}
-{-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell     #-}
-{-# LANGUAGE TupleSections       #-}
-{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE AllowAmbiguousTypes    #-}
+{-# LANGUAGE BangPatterns           #-}
+{-# LANGUAGE BlockArguments         #-}
+{-# LANGUAGE EmptyCase              #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE GADTs                  #-}
+{-# LANGUAGE InstanceSigs           #-}
+{-# LANGUAGE LambdaCase             #-}
+{-# LANGUAGE MagicHash              #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE OverloadedStrings      #-}
+{-# LANGUAGE PatternGuards          #-}
+{-# LANGUAGE PatternSynonyms        #-}
+{-# LANGUAGE RankNTypes             #-}
+{-# LANGUAGE RecordWildCards        #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TemplateHaskell        #-}
+{-# LANGUAGE TupleSections          #-}
+{-# LANGUAGE TypeApplications       #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
-{-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ViewPatterns        #-}
+{-# LANGUAGE TypeOperators          #-}
+{-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE ViewPatterns           #-}
+{-# LANGUAGE DataKinds              #-}
 
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 {-# OPTIONS_HADDOCK prune #-}
@@ -73,7 +74,7 @@ import Unsafe.Coerce (unsafeCoerce)
 import Control.Monad.ST
 import Data.Bits
 import Data.Array.Accelerate.Backend
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (Var (..), (-?>), fused, infusibleEdges, manifest, LabelledArgOp (LOp))
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (Var (..), fused, infusibleEdges, manifest, LabelledArgOp (LOp))
 import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph as Graph
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
 import qualified Data.Set as Set
@@ -101,9 +102,9 @@ import Data.Map (Map)
 import System.IO.Unsafe (unsafePerformIO)
 
 data Interpreter
-instance Backend Interpreter where
-  type Schedule Interpreter = UniformScheduleFun
-  type Kernel Interpreter = InterpretKernel
+-- instance Backend Interpreter where
+--   type Schedule Interpreter = UniformScheduleFun
+--   type Kernel Interpreter = InterpretKernel
 
 
 (!?!) :: (Ord a1, Show a1, Show a2) => Map a1 a2 -> a1 -> a2
@@ -182,17 +183,17 @@ instance DesugarAcc InterpretOp where
   --             (ArgArray In arr (weakenVars wTemp1 sh) (kTemp2 weakenId))
   --             (weaken wTemp1 o)
 
-            -- mkBackpermuteOr 
+            -- mkBackpermuteOr
             --   (case dir of
             --     -- The easy direction: identity backpermute, the default case will trigger on the last element
             --     RightToLeft -> case mkLHS (shapeType shr) of
             --       LHS lhs vars ->
-            --         ArgFun $ Lam lhs $ 
+            --         ArgFun $ Lam lhs $
             --           Body $ expVars vars
             --     -- The difficult direction: backpermute does a +1, the default case will trigger on the first element
             --     LeftToRight -> case mkLHS (shapeType shr') of
             --       LHS lhs vars ->
-            --         ArgFun $ Lam (lhs `LeftHandSidePair` LeftHandSideSingle scalarTypeInt) $ 
+            --         ArgFun $ Lam (lhs `LeftHandSidePair` LeftHandSideSingle scalarTypeInt) $
             --           Body $ Pair (expVars $ weakenVars (weakenSucc' weakenId) vars) (PrimApp (PrimMin $ NumSingleType $ IntegralNumType TypeInt) $ Pair (Evar (Var scalarTypeInt ZeroIdx)) (Const scalarTypeInt 1))
             --   )
 
@@ -237,21 +238,21 @@ data InterpretKernel env where
 instance NFData' InterpretKernel where
   rnf' (InterpretKernel cluster args) = undefined cluster `seq` rnfArgs args
 
-instance IsKernel InterpretKernel where
-  type KernelOperation InterpretKernel = InterpretOp
-  type KernelMetadata  InterpretKernel = NoKernelMetadata
+-- instance IsKernel InterpretKernel where
+--   type KernelOperation InterpretKernel = InterpretOp
+--   type KernelMetadata  InterpretKernel = NoKernelMetadata
 
-  compileKernel = const InterpretKernel
+--   compileKernel = const InterpretKernel
 
-  encodeKernel (InterpretKernel cluster args)
-    = Prelude.Right $ encodeOperation cluster <> encodePreArgs encodeArg args
+--   encodeKernel (InterpretKernel cluster args)
+--     = Prelude.Right $ encodeOperation cluster <> encodePreArgs encodeArg args
 
 instance PrettyKernel InterpretKernel where
   -- PrettyKernelBody provides a Val but prettyOpWithArgs expects a Val', should we change them to have the
   -- same type (either Val or Val'?)
   prettyKernel = PrettyKernelBody False $ \env (InterpretKernel cluster args) -> prettyOpWithArgs env cluster args
 
--- -- -2 is left>right, -1 is right>left, n is 'according to computation n' (e.g. Backpermute) 
+-- -- -2 is left>right, -1 is right>left, n is 'according to computation n' (e.g. Backpermute)
 -- -- (Note that Labels are uniquely identified by an Int, the parent just gives extra information)
 -- -- Use Output = -3 for 'cannot be fused with consumer', as that is more difficult to express (we don't know the consumer yet)
 -- -- We restrict all the Inputs to >= -2.
@@ -265,153 +266,154 @@ data Side = Left | Right
   deriving (Eq, Ord, Show)
 
 
-instance MakesILP InterpretOp where
-  type BackendVar InterpretOp = InterpreterVariables
-  type BackendArg InterpretOp = Maybe Int
-  data BackendClusterArg InterpretOp arg where
-    -- ArrayInfo :: { dim :: Int, idleLeft :: Int, idleRight :: Int} -> BackendClusterArg InterpretOp arg -- can't do (m sh e) because vertically fused arrays get a Var' argument
-    -- NonArray :: BackendClusterArg InterpretOp arg
-    BCAI :: BackendClusterArg InterpretOp arg
-  -- each array argument gets labelled with its order,
-  -- this ensures that e.g. multiple inputs of the same array
-  -- in different orders won't fuse horizontally, and that
-  -- the correct one will be used by each consumer
-  labelLabelledArg solution l (L arg@(ArgArray In  _ _ _) al) = LOp arg al . Just $ (solution !?! Graph.InDir  l) --, (solution !?! BackendSpecific (DimensionsPerThread  InArr l), solution !?! BackendSpecific (IdleThreads  InArr Left l), solution !?! BackendSpecific (IdleThreads  InArr Right l)))
-  labelLabelledArg solution l (L arg@(ArgArray Out _ _ _) al) = LOp arg al . Just $ (solution !?! Graph.OutDir l) --, (solution !?! BackendSpecific (DimensionsPerThread OutArr l), solution !?! BackendSpecific (IdleThreads OutArr Left l), solution !?! BackendSpecific (IdleThreads OutArr Right l)))
-  labelLabelledArg _ _ (L arg al) = LOp arg al Nothing
+-- instance MakesILP InterpretOp where
+--   type BackendVar InterpretOp = InterpreterVariables
+--   type BackendArg InterpretOp = Maybe Int
+--   data BackendClusterArg InterpretOp arg where
+--     -- ArrayInfo :: { dim :: Int, idleLeft :: Int, idleRight :: Int} -> BackendClusterArg InterpretOp arg -- can't do (m sh e) because vertically fused arrays get a Var' argument
+--     -- NonArray :: BackendClusterArg InterpretOp arg
+--     BCAI :: BackendClusterArg InterpretOp arg
+--   -- each array argument gets labelled with its order,
+--   -- this ensures that e.g. multiple inputs of the same array
+--   -- in different orders won't fuse horizontally, and that
+--   -- the correct one will be used by each consumer
+--   labelLabelledArg solution l (L arg@(ArgArray In  _ _ _) al) = LOp arg al . Just $ (solution !?! Graph.InDir  l) --, (solution !?! BackendSpecific (DimensionsPerThread  InArr l), solution !?! BackendSpecific (IdleThreads  InArr Left l), solution !?! BackendSpecific (IdleThreads  InArr Right l)))
+--   labelLabelledArg solution l (L arg@(ArgArray Out _ _ _) al) = LOp arg al . Just $ (solution !?! Graph.OutDir l) --, (solution !?! BackendSpecific (DimensionsPerThread OutArr l), solution !?! BackendSpecific (IdleThreads OutArr Left l), solution !?! BackendSpecific (IdleThreads OutArr Right l)))
+--   labelLabelledArg _ _ (L arg al) = LOp arg al Nothing
 
-  getClusterArg (LOp ArgArray{} _ (Just _)) = BCAI
-  getClusterArg (LOp ArgVar{}   _ (Just _)) = BCAI -- vertically fused array
-  getClusterArg (LOp ArgArray{} _ Nothing) = error "TODO: make a nice error"
-  getClusterArg (LOp _ _ Nothing) = BCAI
-  getClusterArg (LOp _ _ (Just _))         = error "TODO: make a nice error"
+--   getClusterArg (LOp ArgArray{} _ (Just _)) = BCAI
+--   getClusterArg (LOp ArgVar{}   _ (Just _)) = BCAI -- vertically fused array
+--   getClusterArg (LOp ArgArray{} _ Nothing) = error "TODO: make a nice error"
+--   getClusterArg (LOp _ _ Nothing) = BCAI
+--   getClusterArg (LOp _ _ (Just _))         = error "TODO: make a nice error"
 
-  finalize = foldMap $ \l -> timesN (manifest l) .>. c (OutDir l)
+--   finalize = foldMap $ \l -> timesN (manifest l) .>. c (OutDir l)
 
-  mkGraph IBackpermute (_ :>: ((L _ (_, Set.toList -> lIns)) :>: _ :>: ArgsNil)) l@(Label i _) =
-    Graph.Info
-      mempty
-      (  inputConstraints l lIns
-      <> c (InDir l) .==. int i
-      -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)
-      -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l)
-      -- TODO reconsider: this has difficult consequences, because if we're backpermuting a matrix from a vector and Dims was 1, does it make sense still?
-      -- Need to just work out some examples by hand
+--   mkGraph IBackpermute (_ :>: ((L _ (_, Set.toList -> lIns)) :>: _ :>: ArgsNil)) l@(Label i _) =
+--     Graph.Info
+--       mempty
+--       (  inputConstraints l lIns
+--       <> c (InDir l) .==. int i
+--       -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)
+--       -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l)
+--       -- TODO reconsider: this has difficult consequences, because if we're backpermuting a matrix from a vector and Dims was 1, does it make sense still?
+--       -- Need to just work out some examples by hand
 
--- seems like we might need not just #dimsperthread (shapeR), but also the size of those dims (shape)
--- like the backpermute functions; these are not known to the ILP but can be statically threaded through back-to-front before evaluating a cluster, using the env
---        or more precisely, we can thread a computation through the cluster at compile time, which can (at run time, before eval of cluster) use the env
---        to compute them
--- it's beginning to feel a lot like this is too much for the interpreter? But a nice little generalisation which allows the backends to use it too would be great.
--- maybe find a way to make interpret without dimsperthread first though
+-- -- seems like we might need not just #dimsperthread (shapeR), but also the size of those dims (shape)
+-- -- like the backpermute functions; these are not known to the ILP but can be statically threaded through back-to-front before evaluating a cluster, using the env
+-- --        or more precisely, we can thread a computation through the cluster at compile time, which can (at run time, before eval of cluster) use the env
+-- --        to compute them
+-- -- it's beginning to feel a lot like this is too much for the interpreter? But a nice little generalisation which allows the backends to use it too would be great.
+-- -- maybe find a way to make interpret without dimsperthread first though
 
-      -- <> c (BackendSpecific $ DimensionsPerThread InArr l) .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
-      ) -- enforce that the backpermute follows its own rules, but the output can be anything
-      (defaultBounds l)
-  mkGraph IGenerate _ l = Graph.Info mempty mempty (defaultBounds l) -- creats some superfluous variables, oh well
-  mkGraph IMap (_ :>: L _ (_, Set.toList -> lIns) :>: _ :>: ArgsNil) l =
-    Graph.Info
-      mempty
-      (  inputConstraints l lIns
-      <> c (InDir l) .==. c (OutDir l)
-      -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)
-      -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l)
-      -- <> c (BackendSpecific $ DimensionsPerThread InArr l) .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
-      )
-      (defaultBounds l)
-  mkGraph IPermute (_ :>: L _ (_, lTargets) :>: _ :>: L _ (_, Set.toList -> lIns) :>: ArgsNil) l@(Label i _) =
-    Graph.Info
-      (  mempty & infusibleEdges .~ Set.map (-?> l) lTargets) -- Cannot fuse with the producer of the target array
-      (  inputConstraints l lIns <> c (OutDir l) .==. int (-3-i)) -- convention meaning infusible
-      (  lower (-2) (InDir l)
-      -- <> lower 0 (BackendSpecific $ IdleThreads InArr Left l)
-      -- <> lower 0 (BackendSpecific $ IdleThreads InArr Right l)
-      -- <> equal 0 (BackendSpecific $ IdleThreads OutArr Left l)
-      -- <> equal 0 (BackendSpecific $ IdleThreads OutArr Right l)
-      -- <> equal 0 (BackendSpecific $ DimensionsPerThread OutArr l)
-      )
+--       -- <> c (BackendSpecific $ DimensionsPerThread InArr l) .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
+--       ) -- enforce that the backpermute follows its own rules, but the output can be anything
+--       (defaultBounds l)
+--   mkGraph IGenerate _ l = Graph.Info mempty mempty (defaultBounds l) -- creats some superfluous variables, oh well
+--   mkGraph IMap (_ :>: L _ (_, Set.toList -> lIns) :>: _ :>: ArgsNil) l =
+--     Graph.Info
+--       mempty
+--       (  inputConstraints l lIns
+--       <> c (InDir l) .==. c (OutDir l)
+--       -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)
+--       -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l)
+--       -- <> c (BackendSpecific $ DimensionsPerThread InArr l) .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
+--       )
+--       (defaultBounds l)
+--   mkGraph IPermute (_ :>: L _ (_, lTargets) :>: _ :>: L _ (_, Set.toList -> lIns) :>: ArgsNil) l@(Label i _) =
+--     Graph.Info
+--       (  mempty & infusibleEdges .~ Set.map (-?> l) lTargets) -- Cannot fuse with the producer of the target array
+--       (  inputConstraints l lIns <> c (OutDir l) .==. int (-3-i)) -- convention meaning infusible
+--       (  lower (-2) (InDir l)
+--       -- <> lower 0 (BackendSpecific $ IdleThreads InArr Left l)
+--       -- <> lower 0 (BackendSpecific $ IdleThreads InArr Right l)
+--       -- <> equal 0 (BackendSpecific $ IdleThreads OutArr Left l)
+--       -- <> equal 0 (BackendSpecific $ IdleThreads OutArr Right l)
+--       -- <> equal 0 (BackendSpecific $ DimensionsPerThread OutArr l)
+--       )
 
-  mkGraph (IFold1 _) (_ :>: L _ (_, Set.toList -> lIns) :>: _ :>: ArgsNil) l =
-    Graph.Info
-      mempty
-      ( inputConstraints l lIns
-        <> c (InDir l) .==. c (OutDir l)
-        -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)
-        -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l)
-        -- <> c (BackendSpecific $ DimensionsPerThread InArr l) .+. int 1 .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
-        )
-      (defaultBounds l)
+--   mkGraph (IFold1 _) (_ :>: L _ (_, Set.toList -> lIns) :>: _ :>: ArgsNil) l =
+--     Graph.Info
+--       mempty
+--       ( inputConstraints l lIns
+--         <> c (InDir l) .==. c (OutDir l)
+--         -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)
+--         -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l)
+--         -- <> c (BackendSpecific $ DimensionsPerThread InArr l) .+. int 1 .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
+--         )
+--       (defaultBounds l)
 
-  mkGraph (IScan1 _ _) (_ :>: L _ (_, Set.toList -> lIns) :>: _ :>: ArgsNil) l =
-    Graph.Info
-      mempty
-      ( inputConstraints l lIns
-        <> c (InDir l) .==. c (OutDir l)
-        <> c (InDir l) .<=. int 0
-        -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)
-        -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l)
-        -- <> c (BackendSpecific $ DimensionsPerThread InArr l) .+. int 1 .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
-        )
-      (defaultBounds l)
+--   mkGraph (IScan1 _ _) (_ :>: L _ (_, Set.toList -> lIns) :>: _ :>: ArgsNil) l =
+--     Graph.Info
+--       mempty
+--       ( inputConstraints l lIns
+--         <> c (InDir l) .==. c (OutDir l)
+--         <> c (InDir l) .<=. int 0
+--         -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)
+--         -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l)
+--         -- <> c (BackendSpecific $ DimensionsPerThread InArr l) .+. int 1 .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
+--         )
+--       (defaultBounds l)
 
-  -- mkGraph (IAppend side n) (_ :>: L _ (_, Set.toList -> lIns) :>: _ :>: ArgsNil) l =
-  --   Graph.Info
-  --     mempty
-  --     ( inputConstraints l lIns
-  --       <> c (InDir l) .==. c (OutDir l)
-  --       -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)   .+. int (if side == Left  then n else 0)
-  --       -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l) .+. int (if side == Right then n else 0)
-  --       -- <> c (BackendSpecific $ DimensionsPerThread InArr l) .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
-  --       )
-  --     (defaultBounds l)
+--   -- mkGraph (IAppend side n) (_ :>: L _ (_, Set.toList -> lIns) :>: _ :>: ArgsNil) l =
+--   --   Graph.Info
+--   --     mempty
+--   --     ( inputConstraints l lIns
+--   --       <> c (InDir l) .==. c (OutDir l)
+--   --       -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)   .+. int (if side == Left  then n else 0)
+--   --       -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l) .+. int (if side == Right then n else 0)
+--   --       -- <> c (BackendSpecific $ DimensionsPerThread InArr l) .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
+--   --       )
+--   --     (defaultBounds l)
 
-  -- encodeBackendClusterArg (ArrayInfo d l r) = intHost $(hashQ ("ArrayInfo" :: String)) <> intHost d <> intHost l <> intHost r
-  -- encodeBackendClusterArg NonArray          = intHost $(hashQ ("NonArray" :: String))
-  encodeBackendClusterArg BCAI = intHost $(hashQ ("BCAI" :: String))
+--   -- encodeBackendClusterArg (ArrayInfo d l r) = intHost $(hashQ ("ArrayInfo" :: String)) <> intHost d <> intHost l <> intHost r
+--   -- encodeBackendClusterArg NonArray          = intHost $(hashQ ("NonArray" :: String))
+--   encodeBackendClusterArg BCAI = intHost $(hashQ ("BCAI" :: String))
 
-  -- mkGraph IBackpermuteOr (_ :>: _ :>: ((L _ (_, Set.toList -> lIns)) :>: _)) l@(Label i _) =
-  --   Info
-  --     mempty
-  --     (  inputConstraints l lIns
-  --     <> c (InDir l) .==. int i
-  --     -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)
-  --     -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l)
-  --     <> c (BackendSpecific $ DimensionsPerThread InArr l) .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
-  --     ) 
-  --     (defaultBounds l)
+--   -- mkGraph IBackpermuteOr (_ :>: _ :>: ((L _ (_, Set.toList -> lIns)) :>: _)) l@(Label i _) =
+--   --   Info
+--   --     mempty
+--   --     (  inputConstraints l lIns
+--   --     <> c (InDir l) .==. int i
+--   --     -- <> c (BackendSpecific $ IdleThreads InArr Left l) .==. c (BackendSpecific $ IdleThreads OutArr Left l)
+--   --     -- <> c (BackendSpecific $ IdleThreads InArr Right l) .==. c (BackendSpecific $ IdleThreads OutArr Right l)
+--   --     <> c (BackendSpecific $ DimensionsPerThread InArr l) .==. c (BackendSpecific $ DimensionsPerThread OutArr l)
+--   --     )
+--   --     (defaultBounds l)
 
--- | If l and lIn are fused, the out-order of lIn and the in-order of l should match
-inputConstraints :: Label -> [Label] -> Constraint InterpretOp
-inputConstraints l = foldMap $ \lIn ->
-                timesN (fused lIn l) .>=. c (InDir l) .-. c (OutDir lIn)
-    <> (-1) .*. timesN (fused lIn l) .<=. c (InDir l) .-. c (OutDir lIn)
-    -- <>          timesN (fused lIn l) .>=. c (BackendSpecific $ DimensionsPerThread InArr l) .-. c (BackendSpecific $ DimensionsPerThread OutArr lIn)
-    -- <> (-1) .*. timesN (fused lIn l) .<=. c (BackendSpecific $ DimensionsPerThread InArr l) .-. c (BackendSpecific $ DimensionsPerThread OutArr lIn)
-    -- <>          timesN (fused lIn l) .>=. c (BackendSpecific $ IdleThreads InArr Left  l) .-. c (BackendSpecific $ IdleThreads OutArr Left  lIn)
-    -- <> (-1) .*. timesN (fused lIn l) .<=. c (BackendSpecific $ IdleThreads InArr Left  l) .-. c (BackendSpecific $ IdleThreads OutArr Left  lIn)
-    -- <>          timesN (fused lIn l) .>=. c (BackendSpecific $ IdleThreads InArr Right l) .-. c (BackendSpecific $ IdleThreads OutArr Right lIn)
-    -- <> (-1) .*. timesN (fused lIn l) .<=. c (BackendSpecific $ IdleThreads InArr Right l) .-. c (BackendSpecific $ IdleThreads OutArr Right lIn)
+-- -- | If l and lIn are fused, the out-order of lIn and the in-order of l should match
+-- inputConstraints :: Label Comp -> [Label Comp] -> Constraint InterpretOp
+-- inputConstraints l = foldMap $ \lIn ->
+--                 timesN (fused lIn l) .>=. c (InDir l) .-. c (OutDir lIn)
+--     <> (-1) .*. timesN (fused lIn l) .<=. c (InDir l) .-. c (OutDir lIn)
+--     -- <>          timesN (fused lIn l) .>=. c (BackendSpecific $ DimensionsPerThread InArr l) .-. c (BackendSpecific $ DimensionsPerThread OutArr lIn)
+--     -- <> (-1) .*. timesN (fused lIn l) .<=. c (BackendSpecific $ DimensionsPerThread InArr l) .-. c (BackendSpecific $ DimensionsPerThread OutArr lIn)
+--     -- <>          timesN (fused lIn l) .>=. c (BackendSpecific $ IdleThreads InArr Left  l) .-. c (BackendSpecific $ IdleThreads OutArr Left  lIn)
+--     -- <> (-1) .*. timesN (fused lIn l) .<=. c (BackendSpecific $ IdleThreads InArr Left  l) .-. c (BackendSpecific $ IdleThreads OutArr Left  lIn)
+--     -- <>          timesN (fused lIn l) .>=. c (BackendSpecific $ IdleThreads InArr Right l) .-. c (BackendSpecific $ IdleThreads OutArr Right lIn)
+--     -- <> (-1) .*. timesN (fused lIn l) .<=. c (BackendSpecific $ IdleThreads InArr Right l) .-. c (BackendSpecific $ IdleThreads OutArr Right lIn)
 
-defaultBounds :: Label -> Bounds InterpretOp
-defaultBounds l = lower (-2) (InDir l) <> lower (-2) (OutDir l)
-                -- <> lower 0 (BackendSpecific $ IdleThreads InArr Left l)
-                -- <> lower 0 (BackendSpecific $ IdleThreads InArr Right l)
-                -- <> lower 0 (BackendSpecific $ IdleThreads OutArr Left l)
-                -- <> lower 0 (BackendSpecific $ IdleThreads OutArr Right l)
+-- defaultBounds :: Label Comp -> Bounds InterpretOp
+-- defaultBounds l = lower (-2) (InDir l) <> lower (-2) (OutDir l)
+--                 -- <> lower 0 (BackendSpecific $ IdleThreads InArr Left l)
+--                 -- <> lower 0 (BackendSpecific $ IdleThreads InArr Right l)
+--                 -- <> lower 0 (BackendSpecific $ IdleThreads OutArr Left l)
+--                 -- <> lower 0 (BackendSpecific $ IdleThreads OutArr Right l)
 
 
-instance NFData' (BackendClusterArg InterpretOp) where
-  -- rnf' (ArrayInfo x y z) = rnf x `seq` rnf y `seq` rnf z
-  -- rnf' NonArray = ()
-  rnf' BCAI = ()
+-- instance NFData' (BackendClusterArg InterpretOp) where
+--   -- rnf' (ArrayInfo x y z) = rnf x `seq` rnf y `seq` rnf z
+--   -- rnf' NonArray = ()
+--   rnf' :: BackendClusterArg InterpretOp a -> ()
+--   rnf' BCAI = ()
 
-instance ShrinkArg (BackendClusterArg InterpretOp) where
-  -- shrinkArg _ (ArrayInfo x y z) = ArrayInfo x y z
-  -- shrinkArg _ _ = error "impossible"
-  -- deadArg (ArrayInfo x y z) = ArrayInfo x y z
-  -- deadArg _ = error "impossible"
-  shrinkArg _ BCAI = BCAI
-  deadArg BCAI = BCAI
+-- instance ShrinkArg (BackendClusterArg InterpretOp) where
+--   -- shrinkArg _ (ArrayInfo x y z) = ArrayInfo x y z
+--   -- shrinkArg _ _ = error "impossible"
+--   -- deadArg (ArrayInfo x y z) = ArrayInfo x y z
+--   -- deadArg _ = error "impossible"
+--   shrinkArg _ BCAI = BCAI
+--   deadArg BCAI = BCAI
 
 instance NFData' InterpretOp where
   rnf' (IScan1 dir lookup) = lookup `seq` dir `seq` ()
@@ -637,7 +639,7 @@ shToLinearIndex (ShapeRsnoc shr) (sh, _) (sh', y) = let
 --         writeBuffers typer buf' j x'
 --         return $ PushFA target Empty
 --     _ -> error "PrimMaybe's tag was non-zero and non-one"
--- evalOp i (IAppend side n) env (PushBPFA f' f   infoF (PushBPFA _ (Value x shX) infoX (PushBPFA _ (Shape shr sh) infoO _))) = 
+-- evalOp i (IAppend side n) env (PushBPFA f' f   infoF (PushBPFA _ (Value x shX) infoX (PushBPFA _ (Shape shr sh) infoO _))) =
 --   if f' i - firstOfRow (f' i) (Shape shr sh) (idleLeft infoO) <= n
 --     then pure $ PushFA (Value x (Shape shr sh)) Empty
 --     else pure $ PushFA (Value (evalFun f env $ fromIndex shr sh (f' i)) (Shape shr sh)) Empty
@@ -1275,4 +1277,3 @@ evalMax (NumSingleType (FloatingNumType ty)) | FloatingDict <- floatingDict ty =
 evalMin :: SingleType a -> ((a, a) -> a)
 evalMin (NumSingleType (IntegralNumType ty)) | IntegralDict <- integralDict ty = uncurry min
 evalMin (NumSingleType (FloatingNumType ty)) | FloatingDict <- floatingDict ty = uncurry min
-

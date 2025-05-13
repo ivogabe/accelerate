@@ -35,7 +35,7 @@ instance MakesILP op => ILPSolver HiGHS op where
       cost' = case highexpr n cost of (term,_constant) -> fromMap . M.unionWith (+) (M.fromSet (const 0) vs) $ term2Map term
 
 getSolution (s, Nothing)      = Nothing
-getSolution (s, Just (c,arr)) = Just (round <$> toMap arr) 
+getSolution (s, Just (c,arr)) = Just (round <$> toMap arr)
 
 term2Map [] = mempty
 term2Map ((Term d v):ts) = M.unionWith (+) (M.singleton v d) (term2Map ts)
@@ -49,9 +49,9 @@ highbounds (Upper v u)        = (:) $ Inequality v $ LessEqual (int2Double u)
 
 highconstraints n TrueConstraint = id
 highconstraints n (a :&& b) = highconstraints n a . highconstraints n b
-highconstraints n ((a :>= b)) = (:) $ case (highexpr n (a.-.b)) of (terms,((-1)*)-> c) -> Inequality terms $ GreaterEqual (int2Double c)
-highconstraints n ((a :== b)) = (:) $ case (highexpr n (a.-.b)) of (terms,((-1)*)-> c) -> Inequality terms $ Equal (int2Double c)
-highconstraints n ((a :<= b)) = (:) $ case (highexpr n (a.-.b)) of (terms,((-1)*)-> c) -> Inequality terms $ LessEqual (int2Double c)
+highconstraints n ((a :>= b)) = (:) $ case highexpr n (a.-.b) of (terms,((-1)*)-> c) -> Inequality terms $ GreaterEqual (int2Double c)
+highconstraints n ((a :== b)) = (:) $ case highexpr n (a.-.b) of (terms,((-1)*)-> c) -> Inequality terms $ Equal (int2Double c)
+highconstraints n ((a :<= b)) = (:) $ case highexpr n (a.-.b) of (terms,((-1)*)-> c) -> Inequality terms $ LessEqual (int2Double c)
 
 highexpr n (Constant (Number m)) = ([],m n)
 highexpr n ((Number m) :* v) = ([int2Double (m n) .* v],0)
@@ -65,4 +65,3 @@ highexpr n (a :+ b) = case (highexpr n a, highexpr n b) of
       | x < y = Term a x : merge xs (Term b y:ys)
       | y < x = Term b y : merge (Term a x:xs) ys
       | otherwise = error "simple math"
-
