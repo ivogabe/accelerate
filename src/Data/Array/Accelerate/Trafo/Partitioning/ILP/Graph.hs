@@ -938,6 +938,9 @@ mkFullGraph' (Exec op args) = do
 mkFullGraph' (Alet LeftHandSideUnit _ bnd scp)
   = mkFullGraph' bnd >> mkFullGraph' scp
 
+-- In this definition I assume that whatever the right-hand side returns is
+-- produced by a single computation, which is currently true because all
+-- instructions attach themselves to the buffer.
 mkFullGraph' (Alet lhs u bnd scp) = do
   c       <- freshComp
   lenv    <- use buffersEnv
@@ -1006,12 +1009,14 @@ mkFullGraph' (Awhile u cond body init) = do
   zoom (scope c_while) do
     c_cond  <- freshComp
     c_body  <- freshComp
-    getVarsDeps init lenv ===> c_while
+    let (_, init_res) = getVarsFromEnv init lenv
+    fold init_res ===> c_while
     symbol c_while ?= SWhl lenv c_cond c_body init u
-    (_                  , cond_renv, cond_wenv) <- block c_cond mkFullGraphF' cond
-    (unsafeCoerce -> res, body_renv, body_wenv) <- block c_body mkFullGraphF' body
+    (_                       , cond_renv, cond_wenv) <- block c_cond mkFullGraphF' cond
+    (unsafeCoerce -> body_res, body_renv, body_wenv) <- block c_body mkFullGraphF' body
     readersEnv .= M.unionWith S.union cond_renv body_renv
     writersEnv .= M.unionWith S.union cond_wenv body_wenv
+    let res = init_res <> body_res
     fold res <--> c_while
     return res
 

@@ -216,8 +216,6 @@ tupFlike (TupRpair l r) b = TupFpair (tupFlike l b) (tupFlike r b)
 -- | Tuple of 'Labels' of type 'Buff'.
 type BuffersTup t = TupF t (Labels Buff)
 
--- | Tuple of 'Labels' of type 'Comp'.
-type ComputationsTup t = TupF t (Labels Comp)
 
 
 --------------------------------------------------------------------------------
