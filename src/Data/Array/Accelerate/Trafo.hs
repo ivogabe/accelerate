@@ -54,6 +54,12 @@ import qualified Data.Array.Accelerate.Trafo.Operation.LiveVars as Operation
 import qualified Data.Array.Accelerate.Trafo.Operation.Simplify as Operation
 -- import qualified Data.Array.Accelerate.Trafo.Vectorise    as Vectorise
 
+#ifdef ACCELERATE_DEBUG
+import Data.Array.Accelerate.Debug.Internal
+import Formatting
+import System.IO.Unsafe (unsafePerformIO)
+#endif
+
 import Control.DeepSeq
 import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph as Partitioning
 import Data.Array.Accelerate.Representation.Ground (DesugaredArrays, DesugaredAfun)

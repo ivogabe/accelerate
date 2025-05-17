@@ -11,11 +11,7 @@ extra-deps:
 - OptDir-0.0.4
 - bytestring-encoding-0.1.2.0
 - fclabels-2.0.5.1
-# - MIP-0.1.1.0
-- github: msakai/haskell-MIP
-  commit: 4295aa21a24a30926b55770c55ac00f749fb8a39
-  subdirs:
-  - MIP
+- MIP-0.2.0.0
 
 
 

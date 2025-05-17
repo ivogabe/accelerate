@@ -24,6 +24,7 @@ import Data.Function ( on )
 import Lens.Micro ((^.),  _1 )
 import Lens.Micro.Extras ( view )
 import Data.Maybe (fromJust,  mapMaybe )
+import Control.Monad (forM, replicateM)
 import Control.Monad.State
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration (freshName)
 import Data.Foldable
