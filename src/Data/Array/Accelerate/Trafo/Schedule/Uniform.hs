@@ -58,7 +58,7 @@ import qualified Data.Array.Accelerate.AST.Partitioned as C
 import Data.Maybe
 import Prelude hiding (id, (.), read)
 import Control.Category
-import Control.DeepSeq
+import Control.DeepSeq hiding (Unit(..))
 import Control.Concurrent
 import Data.IORef
 import System.IO.Unsafe (unsafePerformIO)
