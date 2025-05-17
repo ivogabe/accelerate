@@ -357,7 +357,7 @@ library
         , microlens                     >= 0.4
         , microlens-th                  >= 0.4
         , microlens-mtl                 >= 0.2
-        , MIP                           >= 0.1.1
+        , MIP                           >= 0.2
         , mtl                           >= 2.0
         , prettyprinter                 >= 1.7
         , prettyprinter-ansi-terminal   >= 1.1.2

@@ -56,8 +56,7 @@ instance (MakesILP op, MIP.IsSolver s IO) => ILPSolver (MIP s) op where
         <*> cons n constr
         <*> pure [] 
         <*> pure [] 
-        <*> vartypes -- If any variables are not given a type, they won't get fixed by `solveCondensedSoluton` (and I'm also not sure whether Integer is the default).
-        <*> bounds bnds 
+        <*> (M.map (IntegerVariable,) <$> bounds bnds)
       problem = runReader readerProblem names
 
       -- varsOf :: [MIP.Constraint Scientific] -> [MIP.Var]
@@ -65,8 +64,6 @@ instance (MakesILP op, MIP.IsSolver s IO) => ILPSolver (MIP s) op where
 
       mkFun Maximise = ObjectiveFunction (Just "AccelerateObjective") OptMax
       mkFun Minimise = ObjectiveFunction (Just "AccelerateObjective") OptMin
-
-      vartypes = allIntegers -- assuming that all variables have bounds
 
 
       -- addZeroes :: MIP.Problem Scientific -> MIP.Solution Scientific -> MIP.Solution Scientific
@@ -114,9 +111,6 @@ bounds NoBounds = pure mempty
 -- extraConstraints = do
 --   vs <- asks $ map toVar . M.keys . fst
 --   return [MIP.constExpr (-5) MIP..<=. MIP.varExpr x | x <- vs]
-
-allIntegers :: Reader (Names op) (M.Map MIP.Var VarType)
-allIntegers = asks $ M.fromList . map ((,IntegerVariable) . toVar) . M.keys . fst 
 
 
 
