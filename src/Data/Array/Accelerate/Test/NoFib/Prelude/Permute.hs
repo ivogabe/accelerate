@@ -151,28 +151,29 @@ permuteRef
     -> (sh -> Maybe sh')
     -> Array sh e
     -> Array sh' e
-permuteRef f def@(Array (R.Array _ aold)) p arr@(Array (R.Array _ anew)) =
+permuteRef f def p arr =
   unsafePerformIO $ do
-    let
-        tp  = S.eltR @e
-        sh  = S.shape arr
-        sh' = S.shape def
-        n   = S.size sh
-        --
-        go !i
-          | i P.>= n  = pure ()
-          | otherwise = do
-              let ix  = S.fromIndex sh i
-              case p ix of
-                Nothing  -> pure ()
-                Just ix' -> do
-                  let i'  = S.toIndex sh' ix'
-                  x  <- toElt P.<$> readArrayData tp anew i
-                  x' <- toElt P.<$> readArrayData tp aold i'
-                  writeArrayData tp aold i' (fromElt (f x x'))
-              --
-              go (i+1)
-    --
-    go 0
-    pure def
+    let tp    = S.eltR @e
+        shSrc = S.shape arr
+        shOut = S.shape def
 
+    output <- newBuffers tp (S.size shOut)
+
+    loop (S.size shOut) $ \i ->
+      writeBuffers tp output i (fromElt (def S.!! i))
+
+    loop (S.size shSrc) $ \i -> do
+      case p (S.fromIndex shSrc i) of
+        Nothing  -> pure ()
+        Just ixOut -> do
+          let iOut = S.toIndex shOut ixOut
+          old <- toElt P.<$> readBuffers tp output iOut
+          writeBuffers tp output iOut (fromElt (f (arr S.!! i) old))
+
+    pure (Array (R.Array (fromElt shOut) (unsafeFreezeBuffers tp output)))
+  where
+    loop :: Int -> (Int -> IO ()) -> IO ()
+    loop n body =
+      let go !i | i P.>= n  = pure ()
+                | otherwise = body i >> go (i + 1)
+      in go 0
