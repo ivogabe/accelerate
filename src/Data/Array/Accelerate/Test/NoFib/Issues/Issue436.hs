@@ -18,7 +18,7 @@ module Data.Array.Accelerate.Test.NoFib.Issues.Issue436 (
 
 ) where
 
-import Data.Array.Accelerate                              as A
+import Data.Array.Accelerate                              as A hiding (test)
 import Data.Array.Accelerate.Test.NoFib.Base
 
 import Test.Tasty
