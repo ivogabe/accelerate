@@ -34,7 +34,8 @@ import Data.Array.Accelerate.Error
 import qualified Data.Set as S
 
 import Lens.Micro.TH ( makeLenses )
-import Control.Monad.State ( (>=>), State )
+import Control.Monad ((>=>))
+import Control.Monad.State ( State )
 import Lens.Micro.Mtl ((<%=))
 import qualified Data.Map as M
 import Lens.Micro ((^.))
