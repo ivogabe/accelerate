@@ -182,13 +182,13 @@ reshape shR sh shR' (Array sh' adata)
   = boundsCheck "shape mismatch" (size shR sh == size shR' sh')
   $ Array sh adata
 
-(!) :: (ArrayR (Array sh e), Array sh e) -> sh -> e
+(!) :: HasCallStack => (ArrayR (Array sh e), Array sh e) -> sh -> e
 (!) = uncurry indexArray
 
-(!!) :: (TypeR e, Array sh e) -> Int -> e
+(!!) :: HasCallStack => (TypeR e, Array sh e) -> Int -> e
 (!!) = uncurry linearIndexArray
 
-indexArray :: ArrayR (Array sh e) -> Array sh e -> sh -> e
+indexArray :: HasCallStack => ArrayR (Array sh e) -> Array sh e -> sh -> e
 indexArray (ArrayR shR tp) (Array sh buffers) ix = indexBuffers tp buffers (toIndex shR sh ix)
 
 linearIndexArray :: TypeR e -> Array sh e -> Int -> e

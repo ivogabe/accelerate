@@ -41,7 +41,10 @@ test1 =
       rustride  = 1
 
       v         = fill (constant (Z:.(p-1))) (constant 2)
-      ru'       = fill (constant (Z:.(p-1))) (constant 1)
+      -- The original repro case had (p-1) in ru' instead of p, but that
+      -- results in an index-out-of-bounds error if ru' is materialised (e.g.
+      -- if fusion is disabled).
+      ru'       = fill (constant (Z:.p)) (constant 1)
 
       -- generate a vector with phi(p)=p-1 elements
       x'        = reshape (constant (Z :. lts :. (p-1) :. rts)) v
