@@ -41,6 +41,7 @@ module Data.Array.Accelerate.Array.Buffer (
   touchBuffers, touchBuffer, touchMutableBuffers, touchMutableBuffer,
   rnfBuffers, rnfBuffer, unsafeFreezeBuffer, unsafeFreezeBuffers,
   veryUnsafeUnfreezeBuffers, bufferToList, bufferRetainAndGetRef, bufferRelease, bufferFromPtr,
+  memoryByteSize,
 
   -- * Type macros
   HTYPE_INT, HTYPE_WORD, HTYPE_CLONG, HTYPE_CULONG, HTYPE_CCHAR,

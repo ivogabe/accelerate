@@ -36,7 +36,7 @@ class Execute sched kernel where
   data Linked sched kernel :: Type -> Type
   -- For a backend that doesn't require a linking stage,
   -- one can directly store a schedule in the Linked data type.
-  -- data Linked sched kernel = MyBackendLinked (sched kernel ())
+  -- data Linked sched kernel t = MyBackendLinked (sched kernel () t)
 
   linkAfunSchedule :: sched kernel () t -> Linked sched kernel t
 

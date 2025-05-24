@@ -59,7 +59,7 @@ import Data.Array.Accelerate.Representation.Ground
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Representation.Slice
-import Data.Array.Accelerate.AST.Environment
+import Data.Array.Accelerate.AST.Environment hiding (prjVars)
 import Data.Array.Accelerate.Type
 import Data.Primitive.Vec
 import Data.Primitive.Types

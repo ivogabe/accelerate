@@ -316,6 +316,16 @@ data BaseR t where
   BaseRref            :: GroundR t -> BaseR (Ref t)
   BaseRrefWrite       :: GroundR t -> BaseR (OutputRef t)
 
+instance Distributes BaseR where
+  reprIsSingle (BaseRground tp) = reprIsSingle tp
+  reprIsSingle BaseRsignal = Refl
+  reprIsSingle BaseRsignalResolver = Refl
+  reprIsSingle (BaseRref _) = Refl
+  reprIsSingle (BaseRrefWrite _) = Refl
+
+  pairImpossible (BaseRground tp) = pairImpossible tp
+  unitImpossible (BaseRground tp) = unitImpossible tp
+
 -- Tuples of base values
 type BasesR = TupR BaseR
 

@@ -20,11 +20,12 @@
 module Data.Array.Accelerate.AST.Kernel (
   IsKernel(..), KernelArgR(..),
   OpenKernelFun(..), KernelFun,
-  NoKernelMetadata
+  NoKernelMetadata, kernelFunKernel
 ) where
 
 import Data.Array.Accelerate.AST.Environment
 import Data.Array.Accelerate.AST.Partitioned
+import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Array.Buffer
@@ -74,3 +75,9 @@ data NoKernelMetadata f = NoKernelMetadata
 
 instance NFData' NoKernelMetadata where
   rnf' NoKernelMetadata = ()
+
+kernelFunKernel :: OpenKernelFun kernel env t -> Exists kernel
+kernelFunKernel (KernelFunBody kernel) = Exists kernel
+kernelFunKernel (KernelFunLam _ f)
+  | Exists k <- kernelFunKernel f
+  = Exists k

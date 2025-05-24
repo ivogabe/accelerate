@@ -24,7 +24,7 @@ module Data.Array.Accelerate.Lifetime (
 
 import Data.Function                ( on )
 import Data.IORef                   ( mkWeakIORef, atomicModifyIORef' )
-import Prelude
+import Control.Monad.IO.Class
 
 import GHC.Base                     ( touch#, IO(..))
 import GHC.IORef                    ( IORef(.. ), newIORef )
@@ -73,10 +73,10 @@ newLifetime a = do
 -- the function, either by returning it or by lazy IO.
 --
 {-# INLINE withLifetime #-}
-withLifetime :: Lifetime a -> (a -> IO b) -> IO b
+withLifetime :: MonadIO m => Lifetime a -> (a -> m b) -> m b
 withLifetime (Lifetime ref _ a) f = do
   r <- f a
-  touchIORef ref
+  liftIO (touchIORef ref)
   return r
 
 -- | Ensure that the lifetime is alive at the given place in a sequence of IO

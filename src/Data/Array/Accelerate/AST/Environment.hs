@@ -21,7 +21,7 @@
 
 module Data.Array.Accelerate.AST.Environment (
   Env(.., Push'), PartialEnv(..), Val, IdentityF(..),
-  push, push', prj, prj', prjPartial,
+  push, push', prj, prj', prjVars, prjPartial,
   unionPartialEnv, EnvBinding(..), partialEnvFromList, mapPartialEnv,
   mapMaybePartialEnv, partialEnvValues, diffPartialEnv, diffPartialEnvWith,
   intersectPartialEnv, partialEnvTail, partialEnvLast, partialEnvSkip,
@@ -86,6 +86,12 @@ prj ix v = runIdentity $ prj' ix v
 prj' :: Idx env t -> Env f env -> f t
 prj' ZeroIdx       (Push _   v) = v
 prj' (SuccIdx idx) (Push env _) = prj' idx env
+
+prjVars :: forall f s t env. Distributes s => Vars s env t -> Env f env -> Distribute f t
+prjVars (TupRpair v1 v2) env = (prjVars v1 env, prjVars v2 env)
+prjVars TupRunit         _   = ()
+prjVars (TupRsingle var) env
+  | Refl <- reprIsSingle @s @t @f (varType var) = prj' (varIdx var) env
 
 prjPartial :: Idx env t -> PartialEnv f env -> Maybe (f t)
 prjPartial ZeroIdx       (PPush _   v) = Just v
