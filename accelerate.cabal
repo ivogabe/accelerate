@@ -175,6 +175,13 @@ extra-source-files:
     cbits/tracy/server/*.cpp
     cbits/tracy/server/*.h
     cbits/tracy/server/*.hpp
+    -- These are used to disable/enable Tracy
+    cbits/flag-no-tracy/flag_tracy.h
+    cbits/flag-tracy/flag_tracy.h
+    -- ParlayLib
+    cbits/parlaylib/include/parlay/*.h
+    cbits/parlaylib/include/parlay/internal/*.h
+    cbits/parlaylib/include/parlay/internal/concurrency/*.h
 
 extra-doc-files:
     images/*.png
