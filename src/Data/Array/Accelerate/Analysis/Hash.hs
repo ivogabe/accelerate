@@ -90,8 +90,8 @@ encodePreOpenAcc options encodeAcc pacc =
       travF = encodeOpenFun
 
       travD :: Direction -> Builder
-      travD LeftToRight = intHost $(hashQ "L")
-      travD RightToLeft = intHost $(hashQ "R")
+      travD LeftToRight = intHost $(hashQ ("L" :: String))
+      travD RightToLeft = intHost $(hashQ ("R" :: String))
 
       deep :: Builder -> Builder
       deep | perfect options = id
@@ -103,36 +103,36 @@ encodePreOpenAcc options encodeAcc pacc =
         | otherwise       = encodeTypeR $ expType e
   in
   case pacc of
-    Alet lhs bnd body               -> intHost $(hashQ "Alet")        <> encodeLeftHandSide encodeArrayType lhs <> travA bnd <> travA body
-    Avar (Var repr v)               -> intHost $(hashQ "Avar")        <> encodeArrayType repr <> deep (encodeIdx v)
-    Apair a1 a2                     -> intHost $(hashQ "Apair")       <> travA a1 <> travA a2
-    Anil                            -> intHost $(hashQ "Anil")
-    Atrace (Message _ _ msg) as bs  -> intHost $(hashQ "Atrace")      <> intHost (Hashable.hash msg) <> travA as <> travA bs
-    Manifest as                     -> intHost $(hashQ "Manifest")    <> travA as
-    Aassert msg cond as             -> intHost $(hashQ "Aassert")     <> intHost (Hashable.hash msg) <> travE cond <> travA as
-    Aassume cond as                 -> intHost $(hashQ "Aassume")     <> travE cond <> travA as
-    Aforeign _ _ f a                -> intHost $(hashQ "Aforeign")    <> travAF f <> travA a
-    Use repr a                      -> intHost $(hashQ "Use")         <> encodeArrayType repr <> deep (encodeArray a)
-    Awhile p f a                    -> intHost $(hashQ "Awhile")      <> travAF f <> travAF p <> travA a
-    Unit _ e                        -> intHost $(hashQ "Unit")        <> travE e
-    Generate _ e f                  -> intHost $(hashQ "Generate")    <> deepE e <> travF f
+    Alet lhs bnd body               -> intHost $(hashQ ("Alet" :: String))        <> encodeLeftHandSide encodeArrayType lhs <> travA bnd <> travA body
+    Avar (Var repr v)               -> intHost $(hashQ ("Avar" :: String))        <> encodeArrayType repr <> deep (encodeIdx v)
+    Apair a1 a2                     -> intHost $(hashQ ("Apair" :: String))       <> travA a1 <> travA a2
+    Anil                            -> intHost $(hashQ ("Anil" :: String))
+    Atrace (Message _ _ msg) as bs  -> intHost $(hashQ ("Atrace" :: String))      <> intHost (Hashable.hash msg) <> travA as <> travA bs
+    Manifest as                     -> intHost $(hashQ ("Manifest" :: String))    <> travA as
+    Aassert msg cond as             -> intHost $(hashQ ("Aassert" :: String))     <> intHost (Hashable.hash msg) <> travE cond <> travA as
+    Aassume cond as                 -> intHost $(hashQ ("Aassume" :: String))     <> travE cond <> travA as
+    Aforeign _ _ f a                -> intHost $(hashQ ("Aforeign" :: String))    <> travAF f <> travA a
+    Use repr a                      -> intHost $(hashQ ("Use" :: String))         <> encodeArrayType repr <> deep (encodeArray a)
+    Awhile p f a                    -> intHost $(hashQ ("Awhile" :: String))      <> travAF f <> travAF p <> travA a
+    Unit _ e                        -> intHost $(hashQ ("Unit" :: String))        <> travE e
+    Generate _ e f                  -> intHost $(hashQ ("Generate" :: String))    <> deepE e <> travF f
     -- We don't need to encode the type of 'e' when perfect is False, as 'e' is an expression of type Bool.
     -- We thus use `deep (travE e)` instead of `deepE e`.
-    Acond e a1 a2                   -> intHost $(hashQ "Acond")       <> deep (travE e) <> travA a1 <> travA a2
-    Reshape _ sh a                  -> intHost $(hashQ "Reshape")     <> deepE sh <> travA a
-    Backpermute _ sh f a            -> intHost $(hashQ "Backpermute") <> deepE sh <> travF f  <> travA a
-    Transform _ sh f1 f2 a          -> intHost $(hashQ "Transform")   <> deepE sh <> travF f1 <> travF f2 <> travA a
-    Replicate spec ix a             -> intHost $(hashQ "Replicate")   <> deepE ix <> travA a  <> encodeSliceIndex spec
-    Slice spec a ix                 -> intHost $(hashQ "Slice")       <> deepE ix <> travA a  <> encodeSliceIndex spec
-    Map _ f a                       -> intHost $(hashQ "Map")         <> travF f  <> travA a
-    ZipWith _ f a1 a2               -> intHost $(hashQ "ZipWith")     <> travF f  <> travA a1 <> travA a2
-    Fold f e a                      -> intHost $(hashQ "Fold")        <> travF f  <> encodeMaybe travE e  <> travA a
-    FoldSeg _ f e a s               -> intHost $(hashQ "FoldSeg")     <> travF f  <> encodeMaybe travE e  <> travA a <> travA s
-    Scan  d f e a                   -> intHost $(hashQ "Scan")        <> travD d  <> travF f  <> encodeMaybe travE e <> travA a
-    Scan' d f e a                   -> intHost $(hashQ "Scan'")       <> travD d  <> travF f  <>             travE e <> travA a
-    Permute f a1 a2                 -> intHost $(hashQ "Permute")     <> foldMap travF f <> travA a1 <> travA a2
-    Stencil s _ f b a               -> intHost $(hashQ "Stencil")     <> travF f  <> encodeBoundary (stencilEltR s) b   <> travA a
-    Stencil2 s1 s2 _ f b1 a1 b2 a2  -> intHost $(hashQ "Stencil2")    <> travF f  <> encodeBoundary (stencilEltR s1) b1 <> travA a1 <> encodeBoundary (stencilEltR s2) b2 <> travA a2
+    Acond e a1 a2                   -> intHost $(hashQ ("Acond" :: String))       <> deep (travE e) <> travA a1 <> travA a2
+    Reshape _ sh a                  -> intHost $(hashQ ("Reshape" :: String))     <> deepE sh <> travA a
+    Backpermute _ sh f a            -> intHost $(hashQ ("Backpermute" :: String)) <> deepE sh <> travF f  <> travA a
+    Transform _ sh f1 f2 a          -> intHost $(hashQ ("Transform" :: String))   <> deepE sh <> travF f1 <> travF f2 <> travA a
+    Replicate spec ix a             -> intHost $(hashQ ("Replicate" :: String))   <> deepE ix <> travA a  <> encodeSliceIndex spec
+    Slice spec a ix                 -> intHost $(hashQ ("Slice" :: String))       <> deepE ix <> travA a  <> encodeSliceIndex spec
+    Map _ f a                       -> intHost $(hashQ ("Map" :: String))         <> travF f  <> travA a
+    ZipWith _ f a1 a2               -> intHost $(hashQ ("ZipWith" :: String))     <> travF f  <> travA a1 <> travA a2
+    Fold f e a                      -> intHost $(hashQ ("Fold" :: String))        <> travF f  <> encodeMaybe travE e  <> travA a
+    FoldSeg _ f e a s               -> intHost $(hashQ ("FoldSeg" :: String))     <> travF f  <> encodeMaybe travE e  <> travA a <> travA s
+    Scan  d f e a                   -> intHost $(hashQ ("Scan" :: String))        <> travD d  <> travF f  <> encodeMaybe travE e <> travA a
+    Scan' d f e a                   -> intHost $(hashQ ("Scan'" :: String))       <> travD d  <> travF f  <>             travE e <> travA a
+    Permute f a1 a2                 -> intHost $(hashQ ("Permute" :: String))     <> foldMap travF f <> travA a1 <> travA a2
+    Stencil s _ f b a               -> intHost $(hashQ ("Stencil" :: String))     <> travF f  <> encodeBoundary (stencilEltR s) b   <> travA a
+    Stencil2 s1 s2 _ f b1 a1 b2 a2  -> intHost $(hashQ ("Stencil2" :: String))    <> travF f  <> encodeBoundary (stencilEltR s1) b1 <> travA a1 <> encodeBoundary (stencilEltR s2) b2 <> travA a2
 
 {--
 {-# INLINEABLE encodePreOpenSeq #-}
@@ -161,23 +161,23 @@ encodePreOpenSeq encodeAcc s =
       travP p =
         case p of
           StreamIn arrs       -> intHost . unsafePerformIO $! hashStableName `fmap` makeStableName arrs
-          ToSeq spec _ acc    -> intHost $(hashQ "ToSeq")         <> travA  acc <> stringUtf8 (show spec)
-          MapSeq f x          -> intHost $(hashQ "MapSeq")        <> travAF f   <> travV x
-          ChunkedMapSeq f x   -> intHost $(hashQ "ChunkedMapSeq") <> travAF f   <> travV x
-          ZipWithSeq f x y    -> intHost $(hashQ "ZipWithSeq")    <> travAF f   <> travV x <> travV y
-          ScanSeq f e x       -> intHost $(hashQ "ScanSeq")       <> travF  f   <> travE e <> travV x
+          ToSeq spec _ acc    -> intHost $(hashQ ("ToSeq" :: String))         <> travA  acc <> stringUtf8 (show spec)
+          MapSeq f x          -> intHost $(hashQ ("MapSeq" :: String))        <> travAF f   <> travV x
+          ChunkedMapSeq f x   -> intHost $(hashQ ("ChunkedMapSeq" :: String)) <> travAF f   <> travV x
+          ZipWithSeq f x y    -> intHost $(hashQ ("ZipWithSeq" :: String))    <> travAF f   <> travV x <> travV y
+          ScanSeq f e x       -> intHost $(hashQ ("ScanSeq" :: String))       <> travF  f   <> travE e <> travV x
 
       travC :: Consumer acc aenv senv' a -> Builder
       travC c =
         case c of
-          FoldSeq f e x          -> intHost $(hashQ "FoldSeq")        <> travF  f <> travE e   <> travV x
-          FoldSeqFlatten f acc x -> intHost $(hashQ "FoldSeqFlatten") <> travAF f <> travA acc <> travV x
-          Stuple t               -> intHost $(hashQ "Stuple")         <> encodeAtuple travC t
+          FoldSeq f e x          -> intHost $(hashQ ("FoldSeq" :: String))        <> travF  f <> travE e   <> travV x
+          FoldSeqFlatten f acc x -> intHost $(hashQ ("FoldSeqFlatten" :: String)) <> travAF f <> travA acc <> travV x
+          Stuple t               -> intHost $(hashQ ("Stuple" :: String))         <> encodeAtuple travC t
   in
   case s of
-    Producer p s' -> intHost $(hashQ "Producer")   <> travP p <> travS s'
-    Consumer c    -> intHost $(hashQ "Consumer")   <> travC c
-    Reify ix      -> intHost $(hashQ "Reify")      <> travV ix
+    Producer p s' -> intHost $(hashQ ("Producer" :: String))   <> travP p <> travS s'
+    Consumer c    -> intHost $(hashQ ("Consumer" :: String))   <> travC c
+    Reify ix      -> intHost $(hashQ ("Reify" :: String))      <> travV ix
 --}
 
 encodeArray :: Array sh e -> Builder
@@ -195,21 +195,21 @@ encodePreOpenAfun options travA afun =
       travL lhs l = encodeLeftHandSide encodeArrayType lhs <> encodePreOpenAfun options travA l
   in
   case afun of
-    Abody b    -> intHost $(hashQ "Abody") <> travA options b
-    Alam lhs l -> intHost $(hashQ "Alam")  <> travL lhs  l
+    Abody b    -> intHost $(hashQ ("Abody" :: String)) <> travA options b
+    Alam lhs l -> intHost $(hashQ ("Alam" :: String))  <> travL lhs  l
 
 
 encodeBoundary
     :: TypeR e
     -> Boundary aenv (Array sh e)
     -> Builder
-encodeBoundary _  Wrap          = intHost $(hashQ "Wrap")
-encodeBoundary _  Clamp         = intHost $(hashQ "Clamp")
-encodeBoundary _  Mirror        = intHost $(hashQ "Mirror")
-encodeBoundary tp (Constant c)  = intHost $(hashQ "Constant") <> encodeConst tp c
-encodeBoundary _  (Function f)  = intHost $(hashQ "Function") <> encodeOpenFun f
+encodeBoundary _  Wrap          = intHost $(hashQ ("Wrap" :: String))
+encodeBoundary _  Clamp         = intHost $(hashQ ("Clamp" :: String))
+encodeBoundary _  Mirror        = intHost $(hashQ ("Mirror" :: String))
+encodeBoundary tp (Constant c)  = intHost $(hashQ ("Constant" :: String)) <> encodeConst tp c
+encodeBoundary _  (Function f)  = intHost $(hashQ ("Function" :: String)) <> encodeOpenFun f
 
 encodeConst :: TypeR t -> t -> Builder
-encodeConst TupRunit         ()    = intHost $(hashQ "nil")
+encodeConst TupRunit         ()    = intHost $(hashQ ("nil" :: String))
 encodeConst (TupRsingle t)   c     = encodeScalarConst t c
-encodeConst (TupRpair ta tb) (a,b) = intHost $(hashQ "pair") <> encodeConst ta a <> encodeConst tb b
+encodeConst (TupRpair ta tb) (a,b) = intHost $(hashQ ("pair" :: String)) <> encodeConst ta a <> encodeConst tb b

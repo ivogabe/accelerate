@@ -131,14 +131,14 @@ encodeIdxSet set =
     list = IdxSet.toList set
 
 encodeTupR :: (forall b. s b -> Builder) -> TupR s a -> Builder
-encodeTupR _ TupRunit         = intHost $(hashQ "TupRunit")
-encodeTupR f (TupRpair r1 r2) = intHost $(hashQ "TupRpair")   <> encodeTupR f r1 <> encodeTupR f r2
-encodeTupR f (TupRsingle s)   = intHost $(hashQ "TupRsingle") <> f s
+encodeTupR _ TupRunit         = intHost $(hashQ ("TupRunit" :: String))
+encodeTupR f (TupRpair r1 r2) = intHost $(hashQ ("TupRpair" :: String))   <> encodeTupR f r1 <> encodeTupR f r2
+encodeTupR f (TupRsingle s)   = intHost $(hashQ ("TupRsingle" :: String)) <> f s
 
 encodeLeftHandSide :: (forall b. s b -> Builder) -> LeftHandSide s a env env' -> Builder
-encodeLeftHandSide f (LeftHandSideWildcard r) = intHost $(hashQ "LeftHandSideWildcard") <> encodeTupR f r
-encodeLeftHandSide f (LeftHandSidePair r1 r2) = intHost $(hashQ "LeftHandSidePair")     <> encodeLeftHandSide f r1 <> encodeLeftHandSide f r2
-encodeLeftHandSide f (LeftHandSideSingle s)   = intHost $(hashQ "LeftHandSideArray")    <> f s
+encodeLeftHandSide f (LeftHandSideWildcard r) = intHost $(hashQ ("LeftHandSideWildcard" :: String)) <> encodeTupR f r
+encodeLeftHandSide f (LeftHandSidePair r1 r2) = intHost $(hashQ ("LeftHandSidePair" :: String))     <> encodeLeftHandSide f r1 <> encodeLeftHandSide f r2
+encodeLeftHandSide f (LeftHandSideSingle s)   = intHost $(hashQ ("LeftHandSideArray" :: String))    <> f s
 
 encodeArrayType :: ArrayR a -> Builder
 encodeArrayType (ArrayR shr tp) = encodeShapeR shr <> encodeTypeR tp
@@ -164,27 +164,27 @@ encodeOpenExp exp =
       travF = encodeOpenFun
   in
   case exp of
-    Let lhs bnd body            -> intHost $(hashQ "Let")         <> encodeLeftHandSide encodeScalarType lhs <> travE bnd <> travE body
-    Evar var                    -> intHost $(hashQ "Evar")        <> encodeExpVar var
-    Nil                         -> intHost $(hashQ "Nil")
-    Pair e1 e2                  -> intHost $(hashQ "Pair")        <> travE e1 <> travE e2
-    VecPack   _ e               -> intHost $(hashQ "VecPack")     <> travE e
-    VecUnpack _ e               -> intHost $(hashQ "VecUnpack")   <> travE e
-    Const tp c                  -> intHost $(hashQ "Const")       <> encodeScalarConst tp c
-    Undef tp                    -> intHost $(hashQ "Undef")       <> encodeScalarType tp
-    ToIndex _ sh i              -> intHost $(hashQ "ToIndex")     <> travE sh <> travE i
-    FromIndex _ sh i            -> intHost $(hashQ "FromIndex")   <> travE sh <> travE i
-    Case e rhs def              -> intHost $(hashQ "Case")        <> travE e  <> mconcat [ word8 t <> travE c | (t,c) <- rhs ] <> encodeMaybe travE def
-    Cond c t e                  -> intHost $(hashQ "Cond")        <> travE c  <> travE t  <> travE e
-    Select c t e                -> intHost $(hashQ "Select")      <> travE c  <> travE t  <> travE e
-    While p f x                 -> intHost $(hashQ "While")       <> travF p  <> travF f  <> travE x
-    PrimApp f x                 -> intHost $(hashQ "PrimApp")     <> encodePrimFun f <> travE x
-    ArrayInstr arr e            -> intHost $(hashQ "ArrayInstr")  <> encodeArrayInstr arr <> travE e
-    ShapeSize _ sh              -> intHost $(hashQ "ShapeSize")   <> travE sh
-    Foreign _ _ f e             -> intHost $(hashQ "Foreign")     <> encodeOpenFun f <> travE e
-    Coerce _ tp e               -> intHost $(hashQ "Coerce")      <> encodeScalarType tp <> travE e
-    Assert msg e1 e2            -> intHost $(hashQ "Assert")      <> intHost (Hashable.hash msg) <> travE e1 <> travE e2
-    Assume e1 e2                -> intHost $(hashQ "Assume")      <> travE e1 <> travE e2
+    Let lhs bnd body            -> intHost $(hashQ ("Let" :: String))         <> encodeLeftHandSide encodeScalarType lhs <> travE bnd <> travE body
+    Evar var                    -> intHost $(hashQ ("Evar" :: String))        <> encodeExpVar var
+    Nil                         -> intHost $(hashQ ("Nil" :: String))
+    Pair e1 e2                  -> intHost $(hashQ ("Pair" :: String))        <> travE e1 <> travE e2
+    VecPack   _ e               -> intHost $(hashQ ("VecPack" :: String))     <> travE e
+    VecUnpack _ e               -> intHost $(hashQ ("VecUnpack" :: String))   <> travE e
+    Const tp c                  -> intHost $(hashQ ("Const" :: String))       <> encodeScalarConst tp c
+    Undef tp                    -> intHost $(hashQ ("Undef" :: String))       <> encodeScalarType tp
+    ToIndex _ sh i              -> intHost $(hashQ ("ToIndex" :: String))     <> travE sh <> travE i
+    FromIndex _ sh i            -> intHost $(hashQ ("FromIndex" :: String))   <> travE sh <> travE i
+    Case e rhs def              -> intHost $(hashQ ("Case" :: String))        <> travE e  <> mconcat [ word8 t <> travE c | (t,c) <- rhs ] <> encodeMaybe travE def
+    Cond c t e                  -> intHost $(hashQ ("Cond" :: String))        <> travE c  <> travE t  <> travE e
+    Select c t e                -> intHost $(hashQ ("Select" :: String))      <> travE c  <> travE t  <> travE e
+    While p f x                 -> intHost $(hashQ ("While" :: String))       <> travF p  <> travF f  <> travE x
+    PrimApp f x                 -> intHost $(hashQ ("PrimApp" :: String))     <> encodePrimFun f <> travE x
+    ArrayInstr arr e            -> intHost $(hashQ ("ArrayInstr" :: String))  <> encodeArrayInstr arr <> travE e
+    ShapeSize _ sh              -> intHost $(hashQ ("ShapeSize" :: String))   <> travE sh
+    Foreign _ _ f e             -> intHost $(hashQ ("Foreign" :: String))     <> encodeOpenFun f <> travE e
+    Coerce _ tp e               -> intHost $(hashQ ("Coerce" :: String))      <> encodeScalarType tp <> travE e
+    Assert msg e1 e2            -> intHost $(hashQ ("Assert" :: String))      <> intHost (Hashable.hash msg) <> travE e1 <> travE e2
+    Assume e1 e2                -> intHost $(hashQ ("Assume" :: String))      <> travE e1 <> travE e2
 
 encodeExpVar :: ExpVar env t -> Builder
 encodeExpVar (Var tp ix) = encodeScalarType tp <> encodeIdx ix
@@ -194,8 +194,8 @@ encodeOpenFun
     :: IsArrayInstr arr
     => PreOpenFun arr env f
     -> Builder
-encodeOpenFun (Body b)    = intHost $(hashQ "Body") <> encodeOpenExp b
-encodeOpenFun (Lam lhs l) = intHost $(hashQ "Lam") <> encodeLeftHandSide encodeScalarType lhs <> encodeOpenFun l
+encodeOpenFun (Body b)    = intHost $(hashQ ("Body" :: String)) <> encodeOpenExp b
+encodeOpenFun (Lam lhs l) = intHost $(hashQ ("Lam" :: String)) <> encodeLeftHandSide encodeScalarType lhs <> encodeOpenFun l
 
 encodeScalarConst :: ScalarType t -> t -> Builder
 encodeScalarConst (SingleScalarType t) = encodeSingleConst t
@@ -205,99 +205,99 @@ encodeSingleConst :: SingleType t -> t -> Builder
 encodeSingleConst (NumSingleType t) = encodeNumConst t
 
 encodeVectorConst :: VectorType (Vec n t) -> Vec n t -> Builder
-encodeVectorConst (VectorType n t) (Vec ba#) = intHost $(hashQ "Vec") <> intHost n <> encodeSingleType t <> shortByteString (SBS ba#)
+encodeVectorConst (VectorType n t) (Vec ba#) = intHost $(hashQ ("Vec" :: String)) <> intHost n <> encodeSingleType t <> shortByteString (SBS ba#)
 
 encodeNumConst :: NumType t -> t -> Builder
 encodeNumConst (IntegralNumType t) = encodeIntegralConst t
 encodeNumConst (FloatingNumType t) = encodeFloatingConst t
 
 encodeIntegralConst :: IntegralType t -> t -> Builder
-encodeIntegralConst TypeInt{}    x = intHost $(hashQ "Int")    <> intHost x
-encodeIntegralConst TypeInt8{}   x = intHost $(hashQ "Int8")   <> int8 x
-encodeIntegralConst TypeInt16{}  x = intHost $(hashQ "Int16")  <> int16Host x
-encodeIntegralConst TypeInt32{}  x = intHost $(hashQ "Int32")  <> int32Host x
-encodeIntegralConst TypeInt64{}  x = intHost $(hashQ "Int64")  <> int64Host x
-encodeIntegralConst TypeWord{}   x = intHost $(hashQ "Word")   <> wordHost x
-encodeIntegralConst TypeWord8{}  x = intHost $(hashQ "Word8")  <> word8 x
-encodeIntegralConst TypeWord16{} x = intHost $(hashQ "Word16") <> word16Host x
-encodeIntegralConst TypeWord32{} x = intHost $(hashQ "Word32") <> word32Host x
-encodeIntegralConst TypeWord64{} x = intHost $(hashQ "Word64") <> word64Host x
+encodeIntegralConst TypeInt{}    x = intHost $(hashQ ("Int" :: String))    <> intHost x
+encodeIntegralConst TypeInt8{}   x = intHost $(hashQ ("Int8" :: String))   <> int8 x
+encodeIntegralConst TypeInt16{}  x = intHost $(hashQ ("Int16" :: String))  <> int16Host x
+encodeIntegralConst TypeInt32{}  x = intHost $(hashQ ("Int32" :: String))  <> int32Host x
+encodeIntegralConst TypeInt64{}  x = intHost $(hashQ ("Int64" :: String))  <> int64Host x
+encodeIntegralConst TypeWord{}   x = intHost $(hashQ ("Word" :: String))   <> wordHost x
+encodeIntegralConst TypeWord8{}  x = intHost $(hashQ ("Word8" :: String))  <> word8 x
+encodeIntegralConst TypeWord16{} x = intHost $(hashQ ("Word16" :: String)) <> word16Host x
+encodeIntegralConst TypeWord32{} x = intHost $(hashQ ("Word32" :: String)) <> word32Host x
+encodeIntegralConst TypeWord64{} x = intHost $(hashQ ("Word64" :: String)) <> word64Host x
 
 encodeFloatingConst :: FloatingType t -> t -> Builder
-encodeFloatingConst TypeHalf{}    (Half (CUShort x)) = intHost $(hashQ "Half")    <> word16Host x
-encodeFloatingConst TypeFloat{}   x                  = intHost $(hashQ "Float")   <> floatHost x
-encodeFloatingConst TypeDouble{}  x                  = intHost $(hashQ "Double")  <> doubleHost x
+encodeFloatingConst TypeHalf{}    (Half (CUShort x)) = intHost $(hashQ ("Half" :: String))    <> word16Host x
+encodeFloatingConst TypeFloat{}   x                  = intHost $(hashQ ("Float" :: String))   <> floatHost x
+encodeFloatingConst TypeDouble{}  x                  = intHost $(hashQ ("Double" :: String))  <> doubleHost x
 
 encodePrimFun :: PrimFun f -> Builder
-encodePrimFun (PrimAdd a)                = intHost $(hashQ "PrimAdd")                <> encodeNumType a
-encodePrimFun (PrimSub a)                = intHost $(hashQ "PrimSub")                <> encodeNumType a
-encodePrimFun (PrimMul a)                = intHost $(hashQ "PrimMul")                <> encodeNumType a
-encodePrimFun (PrimNeg a)                = intHost $(hashQ "PrimNeg")                <> encodeNumType a
-encodePrimFun (PrimAbs a)                = intHost $(hashQ "PrimAbs")                <> encodeNumType a
-encodePrimFun (PrimSig a)                = intHost $(hashQ "PrimSig")                <> encodeNumType a
-encodePrimFun (PrimQuot a)               = intHost $(hashQ "PrimQuot")               <> encodeIntegralType a
-encodePrimFun (PrimRem a)                = intHost $(hashQ "PrimRem")                <> encodeIntegralType a
-encodePrimFun (PrimQuotRem a)            = intHost $(hashQ "PrimQuotRem")            <> encodeIntegralType a
-encodePrimFun (PrimIDiv a)               = intHost $(hashQ "PrimIDiv")               <> encodeIntegralType a
-encodePrimFun (PrimMod a)                = intHost $(hashQ "PrimMod")                <> encodeIntegralType a
-encodePrimFun (PrimDivMod a)             = intHost $(hashQ "PrimDivMod")             <> encodeIntegralType a
-encodePrimFun (PrimBAnd a)               = intHost $(hashQ "PrimBAnd")               <> encodeIntegralType a
-encodePrimFun (PrimBOr a)                = intHost $(hashQ "PrimBOr")                <> encodeIntegralType a
-encodePrimFun (PrimBXor a)               = intHost $(hashQ "PrimBXor")               <> encodeIntegralType a
-encodePrimFun (PrimBNot a)               = intHost $(hashQ "PrimBNot")               <> encodeIntegralType a
-encodePrimFun (PrimBShiftL a)            = intHost $(hashQ "PrimBShiftL")            <> encodeIntegralType a
-encodePrimFun (PrimBShiftR a)            = intHost $(hashQ "PrimBShiftR")            <> encodeIntegralType a
-encodePrimFun (PrimBRotateL a)           = intHost $(hashQ "PrimBRotateL")           <> encodeIntegralType a
-encodePrimFun (PrimBRotateR a)           = intHost $(hashQ "PrimBRotateR")           <> encodeIntegralType a
-encodePrimFun (PrimPopCount a)           = intHost $(hashQ "PrimPopCount")           <> encodeIntegralType a
-encodePrimFun (PrimCountLeadingZeros a)  = intHost $(hashQ "PrimCountLeadingZeros")  <> encodeIntegralType a
-encodePrimFun (PrimCountTrailingZeros a) = intHost $(hashQ "PrimCountTrailingZeros") <> encodeIntegralType a
-encodePrimFun (PrimFDiv a)               = intHost $(hashQ "PrimFDiv")               <> encodeFloatingType a
-encodePrimFun (PrimRecip a)              = intHost $(hashQ "PrimRecip")              <> encodeFloatingType a
-encodePrimFun (PrimSin a)                = intHost $(hashQ "PrimSin")                <> encodeFloatingType a
-encodePrimFun (PrimCos a)                = intHost $(hashQ "PrimCos")                <> encodeFloatingType a
-encodePrimFun (PrimTan a)                = intHost $(hashQ "PrimTan")                <> encodeFloatingType a
-encodePrimFun (PrimAsin a)               = intHost $(hashQ "PrimAsin")               <> encodeFloatingType a
-encodePrimFun (PrimAcos a)               = intHost $(hashQ "PrimAcos")               <> encodeFloatingType a
-encodePrimFun (PrimAtan a)               = intHost $(hashQ "PrimAtan")               <> encodeFloatingType a
-encodePrimFun (PrimSinh a)               = intHost $(hashQ "PrimSinh")               <> encodeFloatingType a
-encodePrimFun (PrimCosh a)               = intHost $(hashQ "PrimCosh")               <> encodeFloatingType a
-encodePrimFun (PrimTanh a)               = intHost $(hashQ "PrimTanh")               <> encodeFloatingType a
-encodePrimFun (PrimAsinh a)              = intHost $(hashQ "PrimAsinh")              <> encodeFloatingType a
-encodePrimFun (PrimAcosh a)              = intHost $(hashQ "PrimAcosh")              <> encodeFloatingType a
-encodePrimFun (PrimAtanh a)              = intHost $(hashQ "PrimAtanh")              <> encodeFloatingType a
-encodePrimFun (PrimExpFloating a)        = intHost $(hashQ "PrimExpFloating")        <> encodeFloatingType a
-encodePrimFun (PrimSqrt a)               = intHost $(hashQ "PrimSqrt")               <> encodeFloatingType a
-encodePrimFun (PrimLog a)                = intHost $(hashQ "PrimLog")                <> encodeFloatingType a
-encodePrimFun (PrimFPow a)               = intHost $(hashQ "PrimFPow")               <> encodeFloatingType a
-encodePrimFun (PrimLogBase a)            = intHost $(hashQ "PrimLogBase")            <> encodeFloatingType a
-encodePrimFun (PrimAtan2 a)              = intHost $(hashQ "PrimAtan2")              <> encodeFloatingType a
-encodePrimFun (PrimTruncate a b)         = intHost $(hashQ "PrimTruncate")           <> encodeFloatingType a <> encodeIntegralType b
-encodePrimFun (PrimRound a b)            = intHost $(hashQ "PrimRound")              <> encodeFloatingType a <> encodeIntegralType b
-encodePrimFun (PrimFloor a b)            = intHost $(hashQ "PrimFloor")              <> encodeFloatingType a <> encodeIntegralType b
-encodePrimFun (PrimCeiling a b)          = intHost $(hashQ "PrimCeiling")            <> encodeFloatingType a <> encodeIntegralType b
-encodePrimFun (PrimIsNaN a)              = intHost $(hashQ "PrimIsNaN")              <> encodeFloatingType a
-encodePrimFun (PrimIsInfinite a)         = intHost $(hashQ "PrimIsInfinite")         <> encodeFloatingType a
-encodePrimFun (PrimCmp a c)              = intHost $(hashQ "PrimCmp")                <> encodeSingleType a <> encodeCmp c
-encodePrimFun (PrimMax a)                = intHost $(hashQ "PrimMax")                <> encodeSingleType a
-encodePrimFun (PrimMin a)                = intHost $(hashQ "PrimMin")                <> encodeSingleType a
-encodePrimFun (PrimFromIntegral a b)     = intHost $(hashQ "PrimFromIntegral")       <> encodeIntegralType a <> encodeNumType b
-encodePrimFun (PrimToFloating a b)       = intHost $(hashQ "PrimToFloating")         <> encodeNumType a      <> encodeFloatingType b
-encodePrimFun PrimLAnd                   = intHost $(hashQ "PrimLAnd")
-encodePrimFun PrimLOr                    = intHost $(hashQ "PrimLOr")
-encodePrimFun PrimLNot                   = intHost $(hashQ "PrimLNot")
+encodePrimFun (PrimAdd a)                = intHost $(hashQ ("PrimAdd" :: String))                <> encodeNumType a
+encodePrimFun (PrimSub a)                = intHost $(hashQ ("PrimSub" :: String))                <> encodeNumType a
+encodePrimFun (PrimMul a)                = intHost $(hashQ ("PrimMul" :: String))                <> encodeNumType a
+encodePrimFun (PrimNeg a)                = intHost $(hashQ ("PrimNeg" :: String))                <> encodeNumType a
+encodePrimFun (PrimAbs a)                = intHost $(hashQ ("PrimAbs" :: String))                <> encodeNumType a
+encodePrimFun (PrimSig a)                = intHost $(hashQ ("PrimSig" :: String))                <> encodeNumType a
+encodePrimFun (PrimQuot a)               = intHost $(hashQ ("PrimQuot" :: String))               <> encodeIntegralType a
+encodePrimFun (PrimRem a)                = intHost $(hashQ ("PrimRem" :: String))                <> encodeIntegralType a
+encodePrimFun (PrimQuotRem a)            = intHost $(hashQ ("PrimQuotRem" :: String))            <> encodeIntegralType a
+encodePrimFun (PrimIDiv a)               = intHost $(hashQ ("PrimIDiv" :: String))               <> encodeIntegralType a
+encodePrimFun (PrimMod a)                = intHost $(hashQ ("PrimMod" :: String))                <> encodeIntegralType a
+encodePrimFun (PrimDivMod a)             = intHost $(hashQ ("PrimDivMod" :: String))             <> encodeIntegralType a
+encodePrimFun (PrimBAnd a)               = intHost $(hashQ ("PrimBAnd" :: String))               <> encodeIntegralType a
+encodePrimFun (PrimBOr a)                = intHost $(hashQ ("PrimBOr" :: String))                <> encodeIntegralType a
+encodePrimFun (PrimBXor a)               = intHost $(hashQ ("PrimBXor" :: String))               <> encodeIntegralType a
+encodePrimFun (PrimBNot a)               = intHost $(hashQ ("PrimBNot" :: String))               <> encodeIntegralType a
+encodePrimFun (PrimBShiftL a)            = intHost $(hashQ ("PrimBShiftL" :: String))            <> encodeIntegralType a
+encodePrimFun (PrimBShiftR a)            = intHost $(hashQ ("PrimBShiftR" :: String))            <> encodeIntegralType a
+encodePrimFun (PrimBRotateL a)           = intHost $(hashQ ("PrimBRotateL" :: String))           <> encodeIntegralType a
+encodePrimFun (PrimBRotateR a)           = intHost $(hashQ ("PrimBRotateR" :: String))           <> encodeIntegralType a
+encodePrimFun (PrimPopCount a)           = intHost $(hashQ ("PrimPopCount" :: String))           <> encodeIntegralType a
+encodePrimFun (PrimCountLeadingZeros a)  = intHost $(hashQ ("PrimCountLeadingZeros" :: String))  <> encodeIntegralType a
+encodePrimFun (PrimCountTrailingZeros a) = intHost $(hashQ ("PrimCountTrailingZeros" :: String)) <> encodeIntegralType a
+encodePrimFun (PrimFDiv a)               = intHost $(hashQ ("PrimFDiv" :: String))               <> encodeFloatingType a
+encodePrimFun (PrimRecip a)              = intHost $(hashQ ("PrimRecip" :: String))              <> encodeFloatingType a
+encodePrimFun (PrimSin a)                = intHost $(hashQ ("PrimSin" :: String))                <> encodeFloatingType a
+encodePrimFun (PrimCos a)                = intHost $(hashQ ("PrimCos" :: String))                <> encodeFloatingType a
+encodePrimFun (PrimTan a)                = intHost $(hashQ ("PrimTan" :: String))                <> encodeFloatingType a
+encodePrimFun (PrimAsin a)               = intHost $(hashQ ("PrimAsin" :: String))               <> encodeFloatingType a
+encodePrimFun (PrimAcos a)               = intHost $(hashQ ("PrimAcos" :: String))               <> encodeFloatingType a
+encodePrimFun (PrimAtan a)               = intHost $(hashQ ("PrimAtan" :: String))               <> encodeFloatingType a
+encodePrimFun (PrimSinh a)               = intHost $(hashQ ("PrimSinh" :: String))               <> encodeFloatingType a
+encodePrimFun (PrimCosh a)               = intHost $(hashQ ("PrimCosh" :: String))               <> encodeFloatingType a
+encodePrimFun (PrimTanh a)               = intHost $(hashQ ("PrimTanh" :: String))               <> encodeFloatingType a
+encodePrimFun (PrimAsinh a)              = intHost $(hashQ ("PrimAsinh" :: String))              <> encodeFloatingType a
+encodePrimFun (PrimAcosh a)              = intHost $(hashQ ("PrimAcosh" :: String))              <> encodeFloatingType a
+encodePrimFun (PrimAtanh a)              = intHost $(hashQ ("PrimAtanh" :: String))              <> encodeFloatingType a
+encodePrimFun (PrimExpFloating a)        = intHost $(hashQ ("PrimExpFloating" :: String))        <> encodeFloatingType a
+encodePrimFun (PrimSqrt a)               = intHost $(hashQ ("PrimSqrt" :: String))               <> encodeFloatingType a
+encodePrimFun (PrimLog a)                = intHost $(hashQ ("PrimLog" :: String))                <> encodeFloatingType a
+encodePrimFun (PrimFPow a)               = intHost $(hashQ ("PrimFPow" :: String))               <> encodeFloatingType a
+encodePrimFun (PrimLogBase a)            = intHost $(hashQ ("PrimLogBase" :: String))            <> encodeFloatingType a
+encodePrimFun (PrimAtan2 a)              = intHost $(hashQ ("PrimAtan2" :: String))              <> encodeFloatingType a
+encodePrimFun (PrimTruncate a b)         = intHost $(hashQ ("PrimTruncate" :: String))           <> encodeFloatingType a <> encodeIntegralType b
+encodePrimFun (PrimRound a b)            = intHost $(hashQ ("PrimRound" :: String))              <> encodeFloatingType a <> encodeIntegralType b
+encodePrimFun (PrimFloor a b)            = intHost $(hashQ ("PrimFloor" :: String))              <> encodeFloatingType a <> encodeIntegralType b
+encodePrimFun (PrimCeiling a b)          = intHost $(hashQ ("PrimCeiling" :: String))            <> encodeFloatingType a <> encodeIntegralType b
+encodePrimFun (PrimIsNaN a)              = intHost $(hashQ ("PrimIsNaN" :: String))              <> encodeFloatingType a
+encodePrimFun (PrimIsInfinite a)         = intHost $(hashQ ("PrimIsInfinite" :: String))         <> encodeFloatingType a
+encodePrimFun (PrimCmp a c)              = intHost $(hashQ ("PrimCmp" :: String))                <> encodeSingleType a <> encodeCmp c
+encodePrimFun (PrimMax a)                = intHost $(hashQ ("PrimMax" :: String))                <> encodeSingleType a
+encodePrimFun (PrimMin a)                = intHost $(hashQ ("PrimMin" :: String))                <> encodeSingleType a
+encodePrimFun (PrimFromIntegral a b)     = intHost $(hashQ ("PrimFromIntegral" :: String))       <> encodeIntegralType a <> encodeNumType b
+encodePrimFun (PrimToFloating a b)       = intHost $(hashQ ("PrimToFloating" :: String))         <> encodeNumType a      <> encodeFloatingType b
+encodePrimFun PrimLAnd                   = intHost $(hashQ ("PrimLAnd" :: String))
+encodePrimFun PrimLOr                    = intHost $(hashQ ("PrimLOr" :: String))
+encodePrimFun PrimLNot                   = intHost $(hashQ ("PrimLNot" :: String))
 
 encodeCmp :: Cmp -> Builder
-encodeCmp CmpLt   = intHost $(hashQ "CmpLt")
-encodeCmp CmpGtEq = intHost $(hashQ "CmpGtEq")
-encodeCmp CmpEq   = intHost $(hashQ "CmpEq")
-encodeCmp CmpNEq  = intHost $(hashQ "CmpNEq")
+encodeCmp CmpLt   = intHost $(hashQ ("CmpLt" :: String))
+encodeCmp CmpGtEq = intHost $(hashQ ("CmpGtEq" :: String))
+encodeCmp CmpEq   = intHost $(hashQ ("CmpEq" :: String))
+encodeCmp CmpNEq  = intHost $(hashQ ("CmpNEq" :: String))
 
 encodeTypeR :: TypeR t -> Builder
-encodeTypeR TupRunit       = intHost $(hashQ "TupRunit")
-encodeTypeR (TupRsingle t) = intHost $(hashQ "TupRsingle") <> encodeScalarType t
-encodeTypeR (TupRpair a b) = intHost $(hashQ "TupRpair")   <> encodeTypeR a <> intHost (depthTypeR a)
-                                                           <> encodeTypeR b <> intHost (depthTypeR b)
+encodeTypeR TupRunit       = intHost $(hashQ ("TupRunit" :: String))
+encodeTypeR (TupRsingle t) = intHost $(hashQ ("TupRsingle" :: String)) <> encodeScalarType t
+encodeTypeR (TupRpair a b) = intHost $(hashQ ("TupRpair" :: String))   <> encodeTypeR a <> intHost (depthTypeR a)
+                                                                       <> encodeTypeR b <> intHost (depthTypeR b)
 
 depthTypeR :: TypeR t -> Int
 depthTypeR TupRunit       = 0
@@ -305,41 +305,41 @@ depthTypeR TupRsingle{}   = 1
 depthTypeR (TupRpair a b) = depthTypeR a + depthTypeR b
 
 encodeScalarType :: ScalarType t -> Builder
-encodeScalarType (SingleScalarType t) = intHost $(hashQ "SingleScalarType") <> encodeSingleType t
-encodeScalarType (VectorScalarType t) = intHost $(hashQ "VectorScalarType") <> encodeVectorType t
+encodeScalarType (SingleScalarType t) = intHost $(hashQ ("SingleScalarType" :: String)) <> encodeSingleType t
+encodeScalarType (VectorScalarType t) = intHost $(hashQ ("VectorScalarType" :: String)) <> encodeVectorType t
 
 encodeSingleType :: SingleType t -> Builder
-encodeSingleType (NumSingleType t) = intHost $(hashQ "NumSingleType")    <> encodeNumType t
+encodeSingleType (NumSingleType t) = intHost $(hashQ ("NumSingleType" :: String))    <> encodeNumType t
 
 encodeVectorType :: VectorType (Vec n t) -> Builder
-encodeVectorType (VectorType n t) = intHost $(hashQ "VectorType") <> intHost n <> encodeSingleType t
+encodeVectorType (VectorType n t) = intHost $(hashQ ("VectorType" :: String)) <> intHost n <> encodeSingleType t
 
 encodeNumType :: NumType t -> Builder
-encodeNumType (IntegralNumType t) = intHost $(hashQ "IntegralNumType") <> encodeIntegralType t
-encodeNumType (FloatingNumType t) = intHost $(hashQ "FloatingNumType") <> encodeFloatingType t
+encodeNumType (IntegralNumType t) = intHost $(hashQ ("IntegralNumType" :: String)) <> encodeIntegralType t
+encodeNumType (FloatingNumType t) = intHost $(hashQ ("FloatingNumType" :: String)) <> encodeFloatingType t
 
 encodeIntegralType :: IntegralType t -> Builder
-encodeIntegralType TypeInt{}    = intHost $(hashQ "Int")
-encodeIntegralType TypeInt8{}   = intHost $(hashQ "Int8")
-encodeIntegralType TypeInt16{}  = intHost $(hashQ "Int16")
-encodeIntegralType TypeInt32{}  = intHost $(hashQ "Int32")
-encodeIntegralType TypeInt64{}  = intHost $(hashQ "Int64")
-encodeIntegralType TypeWord{}   = intHost $(hashQ "Word")
-encodeIntegralType TypeWord8{}  = intHost $(hashQ "Word8")
-encodeIntegralType TypeWord16{} = intHost $(hashQ "Word16")
-encodeIntegralType TypeWord32{} = intHost $(hashQ "Word32")
-encodeIntegralType TypeWord64{} = intHost $(hashQ "Word64")
+encodeIntegralType TypeInt{}    = intHost $(hashQ ("Int" :: String))
+encodeIntegralType TypeInt8{}   = intHost $(hashQ ("Int8" :: String))
+encodeIntegralType TypeInt16{}  = intHost $(hashQ ("Int16" :: String))
+encodeIntegralType TypeInt32{}  = intHost $(hashQ ("Int32" :: String))
+encodeIntegralType TypeInt64{}  = intHost $(hashQ ("Int64" :: String))
+encodeIntegralType TypeWord{}   = intHost $(hashQ ("Word" :: String))
+encodeIntegralType TypeWord8{}  = intHost $(hashQ ("Word8" :: String))
+encodeIntegralType TypeWord16{} = intHost $(hashQ ("Word16" :: String))
+encodeIntegralType TypeWord32{} = intHost $(hashQ ("Word32" :: String))
+encodeIntegralType TypeWord64{} = intHost $(hashQ ("Word64" :: String))
 
 encodeFloatingType :: FloatingType t -> Builder
-encodeFloatingType TypeHalf{}   = intHost $(hashQ "Half")
-encodeFloatingType TypeFloat{}  = intHost $(hashQ "Float")
-encodeFloatingType TypeDouble{} = intHost $(hashQ "Double")
+encodeFloatingType TypeHalf{}   = intHost $(hashQ ("Half" :: String))
+encodeFloatingType TypeFloat{}  = intHost $(hashQ ("Float" :: String))
+encodeFloatingType TypeDouble{} = intHost $(hashQ ("Double" :: String))
 
 encodeSliceIndex :: SliceIndex slix sl co sh -> Builder
-encodeSliceIndex SliceNil         = intHost $(hashQ "SliceNil")
-encodeSliceIndex (SliceAll r)     = intHost $(hashQ "SliceAll")   <> encodeSliceIndex r
-encodeSliceIndex (SliceFixed r)   = intHost $(hashQ "sliceFixed") <> encodeSliceIndex r
+encodeSliceIndex SliceNil         = intHost $(hashQ ("SliceNil" :: String))
+encodeSliceIndex (SliceAll r)     = intHost $(hashQ ("SliceAll" :: String))   <> encodeSliceIndex r
+encodeSliceIndex (SliceFixed r)   = intHost $(hashQ ("sliceFixed" :: String)) <> encodeSliceIndex r
 
 encodeMaybe :: (a -> Builder) -> Maybe a -> Builder
-encodeMaybe _ Nothing  = intHost $(hashQ "Nothing")
-encodeMaybe f (Just x) = intHost $(hashQ "Just") <> f x
+encodeMaybe _ Nothing  = intHost $(hashQ ("Nothing" :: String))
+encodeMaybe f (Just x) = intHost $(hashQ ("Just" :: String)) <> f x

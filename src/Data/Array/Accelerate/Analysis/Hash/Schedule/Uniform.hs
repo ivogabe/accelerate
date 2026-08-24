@@ -51,40 +51,40 @@ hashUniformScheduleFun :: IsKernel kernel => UniformScheduleFun kernel env f -> 
 hashUniformScheduleFun = hashlazy . toLazyByteString . encodeUniformScheduleFun
 
 encodeUniformScheduleFun :: IsKernel kernel => UniformScheduleFun kernel env f -> Builder
-encodeUniformScheduleFun (Slam lhs f) = intHost $(hashQ "Slam") <> encodeBLeftHandSide lhs <> encodeUniformScheduleFun f
-encodeUniformScheduleFun (Sbody body) = intHost $(hashQ "Sbody") <> encodeUniformSchedule body
+encodeUniformScheduleFun (Slam lhs f) = intHost $(hashQ ("Slam" :: String)) <> encodeBLeftHandSide lhs <> encodeUniformScheduleFun f
+encodeUniformScheduleFun (Sbody body) = intHost $(hashQ ("Sbody" :: String)) <> encodeUniformSchedule body
 
 encodeUniformSchedule :: IsKernel kernel => UniformSchedule kernel env -> Builder
-encodeUniformSchedule Return = intHost $(hashQ "Return")
+encodeUniformSchedule Return = intHost $(hashQ ("Return" :: String))
 encodeUniformSchedule (Alet lhs bnd next)
-  = intHost $(hashQ "Alet")
+  = intHost $(hashQ ("Alet" :: String))
   <> encodeBLeftHandSide lhs
   <> encodeBinding bnd
   <> encodeUniformSchedule next
 encodeUniformSchedule (Effect effect next)
-  = intHost $(hashQ "Effect")
+  = intHost $(hashQ ("Effect" :: String))
   <> encodeEffect effect
   <> encodeUniformSchedule next
 encodeUniformSchedule (Acond (Var _ idx) true false next)
-  = intHost $(hashQ "Acond")
+  = intHost $(hashQ ("Acond" :: String))
   <> encodeIdx idx
   <> encodeUniformSchedule true
   <> encodeUniformSchedule false
   <> encodeUniformSchedule next
 encodeUniformSchedule (Awhile io fn initial next)
-  = intHost $(hashQ "Awhile")
+  = intHost $(hashQ ("Awhile" :: String))
   <> encodeIO io
   <> encodeUniformScheduleFun fn
   <> encodeTupR (\(Var _ idx) -> encodeIdx idx) initial
   <> encodeUniformSchedule next
 encodeUniformSchedule (AwhileSeq io fn initial next)
-  = intHost $(hashQ "AwhileSeq")
+  = intHost $(hashQ ("AwhileSeq" :: String))
   <> encodeIO io
   <> encodeUniformScheduleFun fn
   <> encodeTupR (\(Var _ idx) -> encodeIdx idx) initial
   <> encodeUniformSchedule next
 encodeUniformSchedule (Spawn a b)
-  = intHost $(hashQ "Spawn")
+  = intHost $(hashQ ("Spawn" :: String))
   <> encodeUniformSchedule a
   <> encodeUniformSchedule b
 
@@ -92,77 +92,77 @@ encodeBLeftHandSide :: BLeftHandSide t env env' -> Builder
 encodeBLeftHandSide = encodeLeftHandSide encodeBaseR
 
 encodeBaseR :: BaseR t -> Builder
-encodeBaseR (BaseRground tp)    = intHost $(hashQ "Ground") <> encodeGroundR tp
-encodeBaseR BaseRsignal         = intHost $(hashQ "Signal")
-encodeBaseR BaseRsignalResolver = intHost $(hashQ "SignalResolver")
-encodeBaseR (BaseRref tp)       = intHost $(hashQ "Ref") <> encodeGroundR tp
-encodeBaseR (BaseRrefWrite tp)  = intHost $(hashQ "RefWrite") <> encodeGroundR tp
+encodeBaseR (BaseRground tp)    = intHost $(hashQ ("Ground" :: String)) <> encodeGroundR tp
+encodeBaseR BaseRsignal         = intHost $(hashQ ("Signal" :: String))
+encodeBaseR BaseRsignalResolver = intHost $(hashQ ("SignalResolver" :: String))
+encodeBaseR (BaseRref tp)       = intHost $(hashQ ("Ref" :: String)) <> encodeGroundR tp
+encodeBaseR (BaseRrefWrite tp)  = intHost $(hashQ ("RefWrite" :: String)) <> encodeGroundR tp
 
 encodeBasesR :: BasesR t -> Builder
 encodeBasesR = encodeTupR encodeBaseR
 
 encodeBinding :: Binding env t -> Builder
 encodeBinding = \case
-  Compute expr -> intHost $(hashQ "Compute") <> encodeOpenExp expr
-  NewSignal _ -> intHost $(hashQ "NewSignal")
-  NewRef tp -> intHost $(hashQ "NewRef") <> encodeGroundR tp
+  Compute expr -> intHost $(hashQ ("Compute" :: String)) <> encodeOpenExp expr
+  NewSignal _ -> intHost $(hashQ ("NewSignal" :: String))
+  NewRef tp -> intHost $(hashQ ("NewRef" :: String)) <> encodeGroundR tp
   Alloc shr tp sh ->
-    intHost $(hashQ "Alloc")
+    intHost $(hashQ ("Alloc" :: String))
     <> encodeShapeR shr
     <> encodeScalarType tp
     <> encodeTupR (\(Var _ idx) -> encodeIdx idx) sh
   -- Buffer is passed indirectly, via %imports_t in accelerate-llvm-native,
   -- so the buffer/pointer does not need to included in the hashing.
-  Use tp _ _ -> intHost $(hashQ "Use") <> encodeScalarType tp
-  Unit (Var tp idx) -> intHost $(hashQ "Unit") <> encodeScalarType tp <> encodeIdx idx
-  RefRead (Var _ idx) -> intHost $(hashQ "RefRead") <> encodeIdx idx
+  Use tp _ _ -> intHost $(hashQ ("Use" :: String)) <> encodeScalarType tp
+  Unit (Var tp idx) -> intHost $(hashQ ("Unit" :: String)) <> encodeScalarType tp <> encodeIdx idx
+  RefRead (Var _ idx) -> intHost $(hashQ ("RefRead" :: String)) <> encodeIdx idx
 
 encodeEffect :: IsKernel kernel => Effect kernel env -> Builder
 encodeEffect = \case
   Exec _ kernel args -> encodeKernelFun kernel <> encodePreArgs encodeSArg args
   SignalAwait indices ->
-    intHost $(hashQ "SignalAwait")
+    intHost $(hashQ ("SignalAwait" :: String))
     <> intHost (length indices)
     <> mconcat (map encodeIdx indices)
   SignalResolve indices ->
-    intHost $(hashQ "SignalResolve")
+    intHost $(hashQ ("SignalResolve" :: String))
     <> intHost (length indices)
     <> mconcat (map encodeIdx indices)
   RefWrite (Var _ ref) (Var _ var) ->
-    intHost $(hashQ "RefWrite")
+    intHost $(hashQ ("RefWrite" :: String))
     <> encodeIdx ref
     <> encodeIdx var
   Aassert msg cond ->
-    intHost $(hashQ "Aassert")
+    intHost $(hashQ ("Aassert" :: String))
     <> intHost (Hashable.hash msg)
     <> encodeOpenExp cond
   Atrace msg t ->
-    intHost $(hashQ "Atrace")
+    intHost $(hashQ ("Atrace" :: String))
     <> intHost (Hashable.hash msg)
     <> encodeArrayDescriptors t
 
 encodeIO :: InputOutputR input output -> Builder
 encodeIO = \case
-  InputOutputRsignal   -> intHost $(hashQ "signal")
-  InputOutputRref tp   -> intHost $(hashQ "ref") <> encodeGroundR tp
-  InputOutputRpair a b -> intHost $(hashQ "pair") <> encodeIO a <> encodeIO b
-  InputOutputRunit     -> intHost $(hashQ "unit")
+  InputOutputRsignal   -> intHost $(hashQ ("signal" :: String))
+  InputOutputRref tp   -> intHost $(hashQ ("ref" :: String)) <> encodeGroundR tp
+  InputOutputRpair a b -> intHost $(hashQ ("pair" :: String)) <> encodeIO a <> encodeIO b
+  InputOutputRunit     -> intHost $(hashQ ("unit" :: String))
 
 encodeSArg :: SArg env t -> Builder
 encodeSArg (SArgScalar (Var tp idx)) =
-  intHost $(hashQ "SArgScalar")
+  intHost $(hashQ ("SArgScalar" :: String))
   <> encodeScalarType tp
   <> encodeIdx idx
 encodeSArg (SArgBuffer m (Var tp idx)) =
-  intHost $(hashQ "SArgBuffer")
+  intHost $(hashQ ("SArgBuffer" :: String))
   <> m'
   <> encodeGroundR tp
   <> encodeIdx idx
   where
     m' = case m of
-      In  -> intHost $(hashQ "In")
-      Out -> intHost $(hashQ "Out")
-      Mut -> intHost $(hashQ "Mut")
+      In  -> intHost $(hashQ ("In" :: String))
+      Out -> intHost $(hashQ ("Out" :: String))
+      Mut -> intHost $(hashQ ("Mut" :: String))
 
 encodeKernelFun :: IsKernel kernel => OpenKernelFun kernel env t -> Builder
 -- Argument types are encoded via encodeSArg
