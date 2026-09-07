@@ -17,14 +17,14 @@ newtype LowerEnv = LowerEnv {lowerEnvNComps :: Int}
 
 -- | The result of lowering. Contains the generated constraints, the bounds of the variables and the cost expression.
 --   State monad is used to generate fresh variable names.
-type Lower op = State String (LinearConstraint op, Bounds op, Expression op)
+type Lower = State String (LinearConstraint, Bounds, Expression)
 
 -- | Lower a batch of 'Constraint's under one shared name supply.
-lowerAll :: LowerEnv -> [Constraint op] -> (LinearConstraint op, Bounds op, Expression op)
+lowerAll :: LowerEnv -> [Constraint] -> (LinearConstraint, Bounds, Expression)
 lowerAll env constraints = evalState (mconcat <$> mapM (lower env) constraints) ""
 
 -- | Lower a single 'Constraint'.
-lower :: LowerEnv -> Constraint op -> Lower op
+lower :: LowerEnv -> Constraint -> Lower
 lower env constraint = case constraint of
   ClusterBefore i j -> pure (pi i .<. pi j, mempty, mempty)
   DifferentCluster i j -> pure (fused (i, j) .==. int 1, mempty, mempty)
@@ -53,14 +53,14 @@ lower env constraint = case constraint of
   NegativeDirIfManifest (w, b) -> pure (timesN (manifest b) .>. writeDir (w, b), mempty, mempty)
 
 -- | Variables for the horizontal read cost constraint.
-readOrderVar, readPiVar, readPi0Var, useVar :: State String (Var op)
+readOrderVar, readPiVar, readPi0Var, useVar :: State String Var
 readOrderVar = Other <$> freshName "ReadOrder"
 readPiVar = Other <$> freshName "ReadPi"
 readPi0Var = Other <$> freshName "Read0Pi"
 useVar = Other <$> freshName "ReadUse"
 
 -- | Lower 'HorizontalReadCost' constraints.
-lowerHorizontalReadCost :: LowerEnv -> [(Node GVal, Node Comp)] -> Lower op
+lowerHorizontalReadCost :: LowerEnv -> [(Node GVal, Node Comp)] -> Lower
 lowerHorizontalReadCost env consumers = do
   let nConsumers = length consumers
       n = lowerEnvNComps env

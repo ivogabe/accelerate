@@ -46,36 +46,36 @@ instance Num Number where
   fromInteger :: Integer -> Number
   fromInteger i = Number (\_ -> fromInteger i)
 
-data Expression op where
-  Constant :: Number -> Expression op
-  (:+) :: Expression op -> Expression op -> Expression op
-  (:*) :: Number -> Var op -> Expression op
+data Expression where
+  Constant :: Number -> Expression
+  (:+) :: Expression -> Expression -> Expression
+  (:*) :: Number -> Var -> Expression
 
-deriving instance (Show (Var op)) => Show (Expression op)
+deriving instance (Show Var) => Show Expression
 
-instance Semigroup (Expression op) where
-  (<>) :: Expression op -> Expression op -> Expression op
+instance Semigroup Expression where
+  (<>) :: Expression -> Expression -> Expression
   (<>) a (b :+ c) = (a <> b) <> c
   (<>) a b = a :+ b
 
-instance Monoid (Expression op) where
-  mempty :: Expression op
+instance Monoid Expression where
+  mempty :: Expression
   mempty = int 0
 
 -- | Add two expressions.
-(.+.) :: Expression op -> Expression op -> Expression op
+(.+.) :: Expression -> Expression -> Expression
 (.+.) = (<>)
 
 infixl 8 .+.
 
 -- | Subtract two expressions.
-(.-.) :: Expression op -> Expression op -> Expression op
+(.-.) :: Expression -> Expression -> Expression
 e1 .-. e2 = e1 .+. ((-1) .*. e2)
 
 infixl 8 .-.
 
 -- | Multiply an expression by a constant.
-(.*.) :: Number -> Expression op -> Expression op
+(.*.) :: Number -> Expression -> Expression
 i .*. (Constant j) = Constant $ i * j
 i .*. (e1 :+ e2) = (:+) (i .*. e1) (i .*. e2)
 i .*. (j :* v) = (:*) (i * j) v
@@ -83,7 +83,7 @@ i .*. (j :* v) = (:*) (i * j) v
 infixl 8 .*.
 
 -- | Multiply by one of the @Constants@.
-times :: (Constants -> Int) -> Expression op -> Expression op
+times :: (Constants -> Int) -> Expression -> Expression
 times f = (Number f .*.)
 
 -- | Multiply by @n@ (the total number of computations + some safety margine).
@@ -91,15 +91,15 @@ times f = (Number f .*.)
 -- This is only here because the old definitions used timesN and not all of them
 -- have been replaced yet.
 -- TODO: Replace all occurrences of timesN with tighter bounds.
-timesN :: Expression op -> Expression op
+timesN :: Expression -> Expression
 timesN = times ((+ 10) . (* 2) . nComps)
 
 -- | Total number of computations.
-nCompsE :: Expression op
+nCompsE :: Expression
 nCompsE = Constant $ Number nComps
 
 -- | Use a 'Var' in an 'Expression'.
-var :: Var op -> Expression op
+var :: Var -> Expression
 var = (Number (const 1) :*)
 
 class IsNumber a where
@@ -109,132 +109,132 @@ class IsNumber a where
 instance IsNumber Number where
   int = Number . const
 
-instance IsNumber (Expression op) where
+instance IsNumber Expression where
   int = Constant . Number . const
 
-data LinearConstraint op where
-  (:>=) :: Expression op -> Expression op -> LinearConstraint op
-  (:<=) :: Expression op -> Expression op -> LinearConstraint op
-  (:==) :: Expression op -> Expression op -> LinearConstraint op
-  (:&&) :: LinearConstraint op -> LinearConstraint op -> LinearConstraint op
-  TrueConstraint :: LinearConstraint op
+data LinearConstraint where
+  (:>=) :: Expression -> Expression -> LinearConstraint
+  (:<=) :: Expression -> Expression -> LinearConstraint
+  (:==) :: Expression -> Expression -> LinearConstraint
+  (:&&) :: LinearConstraint -> LinearConstraint -> LinearConstraint
+  TrueConstraint :: LinearConstraint
 
-deriving instance (Show (Var op)) => Show (LinearConstraint op)
+deriving instance (Show Var) => Show LinearConstraint
 
-instance Semigroup (LinearConstraint op) where
-  (<>) :: LinearConstraint op -> LinearConstraint op -> LinearConstraint op
+instance Semigroup LinearConstraint where
+  (<>) :: LinearConstraint -> LinearConstraint -> LinearConstraint
   (<>) TrueConstraint b = b
   (<>) a TrueConstraint = a
   (<>) a (b :&& c) = (a <> b) <> c
   (<>) a b = a :&& b
 
-instance Monoid (LinearConstraint op) where
-  mempty :: LinearConstraint op
+instance Monoid LinearConstraint where
+  mempty :: LinearConstraint
   mempty = TrueConstraint
 
 -- | @x >= y@
-(.>=.) :: Expression op -> Expression op -> LinearConstraint op
+(.>=.) :: Expression -> Expression -> LinearConstraint
 (.>=.) = (:>=)
 
 infixr 7 .>=.
 
 -- | @x <= y@
-(.<=.) :: Expression op -> Expression op -> LinearConstraint op
+(.<=.) :: Expression -> Expression -> LinearConstraint
 (.<=.) = (:<=)
 
 infixr 7 .<=.
 
 -- | @x == y@
-(.==.) :: Expression op -> Expression op -> LinearConstraint op
+(.==.) :: Expression -> Expression -> LinearConstraint
 (.==.) = (:==)
 
 infixr 7 .==.
 
 -- | @x[0] == x[1] == ... == x[n-1]@
-allEqual :: [Expression op] -> LinearConstraint op
+allEqual :: [Expression] -> LinearConstraint
 allEqual [] = TrueConstraint
 allEqual (x : xs) = foldMap (x .==.) xs
 
 -- | @x < y@
-(.>.) :: Expression op -> Expression op -> LinearConstraint op
+(.>.) :: Expression -> Expression -> LinearConstraint
 x .>. y = x .>=. (y .+. int 1)
 
 infixl 7 .>.
 
 -- | @x < y@
-(.<.) :: Expression op -> Expression op -> LinearConstraint op
+(.<.) :: Expression -> Expression -> LinearConstraint
 x .<. y = (x .+. int 1) .<=. y
 
 infixl 7 .<.
 
 -- | @x <= y <= z@
-between :: Expression op -> Expression op -> Expression op -> LinearConstraint op
+between :: Expression -> Expression -> Expression -> LinearConstraint
 between x y z = x .<=. y <> y .<=. z
 
-data Bounds op where
-  Binary :: Var op -> Bounds op
-  LowerUpper :: Int -> Var op -> Int -> Bounds op
-  Lower :: Int -> Var op -> Bounds op
-  Upper :: Var op -> Int -> Bounds op
-  (:<>) :: Bounds op -> Bounds op -> Bounds op
-  NoBounds :: Bounds op
+data Bounds where
+  Binary :: Var -> Bounds
+  LowerUpper :: Int -> Var -> Int -> Bounds
+  Lower :: Int -> Var -> Bounds
+  Upper :: Var -> Int -> Bounds
+  (:<>) :: Bounds -> Bounds -> Bounds
+  NoBounds :: Bounds
 
-deriving instance (Show (Var op)) => Show (Bounds op)
+deriving instance (Show Var) => Show Bounds
 
-instance Semigroup (Bounds op) where
-  (<>) :: Bounds op -> Bounds op -> Bounds op
+instance Semigroup Bounds where
+  (<>) :: Bounds -> Bounds -> Bounds
   (<>) NoBounds b = b
   (<>) a NoBounds = a
   (<>) (a :<> b) c = a <> b <> c
   (<>) a b = a :<> b
 
-instance Monoid (Bounds op) where
-  mempty :: Bounds op
+instance Monoid Bounds where
+  mempty :: Bounds
   mempty = NoBounds
 
 -- | 'Var' is binary.
-binary :: Var op -> Bounds op
+binary :: Var -> Bounds
 binary = Binary
 
 -- | 'Var' is bounded by lower and upper bounds.
-lowerUpper :: Int -> Var op -> Int -> Bounds op
+lowerUpper :: Int -> Var -> Int -> Bounds
 lowerUpper = LowerUpper
 
 -- | 'Var' is bounded by lower bound.
-lower :: Int -> Var op -> Bounds op
+lower :: Int -> Var -> Bounds
 lower = Lower
 
 -- | 'Var' is bounded by upper bound.
-upper :: Var op -> Int -> Bounds op
+upper :: Var -> Int -> Bounds
 upper = Upper
 
 -- | 'Var' is equal to a constant.
-equal :: Int -> Var op -> Bounds op
+equal :: Int -> Var -> Bounds
 equal x v = lowerUpper x v x
 
 -- | Not 'Expression' (i.e. 1 - 'Expression').
-notB :: Expression op -> Expression op
+notB :: Expression -> Expression
 notB e = int 1 .-. e
 
 -- | If a is 0, then b is 0.
-impliesB :: Expression op -> Expression op -> LinearConstraint op
+impliesB :: Expression -> Expression -> LinearConstraint
 impliesB = (.>=.)
 
 -- -- | Iff a and b are 0, then r is 0.
--- andB :: Expression op -> Expression op -> Expression op -> LinearConstraint op
+-- andB :: Expression -> Expression -> Expression -> LinearConstraint
 -- andB a b r = orB (notB a) (notB b) (notB r)
 
 -- | Iff a and b are 0, then r is 0.
 --
 -- Source: "Formulating Integer Linear Programs: A Rogues' Gallery", B3
-andB :: Expression op -> Expression op -> Expression op -> LinearConstraint op
+andB :: Expression -> Expression -> Expression -> LinearConstraint
 andB a b r =
   r .<=. a .+. b
     <> r .>=. a
     <> r .>=. b
 
 -- | Iff all xs are 0, then r is 0.
-allB :: (Foldable f) => f (Expression op) -> Expression op -> LinearConstraint op
+allB :: (Foldable f) => f Expression -> Expression -> LinearConstraint
 allB xs r
   | null xs = TrueConstraint
   | otherwise =
@@ -244,7 +244,7 @@ allB xs r
 -- -- | Iff a and b are 1, then r is 1.
 -- -- not sure if this encoding is new, nor whether it is the simplest, but I think it works.
 -- -- perhaps defining andB is easier than defining orB?
--- orB :: Expression op -> Expression op -> Expression op -> LinearConstraint op
+-- orB :: Expression -> Expression -> Expression -> LinearConstraint
 -- orB a b r =
 --   (2 .*. r .<=. a .+. b) -- r can only be 1 if both a and b are 1, so this line fixes 3/4 cases
 --   <>
@@ -253,42 +253,42 @@ allB xs r
 -- | Iff a and b are 1, then r is 1.
 --
 -- Source: "Formulating Integer Linear Programs: A Rogues' Gallery", B2
-orB :: Expression op -> Expression op -> Expression op -> LinearConstraint op
+orB :: Expression -> Expression -> Expression -> LinearConstraint
 orB a b r =
   r .+. int 1 .>=. a .+. b
     <> r .<=. a
     <> r .<=. b
 
 -- | Iff all xs are 1, then r is 1.
-anyB :: (Foldable f) => f (Expression op) -> Expression op -> LinearConstraint op
+anyB :: (Foldable f) => f Expression -> Expression -> LinearConstraint
 anyB xs r
   | null xs = TrueConstraint
   | otherwise =
       r .+. int (length xs - 1) .>=. fold xs
         <> foldMap (r .<=.) xs
 
-isEqualRangeN :: Expression op -> Expression op -> Expression op -> LinearConstraint op
+isEqualRangeN :: Expression -> Expression -> Expression -> LinearConstraint
 isEqualRangeN = isEqualRange timesN
 
 -- given a function f that multiplies by the size of the domain of a and b, r can only be 0(true) when a and b are equal
 -- note that r can always be 1
-isEqualRange :: (Expression op -> Expression op) -> Expression op -> Expression op -> Expression op -> LinearConstraint op
+isEqualRange :: (Expression -> Expression) -> Expression -> Expression -> Expression -> LinearConstraint
 isEqualRange f a b r = between (a .-. f r) b (a .+. f r)
 
 -- | From a set of booleans, select at most n to be 0 (true).
-packB :: (Foldable f) => Int -> f (Expression op) -> LinearConstraint op
+packB :: (Foldable f) => Int -> f Expression -> LinearConstraint
 packB n xs
   | n >= length xs = TrueConstraint
   | n >= 0 = fold xs .>=. int (length xs - n)
   | otherwise = internalError "packB: always false"
 
 -- | From a set of booleans, select at least n to be 0 (true).
-coverB :: (Foldable f) => Int -> f (Expression op) -> LinearConstraint op
+coverB :: (Foldable f) => Int -> f Expression -> LinearConstraint
 coverB n xs
   | n <= 0 = TrueConstraint
   | n <= length xs = fold xs .<=. int (length xs - n)
   | otherwise = internalError "coverB: always false"
 
 -- | From a set of booleans, select exactly n to be 0 (true).
-partitionB :: (Foldable f) => Int -> f (Expression op) -> LinearConstraint op
+partitionB :: (Foldable f) => Int -> f Expression -> LinearConstraint
 partitionB n xs = packB n xs <> coverB n xs

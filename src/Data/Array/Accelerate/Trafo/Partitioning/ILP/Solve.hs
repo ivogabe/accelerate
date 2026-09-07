@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE BlockArguments #-}
@@ -48,14 +49,14 @@ data Objective
 -- We could add some assertions, but if all the input is well-formed (no labels, constraints, etc
 -- that reward putting non-siblings in the same cluster) this is fine: We will interpret 'cluster 3'
 -- with parents `Nothing` as a different cluster than 'cluster 3' with parents `Just 5`.
-makeILP :: forall op. MakesILP op => Objective -> FusionILP op -> ILP op
+makeILP :: forall op. MakesILP op => Objective -> FusionILP op -> ILP
 makeILP obj (FusionILP graph constraints bounds) =
   ILP minMax objFun loweredConstraints (graphBounds <> bounds) (Constants n m)
   where
     graphBounds = fusionBounds <> inPlaceBounds
 
-    lowered :: (LinearConstraint op, Bounds op, Expression op)
-    lowered = lowerAll (LowerEnv n) $ finalize graph <> fusionConstraints <> inPlaceConstraints <> constraints
+    lowered :: (LinearConstraint, Bounds, Expression)
+    lowered = lowerAll (LowerEnv n) $ finalize @op graph <> fusionConstraints <> inPlaceConstraints <> constraints
 
     (loweredConstraints, loweredBounds, loweredCost) = lowered
 
@@ -125,7 +126,7 @@ makeILP obj (FusionILP graph constraints bounds) =
     -- Then, we also need n^2 intermediate variables just to make these disjunction of conjunctions
     -- note, it's only quadratic in the number of consumers of a specific array.
     -- We also check for the 'order': horizontal fusion only happens when the two fused accesses are in the same order.
-    horizontalReadCostConstraints :: [Constraint op]
+    horizontalReadCostConstraints :: [Constraint]
     horizontalReadCostConstraints = [HorizontalReadCost consumers
         | computation <- S.toList compN
         , let consumers = S.toList . S.map (\(_,b,c) -> (b,c)) $ S.filter (\(c,_,_) -> c == computation) fusibleE]
@@ -203,30 +204,30 @@ makeILP obj (FusionILP graph constraints bounds) =
     numberOfNonInplaceUpdates = foldMap inplace inplaceP
 
     -- If inplace p, then manifest b1 and manifest b2
-    onManifestConstraints :: [Constraint op]
+    onManifestConstraints :: [Constraint]
     onManifestConstraints = [OnManifestIfInPlace p | p <- S.toList inplaceP]
 
     -- If inplace p, then d_br == d_wb
-    inPlaceDirectionConstraints :: [Constraint op]
+    inPlaceDirectionConstraints :: [Constraint]
     inPlaceDirectionConstraints = [InPlaceDirection p | p <- S.toList inplaceP]
 
     -- If inplace p, then pimax b1 >= pi c2
-    inPlaceClusterConstraints :: [Constraint op]
+    inPlaceClusterConstraints :: [Constraint]
     inPlaceClusterConstraints = [InPlaceCluster p | p <- S.toList inplaceP]
 
     -- If inplace p, then c1 == c2
-    acrossClusterConstraints :: [Constraint op]
+    acrossClusterConstraints :: [Constraint]
     acrossClusterConstraints = [AcrossClusterSame p | p <- S.toList inplaceP]
 
     readerGroups = foldl (flip \p@((b,_),_) -> M.insertWith (<>) b [p]) M.empty inplaceP
     writerGroups = foldl (flip \p@(_,(_,b)) -> M.insertWith (<>) b [p]) M.empty inplaceP
 
     -- Forall b, at most one inplace p
-    atMostOneReaderConstraints :: [Constraint op]
+    atMostOneReaderConstraints :: [Constraint]
     atMostOneReaderConstraints = [AtMostOneReader ps | ps <- M.elems readerGroups]
 
     -- Forall b, at most one inplace p
-    atMostOneWriterConstraints :: [Constraint op]
+    atMostOneWriterConstraints :: [Constraint]
     atMostOneWriterConstraints = [AtMostOneWriter ps | ps <- M.elems writerGroups]
 
     -- Group inplace paths by read edge:
@@ -234,7 +235,7 @@ makeILP obj (FusionILP graph constraints bounds) =
 
     -- Iff     inplace p, then pi c1     <= pimax b1
     -- Iff not inplace p, then pi c1 + 1 <= pimax b1
-    readAliveThroughWritersConstraints :: [Constraint op]
+    readAliveThroughWritersConstraints :: [Constraint]
     readAliveThroughWritersConstraints = [ReadAliveThroughWriters r (M.findWithDefault [] r readM) | r <- S.toList readE]
 
     -- TODO: Maybe add a constraint that c2 is the first writer to b2?
@@ -274,24 +275,24 @@ makeILP obj (FusionILP graph constraints bounds) =
 
 
 -- | Extract the read directions from the ILP solution.
-interpretReadDirs :: forall op. Solution op -> M.Map ReadEdge Int
+interpretReadDirs :: Solution -> M.Map ReadEdge Int
 interpretReadDirs = M.fromList . mapMaybe (_1 fromReadDir) . M.toList
   where
-    fromReadDir :: Var op -> Maybe ReadEdge
+    fromReadDir :: Var -> Maybe ReadEdge
     fromReadDir (ReadDir b c) = Just (b, c)
     fromReadDir _             = Nothing
 
 -- | Extract the write directions from the ILP solution.
-interpretWriteDirs :: forall op. Solution op -> M.Map WriteEdge Int
+interpretWriteDirs :: Solution -> M.Map WriteEdge Int
 interpretWriteDirs = M.fromList . mapMaybe (_1 fromWriteDir) . M.toList
   where
-    fromWriteDir :: Var op -> Maybe WriteEdge
+    fromWriteDir :: Var -> Maybe WriteEdge
     fromWriteDir (WriteDir c b) = Just (c, b)
     fromWriteDir _              = Nothing
 
 -- | Extract the top-level clusters and the sub-scoped clusters from the ILP
 --   solution.
-interpretClusters :: Solution op -> ([Nodes Comp], M.Map (Node Comp) [Nodes Comp])
+interpretClusters :: Solution -> ([Nodes Comp], M.Map (Node Comp) [Nodes Comp])
 interpretClusters sol = do
   let            piVars  = mapMaybe (_1 fromPi) (M.toList sol)               -- Take the Pi variables.
   let      scopedPiVars  = partition (^._1.parent) piVars                    -- Partition them by their parent (i.e. the scope they are in).
@@ -302,7 +303,7 @@ interpretClusters sol = do
   let subScopedClustersM = M.fromList $ map (\s -> (scopeLabel s, s)) subScopedClusters
   (topClusters, subScopedClustersM)
   where
-    fromPi :: Var op -> Maybe (Node Comp)
+    fromPi :: Var -> Maybe (Node Comp)
     fromPi (Pi l) = Just l
     fromPi _      = Nothing
 
@@ -313,13 +314,13 @@ interpretClusters sol = do
 partition :: Ord b => (a -> b) -> [a] -> [[a]]
 partition f = groupBy ((==) `on` f) . sortOn f
 
-interpretInplaceUpdates :: Solution op -> M.Map (Node GVal) (Node GVal)
+interpretInplaceUpdates :: Solution -> M.Map (Node GVal) (Node GVal)
 interpretInplaceUpdates sol = M.map firstInChain inplaceM
   where
     -- Map from buffer to the buffer that will replace it.
     inplaceM = M.fromList $ mapMaybe fromInPlace $ M.toList sol
 
-    fromInPlace :: (Var op, Int) -> Maybe (Node GVal, Node GVal)
+    fromInPlace :: (Var, Int) -> Maybe (Node GVal, Node GVal)
     fromInPlace (InPlace b1 _ _ b2, v) | v == 0 = Just (b2, b1)
     fromInPlace _ = Nothing
 

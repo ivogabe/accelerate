@@ -13,12 +13,7 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver where
 
 import qualified Data.Map as M
 import qualified Data.Set as S
--- Uses an hs-boot file to break an unfortunate cyclic import situation with D.A.A.T.P.ILP.Graph:
--- `ILPSolver` references `Var` in type signatures, `Var` contains `BackendVar`,
--- `BackendVar` is in the class `MakesILP`, which references `Information`,
--- `Information` contains `LinearConstraint` and `Bounds` from `ILPSolver`.
--- I did not want to put them in the same module, so here we are.
-import {-# SOURCE #-} Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph ( Var, MakesILP )
+import {-# SOURCE #-} Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (Var)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
 import Data.Array.Accelerate.Error
 import Formatting                                       ( (%), shown )
@@ -27,25 +22,25 @@ import Formatting                                       ( (%), shown )
 -- Currently the only instance is for MIP, which gives bindings to a couple of solvers.
 -- Still, this way we minimise the surface that has to interact with MIP, can more easily
 -- adapt if it changes, and we could easily add more bindings.
-class (MakesILP op) => ILPSolver ilp op where
-  solvePartial :: ilp -> ILP op -> IO (Maybe (Solution op))
+class ILPSolver ilp where
+  solvePartial :: ilp -> ILP -> IO (Maybe Solution)
 
--- MakesILP op implies Ord (Var op), but not through Graph.hs-boot
-solve :: (ILPSolver ilp op, Ord (Var op)) => ilp -> ILP op -> IO (Maybe (Solution op))
+
+solve :: (ILPSolver ilp, Ord Var) => ilp -> ILP -> IO (Maybe Solution)
 solve x ilp = fmap (<> M.fromSet (const 0) (allVars ilp)) -- add zeroes to the ILP for missing variables
            <$> solvePartial x (finalize ilp)
 
 -- adds potentially missing constraints and bounds:
 -- some solvers require all variables to have a bound
 -- or all variables to be in a constraint.
-finalize :: Ord (Var op) => ILP op -> ILP op
+finalize :: Ord Var => ILP -> ILP
 finalize ilp@(ILP dir obj constr bnds n) =
   ILP dir obj (constr <> extraconstr) (bnds <> extrabnds) n
   where
     extraconstr = foldMap (\v -> int (-5) .<=. var v) (allVars ilp)
     extrabnds   = foldMap (Lower (-5))                (allVars ilp)
 
-evalExpr :: (Ord (Var op), Show (Var op)) => Constants -> Solution op -> Expression op -> Int
+evalExpr :: (Ord Var, Show Var) => Constants -> Solution -> Expression -> Int
 evalExpr consts sol = go
   where
     go (Constant (Number f)) = f consts
@@ -59,28 +54,28 @@ evalExpr consts sol = go
 data OptDir = Maximise | Minimise
   deriving (Show, Eq)
 
-data ILP op = ILP OptDir (Expression op) (LinearConstraint op) (Bounds op) Constants
-deriving instance Show (Var op) => Show (ILP op)
+data ILP = ILP OptDir Expression LinearConstraint Bounds Constants
+deriving instance Show Var => Show ILP
 
-type Solution op = M.Map (Var op) Int
+type Solution = M.Map Var Int
 
 -- helpers for solving an ILP
-allVars :: Ord (Var op) => ILP op -> S.Set (Var op)
+allVars :: Ord Var => ILP -> S.Set Var
 allVars (ILP _ cost constraint bounds _) = varsExpr cost <> varsConstr constraint <> varsBounds bounds
 
-varsExpr :: Ord (Var op) => Expression op -> S.Set (Var op)
+varsExpr :: Ord Var => Expression -> S.Set Var
 varsExpr (Constant _) = mempty
 varsExpr (a :+ b) = varsExpr a <> varsExpr b
 varsExpr (_ :* v) = S.singleton v
 
-varsConstr :: Ord (Var op) => LinearConstraint op -> S.Set (Var op)
+varsConstr :: Ord Var => LinearConstraint -> S.Set Var
 varsConstr TrueConstraint = mempty
 varsConstr (a :&& b) = varsConstr a <> varsConstr b
 varsConstr (a :>= b) = varsExpr a <> varsExpr b
 varsConstr (a :== b) = varsExpr a <> varsExpr b
 varsConstr (a :<= b) = varsExpr a <> varsExpr b
 
-varsBounds :: Ord (Var op) => Bounds op -> S.Set (Var op)
+varsBounds :: Ord Var => Bounds -> S.Set Var
 varsBounds NoBounds  = mempty
 varsBounds (a :<> b) = varsBounds a <> varsBounds b
 varsBounds (Binary v) = S.singleton v

@@ -264,10 +264,10 @@ writeEdgesOf b = to (\g -> S.filter (\(_,b') -> b' == b) (g^.writeEdges))
 -- Separating the ILP into blocks then allows us to pass much smaller ILPs to
 -- the solver, which should make the whole process faster.
 -- If not, we can always merge the blocks together later.
-data FusionILP op = FusionILP
+data FusionILP (op :: Type -> Type) = FusionILP
   { _graph       :: FusionGraph
-  , _constraints :: [Constraint op]
-  , _bounds      :: Bounds op
+  , _constraints :: [Constraint]
+  , _bounds      :: Bounds
   }
 
 instance Semigroup (FusionILP op) where
@@ -290,10 +290,10 @@ class HasFusionILP s op | s -> op where
 graph :: Lens' (FusionILP op) FusionGraph
 graph f s = f (_graph s) <&> \g -> s{_graph = g}
 
-constraints :: Lens' (FusionILP op) [Constraint op]
+constraints :: Lens' (FusionILP op) [Constraint]
 constraints f s = f (_constraints s) <&> \c -> s{_constraints = c}
 
-bounds :: Lens' (FusionILP op) (Bounds op)
+bounds :: Lens' (FusionILP op) Bounds
 bounds f s = f (_bounds s) <&> \b -> s{_bounds = b}
 
 instance HasFusionGraph (FusionILP op) where
@@ -407,13 +407,7 @@ instance HasWritersEnv (BackendGraphState op env) where
 
 type BackendCluster op = PreArgs (BackendClusterArg op)
 
-class ( ShrinkArg (BackendClusterArg op), Eq (BackendVar op)
-      , Ord (BackendVar op), Eq (BackendArg op), Show (BackendArg op)
-      , Ord (BackendArg op), Show (BackendVar op)
-      ) => MakesILP op where
-
-  -- | ILP variables for backend-specific fusion rules.
-  type BackendVar op
+class ( ShrinkArg (BackendClusterArg op), Eq (BackendArg op) , Show (BackendArg op), Ord (BackendArg op) ) => MakesILP op where
 
   -- | Information that the backend attaches to arguments for use in
   --   interpreting/code generation.
@@ -432,7 +426,7 @@ class ( ShrinkArg (BackendClusterArg op), Eq (BackendVar op)
 
   -- | Given an ILP solution, attach the backend-specific information to an
   --   argument.
-  labelLabelledArg :: Solution op -> Node Comp -> LabelledArg env a -> LabelledArgOp op env a
+  labelLabelledArg :: Solution -> Node Comp -> LabelledArg env a -> LabelledArgOp op env a
 
   -- | Convert a labelled argument to a cluster argument.
   getClusterArg :: LabelledArgOp op env a -> BackendClusterArg op a
@@ -452,10 +446,10 @@ class ( ShrinkArg (BackendClusterArg op), Eq (BackendVar op)
     -> State (BackendGraphState op env) ()
 
   -- | This function lets the backend define additional constraints on the ILP.
-  finalize :: FusionGraph -> [Constraint op]
+  finalize :: FusionGraph -> [Constraint]
 
 -- | Attach backend-specific information to labelled arguments.
-labelLabelledArgs :: MakesILP op => Solution op -> Node Comp -> LabelledArgs env args -> LabelledArgsOp op env args
+labelLabelledArgs :: MakesILP op => Solution -> Node Comp -> LabelledArgs env args -> LabelledArgsOp op env args
 labelLabelledArgs sol l (arg :>: args) = labelLabelledArg sol l arg :>: labelLabelledArgs sol l args
 labelLabelledArgs _ _ ArgsNil = ArgsNil
 
@@ -463,7 +457,7 @@ labelLabelledArgs _ _ ArgsNil = ArgsNil
 -- ILP Variables
 --------------------------------------------------------------------------------
 
-data Var (op :: Type -> Type)
+data Var
   -- Variables used by fusion:
   = Pi (Node Comp)
     -- ^ Used for acyclic ordering of clusters.
@@ -489,9 +483,6 @@ data Var (op :: Type -> Type)
     -- ^ For one-shot variables that don't deserve a constructor. These are also integer variables, and the responsibility is on the user to pick a unique name!
     -- It is possible to add a variation for continuous variables too, see `allIntegers` in MIP.hs.
     -- We currently use this in Solve.hs for cost functions.
-  | BackendSpecific (BackendVar op)
-    -- ^ Vars needed to express backend-specific fusion rules.
-    -- This is what allows backends to specify how each of the operations can fuse.
 
   -- Variables introduced for in-place updates:
   | InPlace (Node GVal) (Node Comp) (Node Comp) (Node GVal)
@@ -504,61 +495,61 @@ data Var (op :: Type -> Type)
   -- | WriteDirPiMax (Node GVal)
   --   -- ^ The write direction of the largest reader of the buffer. This is used to check that all reads of the buffer are in the same direction as the write.
 
-deriving instance Eq   (BackendVar op) => Eq   (Var op)
-deriving instance Ord  (BackendVar op) => Ord  (Var op)
-deriving instance Show (BackendVar op) => Show (Var op)
+deriving instance Eq   Var
+deriving instance Ord  Var
+deriving instance Show Var
 
 -- | Constructor for 'Pi' variables.
-pi :: Node Comp -> Expression op
+pi :: Node Comp -> Expression
 pi = var . Pi
 
 -- | No clue what this is for.
-delayed :: MakesILP op => Node GVal -> Expression op
+delayed :: MakesILP op => Node GVal -> Expression
 delayed = notB . manifest
 
 -- | Constructor for 'IsManifest' variables.
-manifest :: Node GVal -> Expression op
+manifest :: Node GVal -> Expression
 manifest = var . IsManifest
 
 -- | Safe constructor for 'Fused' variables.
-fused :: (Node Comp, Node Comp) -> Expression op
+fused :: (Node Comp, Node Comp) -> Expression
 fused = var . uncurry Fused
 
 -- | Safe constructor for 'ReadDir' variables.
-readDir :: ReadEdge -> Expression op
+readDir :: ReadEdge -> Expression
 readDir = var . uncurry ReadDir
 
 -- | Convert a foldable structure of 'ReadEdge' to a list of 'Expression's.
-readDirs :: Foldable f => f ReadEdge -> [Expression op]
+readDirs :: Foldable f => f ReadEdge -> [Expression]
 readDirs = map readDir . toList
 
 -- | Safe constructor for 'WriteDir' variables.
-writeDir :: WriteEdge -> Expression op
+writeDir :: WriteEdge -> Expression
 writeDir = var . uncurry WriteDir
 
 -- | Convert a foldable structure of 'WriteEdge' to a list of 'Expression's.
-writeDirs :: Foldable f => f WriteEdge -> [Expression op]
+writeDirs :: Foldable f => f WriteEdge -> [Expression]
 writeDirs = map writeDir . toList
 
 -- | Safe constructor for 'InPlace' variables.
-inplace :: InplacePath -> Expression op
+inplace :: InplacePath -> Expression
 inplace ((b1,c1),(c2,b2)) = var $ InPlace b1 c1 c2 b2
 
 -- | Safe constructor for 'PiMax' variables.
-pimax :: Node GVal -> Expression op
+pimax :: Node GVal -> Expression
 pimax = var . PiMax
 
-maxCluster :: Expression op
+maxCluster :: Expression
 maxCluster = var MaxCluster
 
 dirToInt :: Direction -> Int
 dirToInt LeftToRight = -2
 dirToInt RightToLeft = -1
 
-inFoldSize :: Node Comp -> Expression op
+inFoldSize :: Node Comp -> Expression
 inFoldSize = var . InFoldSize
 
-outFoldSize :: Node Comp -> Expression op
+outFoldSize :: Node Comp -> Expression
 outFoldSize = var . OutFoldSize
 
 --------------------------------------------------------------------------------
@@ -627,7 +618,7 @@ reindexLabelledArgOp k (LOp (ArgArray m repr sh buffers) l o) = (\x -> LOp x l o
 reindexLabelledArgsOp :: Applicative f => ReindexPartial f env env' -> LabelledArgsOp op env t -> f (LabelledArgsOp op env' t)
 reindexLabelledArgsOp = reindexPreArgs reindexLabelledArgOp
 
-attachBackendLabels :: MakesILP op => Solution op -> Symbols op -> Symbols op
+attachBackendLabels :: MakesILP op => Solution -> Symbols op -> Symbols op
 attachBackendLabels sol = M.mapWithKey \cases
   l (SExe env largs op) -> SExe' env (labelLabelledArgs sol l largs) op
   _  SExe'{} -> internalError "already converted???"

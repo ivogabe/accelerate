@@ -15,8 +15,7 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP (
   MIP(..)
   ) where
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (MakesILP)
-import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph as Graph (Var)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (Var)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint hiding (var)
@@ -39,8 +38,8 @@ import Data.Text (unpack)
 
 newtype MIP s = MIP s
 
-instance (MakesILP op, MIP.IsSolver s IO) => ILPSolver (MIP s) op where
-  solvePartial :: MIP s -> ILP op -> IO (Maybe (Solution op))
+instance (MIP.IsSolver s IO) => ILPSolver (MIP s) where
+  solvePartial :: MIP s -> ILP -> IO (Maybe Solution)
   solvePartial (MIP s) ilp@(ILP dir obj constr bnds n) = makeSolution names <$> MIP.solve s options problem
     where
       options = def { MIP.solveTimeLimit   = Nothing --Just 60
@@ -70,18 +69,18 @@ instance (MakesILP op, MIP.IsSolver s IO) => ILPSolver (MIP s) op where
       --   -- Map.union is left-biased: only values not present in the solution are added.
       --   MIP.Solution stat obj $ M.union solmap (M.fromSet (const 0) (vars problem))
 
-var :: Ord (Graph.Var op) => Graph.Var op -> Reader (Names op) MIP.Var
+var :: Ord (Var) => Var -> Reader (Names) MIP.Var
 var y = asks (fromString . (M.! y) . snd)
 
 -- MIP has a Num instance for expressions, but it's scary (because
 -- you can't guarantee linearity with arbitrary multiplications).
 -- We use that instance here, knowing that our own Expression can only be linear.
-expr :: MakesILP op => Constants -> Expression op -> Reader (Names op) (MIP.Expr Scientific)
+expr :: Constants -> Expression -> Reader (Names) (MIP.Expr Scientific)
 expr n (Constant (Number f)) = pure $ fromIntegral (f n)
 expr n (x :+ y) = (+) <$> expr n x <*> expr n y
 expr n ((Number f) :* y) = (fromIntegral (f n) *) . varExpr <$> var y
 
-cons :: MakesILP op => Constants -> LinearConstraint op -> Reader (Names op) [MIP.Constraint Scientific]
+cons :: Constants -> LinearConstraint -> Reader (Names) [MIP.Constraint Scientific]
 cons n (x :>= y) = (\a b -> [a MIP..>=. b]) <$> expr n x <*> expr n y
 cons n (x :<= y) = (\a b -> [a MIP..<=. b]) <$> expr n x <*> expr n y
 cons n (x :== y) = (\a b -> [a MIP..==. b]) <$> expr n x <*> expr n y
@@ -89,7 +88,7 @@ cons n (x :== y) = (\a b -> [a MIP..==. b]) <$> expr n x <*> expr n y
 cons n (x :&& y) = (<>) <$> cons n x <*> cons n y
 cons _ TrueConstraint = pure mempty
 
-bounds :: MakesILP op => Bounds op -> Reader (Names op) (M.Map MIP.Var (Extended Scientific, Extended Scientific))
+bounds :: Bounds -> Reader (Names) (M.Map MIP.Var (Extended Scientific, Extended Scientific))
 bounds (Binary v) = (`M.singleton` (Finite 0, Finite 1)) <$> var v
 bounds (Lower      l v  ) = (`M.singleton` (Finite (fromIntegral l), PosInf                 )) <$> var v
 bounds (     Upper   v u) = (`M.singleton` (NegInf                 , Finite (fromIntegral u))) <$> var v
@@ -99,21 +98,21 @@ bounds NoBounds = pure mempty
 
 -- -- For all variables not yet in bounds, we add infinite bounds. This is apparently required.
 -- -- Potentially, it's more efficient to simply make a bounds map giving (NegInf, PosInf) to all variables (like in `allIntegers`), and then use `unionWith const`?
--- finishBounds :: M.Map MIP.Var (Extended Scientific, Extended Scientific) -> Reader (Names op) (M.Map MIP.Var (Extended Scientific, Extended Scientific))
+-- finishBounds :: M.Map MIP.Var (Extended Scientific, Extended Scientific) -> Reader (Names) (M.Map MIP.Var (Extended Scientific, Extended Scientific))
 -- finishBounds x = do
 --   vars' <- asks $ map toVar . M.keys . fst
 --   let y = M.keys x
 --   return $ x <> (M.fromList . map (,(NegInf,PosInf)) . filter (not . (`elem` y)) $ vars')
 
 -- -- we currently have no variables that ever get less then -2
--- extraConstraints :: Reader (Names op) [MIP.Constraint Scientific]
+-- extraConstraints :: Reader (Names) [MIP.Constraint Scientific]
 -- extraConstraints = do
 --   vs <- asks $ map toVar . M.keys . fst
 --   return [MIP.constExpr (-5) MIP..<=. MIP.varExpr x | x <- vs]
 
 
 
-makeSolution :: MakesILP op => Names op -> MIP.Solution Scientific -> Maybe (Solution op)
+makeSolution :: Names -> MIP.Solution Scientific -> Maybe Solution
 --                                   ------- Matching on solutions with a value: If this is Nothing, the model was infeasable or unbounded.
 --                                   |    -- Instead matching on `MIP.Solution StatusOptimal _ m` often works too, but that doesn't work for
 --                                   v    -- e.g. the identity program (which has an empty ILP).

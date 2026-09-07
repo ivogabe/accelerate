@@ -8,7 +8,7 @@ import Data.Kind (Type)
 import Prelude hiding (pi)
 
 -- | A property of the fusion problem, to be lowered into linear constraints.
-data Constraint (op :: Type -> Type)
+data Constraint
   = -- | @pi i < pi j@: @i@ lands in a strictly earlier cluster than @j@.
     ClusterBefore (Node Comp) (Node Comp)
   | -- | @i@ and @j@ land in different clusters.

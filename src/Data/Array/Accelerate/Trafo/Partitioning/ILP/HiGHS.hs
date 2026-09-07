@@ -23,7 +23,7 @@ import qualified Debug.Trace
 
 data HiGHS = Highs
 
-instance MakesILP op => ILPSolver HiGHS op where
+instance ILPSolver HiGHS where
   solvePartial Highs ilp@(ILP dir cost constraint bounds n) = pure . getSolution $
     LP.solve LP.choose bounds' constraint' (dir', cost')
     where
