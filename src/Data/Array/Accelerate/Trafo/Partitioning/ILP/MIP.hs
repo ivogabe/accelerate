@@ -19,7 +19,8 @@ import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (MakesILP)
 import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph as Graph (Var)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (var)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint hiding (var)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
 import qualified Data.Map as M
 
 import Numeric.Optimization.MIP hiding (Bounds, Constraint, Var, Solution, name)

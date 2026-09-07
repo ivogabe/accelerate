@@ -6,6 +6,7 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve where
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (graph, constraints, bounds)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Node, parent, Nodes, Comp, GVal, DataflowEdge, StrictEdge, ReadEdge, InplacePath, WriteEdge)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (finalize)
 
 import Data.List (groupBy, sortOn)
@@ -51,7 +52,7 @@ makeILP :: forall op. MakesILP op => Objective -> FusionILP op -> ILP op
 makeILP obj (FusionILP graph constraints bounds) =
   ILP minMax objFun loweredConstraints (graphBounds <> bounds) (Constants n m)
   where
-    graphBounds      = fusionBounds <> inPlaceBounds
+    graphBounds = fusionBounds <> inPlaceBounds
 
     lowered :: (LinearConstraint op, Bounds op, Expression op)
     lowered = lowerAll (LowerEnv n) $ finalize graph <> fusionConstraints <> inPlaceConstraints <> constraints

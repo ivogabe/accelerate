@@ -1,16 +1,12 @@
 {-# LANGUAGE MonoLocalBinds #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ViewPatterns #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP where
 -- No joke, this really needs to get a massive refactor...
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
-    ( interpretClusters, makeILP, splitExecs, ClusterLs, Objective (..), interpretReadDirs, interpretWriteDirs, interpretInplaceUpdates )
+    ( interpretClusters, makeILP, splitExecs, ClusterLs, Objective (..), interpretReadDirs, interpretInplaceUpdates )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
     ( reconstruct, reconstructF, ReadDirM, InplaceM )
 import Data.Array.Accelerate.AST.Partitioned
@@ -18,21 +14,17 @@ import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.AST.Operation
     ( OperationAcc, OperationAfun )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
-    ( ILPSolver, solve, (.==.), int, Solution )
+    ( ILPSolver, solve, Solution )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP
     ( cbc, cplex, glpsol, gurobiCl, lpSolve, scip, MIP(..) )
 
 import System.IO.Unsafe (unsafePerformIO)
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Node, GVal, Comp, traceWith)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Node, Comp)
 import Data.Map (Map, toList, foldMapWithKey, filterWithKey)
 import Data.Array.Accelerate.Trafo.Operation.Simplify
 import qualified Data.Array.Accelerate.Pretty.Operation as Pretty
-import Data.Function ((&))
-import qualified Data.Set as Set
-import Lens.Micro ((^.), (<>~), (<&>))
-import Data.Maybe (isJust, fromMaybe)
-import Debug.Trace
--- import Data.Array.Accelerate.Trafo.Partitioning.ILP.HiGHS
+import Lens.Micro ((^.))
+import Data.Maybe (fromMaybe)
 
 data Benchmarking = GreedyUp | GreedyDown | NoFusion
   deriving (Show, Eq, Bounded, Enum)

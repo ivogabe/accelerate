@@ -10,9 +10,7 @@
 {-# LANGUAGE RankNTypes               #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
 {-# LANGUAGE StandaloneDeriving       #-}
-{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TupleSections            #-}
-{-# LANGUAGE TypeApplications         #-}
 {-# LANGUAGE TypeFamilyDependencies   #-}
 {-# LANGUAGE UndecidableInstances     #-}
 {-# LANGUAGE ViewPatterns             #-}
@@ -20,7 +18,6 @@
 {-# OPTIONS_GHC -Wno-orphans          #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TypeOperators #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph where
 
 import Prelude hiding ( init, reads )
@@ -28,20 +25,18 @@ import Prelude hiding ( init, reads )
 -- Accelerate imports
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet (IdxSet(..))
-import qualified Data.Array.Accelerate.AST.IdxSet as IdxSet
-import qualified Data.Array.Accelerate.AST.Environment as E
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Operation hiding (Var)
 import Data.Array.Accelerate.Analysis.Hash.Exp
 import Data.Array.Accelerate.Analysis.Match
 import Data.Array.Accelerate.Array.Buffer
 import Data.Array.Accelerate.Error
-import Data.Array.Accelerate.Representation.Elt
 import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Trafo.Operation.LiveVars
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage (Constraint)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
 import Data.Array.Accelerate.Type
 
@@ -58,9 +53,6 @@ import Lens.Micro.Mtl
 import Control.Monad.State.Strict (State, runState)
 import Data.Foldable (Foldable (foldr'), traverse_, toList)
 import Data.Kind (Type)
-import Debug.Trace
-import Unsafe.Coerce (unsafeCoerce)
-
 
 
 --------------------------------------------------------------------------------
