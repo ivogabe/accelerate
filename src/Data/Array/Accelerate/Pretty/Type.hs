@@ -1,15 +1,6 @@
 {-# LANGUAGE CPP                 #-}
-{-# LANGUAGE FlexibleInstances   #-}
-{-# LANGUAGE GADTs               #-}
-{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE MonoLocalBinds      #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE PatternGuards       #-}
-{-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE ViewPatterns        #-}
 -- |
 -- Module      : Data.Array.Accelerate.Pretty.Type
 -- Copyright   : [2008..2020] The Accelerate Team

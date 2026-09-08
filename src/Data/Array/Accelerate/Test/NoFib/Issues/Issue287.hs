@@ -1,7 +1,6 @@
-{-# LANGUAGE ConstraintKinds     #-}
 {-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Issues.Issue287
 -- Copyright   : [2009..2020] The Accelerate Team

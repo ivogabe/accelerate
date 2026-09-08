@@ -1,4 +1,3 @@
-{-# LANGUAGE RebindableSyntax #-}
 -- |
 -- Module      : Data.Array.Accelerate.Data.Functor
 -- Copyright   : [2018..2020] The Accelerate Team

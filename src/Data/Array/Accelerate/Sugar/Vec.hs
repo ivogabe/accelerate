@@ -3,8 +3,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
-{-# OPTIONS_HADDOCK hide #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Sugar.Vec
 -- Copyright   : [2008..2020] The Accelerate Team

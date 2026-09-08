@@ -1,10 +1,5 @@
-{-# LANGUAGE MonoLocalBinds #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ViewPatterns #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP where
 -- No joke, this really needs to get a massive refactor...
 

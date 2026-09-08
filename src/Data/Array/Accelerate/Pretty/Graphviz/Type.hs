@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE ViewPatterns       #-}
 -- |
 -- Module      : Data.Array.Accelerate.Pretty.Graphviz.Type
 -- Copyright   : [2015..2020] The Accelerate Team

@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns      #-}
 {-# LANGUAGE DefaultSignatures #-}
-{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeOperators     #-}
 {-# OPTIONS_HADDOCK hide #-}

@@ -1,17 +1,5 @@
-{-# LANGUAGE CPP                  #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE PatternGuards        #-}
-{-# LANGUAGE RankNTypes           #-}
-{-# LANGUAGE RecordWildCards      #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE TupleSections        #-}
-{-# LANGUAGE TypeApplications     #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE ViewPatterns         #-}
+{-# LANGUAGE ConstraintKinds          #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
-{-# LANGUAGE ConstraintKinds #-}
 -- |
 -- Module      : Data.Array.Accelerate.Pretty.Graphviz
 -- Copyright   : [2015..2020] The Accelerate Team

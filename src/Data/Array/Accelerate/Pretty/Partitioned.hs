@@ -1,18 +1,10 @@
-{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE InstanceSigs        #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE PatternGuards       #-}
 {-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE StandaloneDeriving       #-}
-{-# LANGUAGE ViewPatterns        #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE InstanceSigs #-}
 -- |
 -- Module      : Data.Array.Accelerate.Pretty.Operation
 -- Copyright   : [2008..2020] The Accelerate Team

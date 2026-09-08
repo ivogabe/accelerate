@@ -1,16 +1,9 @@
-{-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE EmptyCase           #-}
 {-# LANGUAGE GADTs               #-}
-{-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeOperators       #-}
 {-# OPTIONS_HADDOCK hide #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TupleSections #-}
 -- |
 -- Module      : Data.Array.Accelerate.AST.Graph
 -- Copyright   : [2008..2020] The Accelerate Team

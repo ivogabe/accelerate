@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 -- |
 -- Module      : Data.Array.Accelerate.Pretty.Graphviz.Monad

@@ -1,5 +1,5 @@
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes      #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Misc.Cache
 -- Copyright   : [2009..2020] The Accelerate Team

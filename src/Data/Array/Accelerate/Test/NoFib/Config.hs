@@ -1,7 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE TemplateHaskell     #-}
-{-# LANGUAGE TypeOperators       #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Config
 -- Copyright   : [2009..2020] The Accelerate Team

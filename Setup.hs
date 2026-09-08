@@ -1,6 +1,4 @@
-{-# LANGUAGE CPP        #-}
-{-# LANGUAGE DataKinds  #-}
-{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE CPP #-}
 {-# OPTIONS -Wall #-}
 module Main where
 

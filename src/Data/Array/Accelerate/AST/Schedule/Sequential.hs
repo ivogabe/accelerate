@@ -1,9 +1,7 @@
 {-# LANGUAGE GADTs                #-}
-{-# LANGUAGE RankNTypes           #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE TypeApplications     #-}
 {-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.AST.Schedule.Sequential

@@ -1,13 +1,13 @@
-{-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE BlockArguments      #-}
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE PatternSynonyms     #-}
+{-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE ViewPatterns        #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 module Data.Array.Accelerate.Test.NoFib.Issues.Issue551 where
 

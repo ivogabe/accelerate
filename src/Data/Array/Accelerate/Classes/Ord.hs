@@ -1,15 +1,12 @@
 {-# LANGUAGE ConstraintKinds     #-}
-{-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE FlexibleInstances   #-}
-{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE MonoLocalBinds      #-}
 {-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE RebindableSyntax    #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE ViewPatterns        #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.Classes.Ord

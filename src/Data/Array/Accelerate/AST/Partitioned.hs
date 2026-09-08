@@ -1,15 +1,10 @@
-{-# LANGUAGE AllowAmbiguousTypes    #-}
-{-# LANGUAGE DerivingStrategies     #-}
 {-# LANGUAGE EmptyCase              #-}
 {-# LANGUAGE FlexibleContexts       #-}
-{-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE GADTs                  #-}
 {-# LANGUAGE InstanceSigs           #-}
 {-# LANGUAGE LambdaCase             #-}
-{-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE MultiWayIf             #-}
 {-# LANGUAGE OverloadedStrings      #-}
-{-# LANGUAGE QuantifiedConstraints  #-}
 {-# LANGUAGE RankNTypes             #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
 {-# LANGUAGE StandaloneDeriving     #-}
@@ -18,9 +13,8 @@
 {-# LANGUAGE TypeOperators          #-}
 {-# LANGUAGE UndecidableInstances   #-}
 {-# LANGUAGE ViewPatterns           #-}
-{-# OPTIONS_GHC -Wno-orphans        #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# LANGUAGE DataKinds #-}
+{-# OPTIONS_GHC -Wno-orphans        #-}
 
 -- |
 -- Module      : Data.Array.Accelerate.AST.Partitioned

@@ -1,21 +1,17 @@
-{-# LANGUAGE BangPatterns          #-}
-{-# LANGUAGE EmptyCase             #-}
-{-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
+{-# LANGUAGE InstanceSigs          #-}
+{-# LANGUAGE KindSignatures        #-}
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE StandaloneDeriving    #-}
 {-# LANGUAGE TemplateHaskell       #-}
-{-# LANGUAGE TypeApplications      #-}
-{-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
-{-# OPTIONS_HADDOCK hide #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE QuantifiedConstraints #-}
-{-# LANGUAGE InstanceSigs #-}
+{-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.AST.Operation
 -- Copyright   : [2008..2020] The Accelerate Team

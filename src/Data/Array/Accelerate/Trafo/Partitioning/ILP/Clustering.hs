@@ -1,7 +1,4 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -11,8 +8,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-
-
 -- _Significantly_ speeds up compilation of this file, but at an obvious cost!
 -- Even in GHC 9.0.1, which has Lower Your Guards, these checks take some time (though no longer quite as long).
 -- Recommended to disable these options when working on this file, and restore them when you're done.
@@ -20,10 +15,6 @@
 --   -Wno-overlapping-patterns
 --   -Wno-incomplete-patterns
 -- #-}
-{-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE BangPatterns #-}
 
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering where
 

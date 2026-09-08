@@ -1,12 +1,6 @@
-{-# LANGUAGE EmptyCase           #-}
 {-# LANGUAGE GADTs               #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeOperators       #-}
 {-# OPTIONS_HADDOCK hide #-}
-{-# LANGUAGE PatternSynonyms #-}
 -- |
 -- Module      : Data.Array.Accelerate.AST.SkipEnvironment
 -- Copyright   : [2008..2020] The Accelerate Team

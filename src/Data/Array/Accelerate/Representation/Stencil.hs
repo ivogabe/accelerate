@@ -1,5 +1,5 @@
-{-# LANGUAGE GADTs           #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE GADTs                 #-}
+{-# LANGUAGE TemplateHaskellQuotes #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Representation.Stencil

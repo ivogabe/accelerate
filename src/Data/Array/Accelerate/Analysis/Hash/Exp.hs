@@ -1,11 +1,8 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE GADTs               #-}
 {-# LANGUAGE MagicHash           #-}
-{-# LANGUAGE PatternGuards       #-}
+{-# LANGUAGE MonoLocalBinds      #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
-{-# LANGUAGE TypeApplications    #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Analysis.Hash.Exp

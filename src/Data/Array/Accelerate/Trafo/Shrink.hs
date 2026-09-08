@@ -1,14 +1,6 @@
-{-# LANGUAGE TupleSections       #-}
-{-# LANGUAGE CPP                 #-}
-{-# LANGUAGE GADTs               #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE PatternGuards       #-}
+{-# LANGUAGE MonoLocalBinds      #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell     #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE ViewPatterns        #-}
 -- |
 -- Module      : Data.Array.Accelerate.Trafo.Shrink
 -- Copyright   : [2012..2020] The Accelerate Team

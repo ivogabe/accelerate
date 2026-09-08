@@ -1,21 +1,15 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE ConstraintKinds   #-}
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE EmptyCase         #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs             #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuantifiedConstraints #-}
-{-# LANGUAGE RankNTypes        #-}
-{-# LANGUAGE StandaloneDeriving#-}
-{-# LANGUAGE TemplateHaskell   #-}
-{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE EmptyCase              #-}
+{-# LANGUAGE GADTs                  #-}
+{-# LANGUAGE InstanceSigs           #-}
+{-# LANGUAGE LambdaCase             #-}
+{-# LANGUAGE OverloadedStrings      #-}
+{-# LANGUAGE QuantifiedConstraints  #-}
+{-# LANGUAGE RankNTypes             #-}
+{-# LANGUAGE StandaloneDeriving     #-}
+{-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
-{-# LANGUAGE TypeOperators     #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeOperators          #-}
 {-# OPTIONS_HADDOCK hide #-}
-{-# LANGUAGE InstanceSigs #-}
 -- |
 -- Module      : Data.Array.Accelerate.Representation.Type
 -- Copyright   : [2008..2020] The Accelerate Team

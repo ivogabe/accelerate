@@ -1,6 +1,5 @@
-{-# LANGUAGE CPP                      #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE TemplateHaskell          #-}
+{-# LANGUAGE CPP             #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fobject-code #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |

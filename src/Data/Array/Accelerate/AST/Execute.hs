@@ -1,6 +1,3 @@
-{-# LANGUAGE AllowAmbiguousTypes   #-}
-{-# LANGUAGE DefaultSignatures     #-}
-{-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TypeApplications      #-}

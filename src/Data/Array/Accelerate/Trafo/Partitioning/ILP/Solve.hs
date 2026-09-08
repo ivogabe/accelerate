@@ -1,8 +1,5 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve where
 

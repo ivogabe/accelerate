@@ -1,7 +1,6 @@
-{-# LANGUAGE GADTs           #-}
-{-# LANGUAGE MagicHash       #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TupleSections   #-}
+{-# LANGUAGE MagicHash             #-}
+{-# LANGUAGE MonoLocalBinds        #-}
+{-# LANGUAGE TemplateHaskellQuotes #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Representation.Elt

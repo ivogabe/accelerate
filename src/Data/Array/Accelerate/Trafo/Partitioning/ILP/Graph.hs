@@ -1,26 +1,22 @@
 {-# LANGUAGE AllowAmbiguousTypes      #-}
+{-# LANGUAGE BangPatterns             #-}
 {-# LANGUAGE BlockArguments           #-}
 {-# LANGUAGE FlexibleContexts         #-}
 {-# LANGUAGE FlexibleInstances        #-}
 {-# LANGUAGE FunctionalDependencies   #-}
 {-# LANGUAGE GADTs                    #-}
 {-# LANGUAGE InstanceSigs             #-}
-{-# LANGUAGE KindSignatures           #-}
 {-# LANGUAGE LambdaCase               #-}
+{-# LANGUAGE OverloadedStrings        #-}
+{-# LANGUAGE PatternSynonyms          #-}
 {-# LANGUAGE RankNTypes               #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
 {-# LANGUAGE StandaloneDeriving       #-}
-{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TupleSections            #-}
-{-# LANGUAGE TypeApplications         #-}
-{-# LANGUAGE TypeFamilyDependencies   #-}
+{-# LANGUAGE TypeFamilies             #-}
 {-# LANGUAGE UndecidableInstances     #-}
 {-# LANGUAGE ViewPatterns             #-}
-{-# LANGUAGE OverloadedStrings        #-}
 {-# OPTIONS_GHC -Wno-orphans          #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TypeOperators #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph where
 
 import Prelude hiding ( init, reads )
