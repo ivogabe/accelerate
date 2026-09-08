@@ -24,7 +24,6 @@ module Data.Array.Accelerate.Trafo (
   Afunction, ArraysFunctionR,
   convertAfun, convertAfunWith,
   Trafo,
-  TrafoFront, toFusionILP,
 
   -- ** Sequence computations
   -- convertSeq, convertSeqWith,
@@ -144,18 +143,6 @@ convertAfunWithObj
 convertAfunWithObj obj = fst . convertAfunFullOptions defaultOptions (Fusion obj) (const ())
 
 type Trafo sched kernel = (LowerAcc (KernelOperation kernel), Operation.SimplifyOperation (KernelOperation kernel), Operation.SLVOperation (KernelOperation kernel), OperationBounds (KernelOperation kernel), Partitioning.MakesILP (KernelOperation kernel), Partitioned.SetOpIndices (KernelOperation kernel), Pretty.PrettyOp (KernelOperation kernel), Pretty.PrettyKernel kernel, IsSchedule sched, IsKernel kernel, Pretty.PrettySchedule sched, Operation.ShrinkArg (Partitioning.BackendClusterArg (KernelOperation kernel)), Operation.NFData' (Graph.BackendClusterArg (KernelOperation kernel)),  Operation.ShrinkArg (Partitioning.BackendClusterArg (KernelOperation kernel)))
-
-type TrafoFront op = (LowerAcc op, Operation.SimplifyOperation op, OperationBounds op, Operation.SLVOperation op, Partitioning.MakesILP op)
-
-toFusionILP :: forall op f. (Afunction f, TrafoFront op) => Config -> f -> Graph.FusionILP op
-toFusionILP config
-  = (\(ilp, _, _) -> ilp)
-  . Graph.mkFullGraphF
-  . (Operation.simplifyFun . Operation.stronglyLiveVariablesFun)
-  . (Operation.simplifyFun . boundsOptimizeAfun)
-  . (Operation.simplifyFun . Operation.simplifyFun . lowerAfun)
-  . LetSplit.convertAfun
-  . Sharing.convertAfunWith config
 
 convertAfunFullOptions
   :: forall sched kernel f m.

@@ -445,6 +445,7 @@ library
         Data.Array.Accelerate.Trafo.LiveVars
         Data.Array.Accelerate.Trafo.NewNewFusion
         Data.Array.Accelerate.Trafo.Operation.Bounds
+        Data.Array.Accelerate.Trafo.Operation.Simplify
         Data.Array.Accelerate.Trafo.Operation.Substitution
         Data.Array.Accelerate.Trafo.Operation.LiveVars
         Data.Array.Accelerate.Trafo.Partitioning.ILP
@@ -529,7 +530,6 @@ library
         Data.Array.Accelerate.Trafo.Environment
         Data.Array.Accelerate.Trafo.Operation.Bounds.Algebra
         Data.Array.Accelerate.Trafo.Operation.Bounds.Environment
-        Data.Array.Accelerate.Trafo.Operation.Simplify
         Data.Array.Accelerate.Trafo.Shrink
         Data.Atomic
 
