@@ -44,7 +44,7 @@ import qualified Data.Graph as G
 import qualified Data.Set as S
 import Data.Maybe (fromJust, fromMaybe)
 import Data.Type.Equality ( type (:~:)(Refl) )
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve (ClusterLs (Execs, NonExec))
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding (ClusterLs (Execs, NonExec))
 import Data.Array.Accelerate.AST.Environment (weakenWithLHS)
 
 import Prelude hiding ( take )

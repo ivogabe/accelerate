@@ -451,6 +451,7 @@ library
         Data.Array.Accelerate.Trafo.Partitioning.ILP
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
         Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Lower
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
@@ -458,7 +459,6 @@ library
         -- Data.Array.Accelerate.Trafo.Partitioning.ILP.HiGHS
         Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP
         Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration
-        Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
         Data.Array.Accelerate.Trafo.Partitioning.Stream
         Data.Array.Accelerate.Trafo.Schedule.Partial

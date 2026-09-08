@@ -5,7 +5,7 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP where
 -- No joke, this really needs to get a massive refactor...
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding
     ( interpretClusters, makeILP, splitExecs, ClusterLs, Objective (..), interpretReadDirs, interpretInplaceUpdates )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
     ( reconstruct, reconstructF, ReadDirM, InplaceM )

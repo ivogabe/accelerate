@@ -76,7 +76,7 @@ import qualified Data.Array.Accelerate.AST.Operation as Operation
 import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph as Graph
 import Data.Array.Accelerate.Pretty.Print (configPlain, Val (Empty))
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve (Objective(..))
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding (Objective(..))
 import Data.Array.Accelerate.Trafo.NewNewFusion (Benchmarking)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP (FusionType(..), defaultObjective)
 import Control.Monad.Trans.Writer (runWriter, Writer, writer)

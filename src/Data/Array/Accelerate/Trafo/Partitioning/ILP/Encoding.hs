@@ -3,7 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve where
+module Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding where
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (graph, constraints, bounds)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Node, parent, Nodes, Comp, GVal, DataflowEdge, StrictEdge, ReadEdge, InplacePath, WriteEdge)
