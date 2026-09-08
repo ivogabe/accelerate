@@ -27,16 +27,13 @@ module Data.Array.Accelerate.Trafo.Operation.Bounds.Algebra where
 import Data.Array.Accelerate.AST.Environment
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.Graph (InEdge(..))
-import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Operation
 import Data.Array.Accelerate.Array.Buffer
-import Data.Array.Accelerate.Trafo.Substitution
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Representation.Shape hiding (union)
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Error
 
-import Data.Maybe
 import Data.Typeable ( (:~:)(..) )
 
 -- x <= y becomes an edge from x to y with distance 0.
@@ -117,10 +114,10 @@ getBoundRange :: forall t env. Idx env Int -> IntegralType t -> TermBound env t 
 getBoundRange zero tp bound
   | IntegralDict <- integralDict tp =
     ( case prjPartial zero $ lower bound of
-        Just (InEdge (Edge distance)) -> negate distance
+        Just (InEdge (Edge distance')) -> negate distance'
         Nothing -> fromIntegral (minBound :: t)
     , case prjPartial zero $ upper bound of
-        Just (Edge distance) -> distance
+        Just (Edge distance') -> distance'
         Nothing -> fromIntegral (maxBound :: t)
     )
 

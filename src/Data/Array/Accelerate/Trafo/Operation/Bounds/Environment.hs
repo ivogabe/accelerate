@@ -36,12 +36,10 @@ import Data.Array.Accelerate.Analysis.Match
 import Data.Array.Accelerate.Trafo.WeakenedEnvironment
 import Data.Array.Accelerate.Trafo.Substitution
 import Data.Array.Accelerate.Trafo.Exp.Substitution
-import Data.Array.Accelerate.Trafo.Operation.Substitution
-import Data.Array.Accelerate.Trafo.SkipEnvironment
+import Data.Array.Accelerate.Trafo.Operation.Substitution ()
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Error
-import qualified Data.Array.Accelerate.AST.Graph as Graph
 
 import qualified Data.Functor.Const as Functor
 

@@ -31,7 +31,6 @@ module Data.Array.Accelerate.Trafo.Schedule.Uniform (
 ) where
 
 import Data.Array.Accelerate.Analysis.Match
-import Data.Array.Accelerate.AST.Operation (arrayDescriptorsIdxSet)
 import Data.Array.Accelerate.AST.Environment
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet (IdxSet(..))
@@ -59,7 +58,7 @@ import qualified Data.Array.Accelerate.AST.Partitioned as C
 import Data.Maybe
 import Prelude hiding (id, (.), read)
 import Control.Category
-import Control.DeepSeq hiding (Unit(..))
+import Control.DeepSeq (NFData(rnf))
 import Control.Concurrent
 import Data.IORef
 import System.IO.Unsafe (unsafePerformIO)
@@ -1137,6 +1136,7 @@ rnfEffect (SignalAwait signals)   = rnf signals
 rnfEffect (SignalResolve signals) = rnf signals
 rnfEffect (RefWrite ref value)    = rnfBaseVar ref `seq` rnfBaseVar value
 rnfEffect (Aassert _ cond)        = rnfOpenExp cond
+rnfEffect Atrace{}                = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 rnfBaseVar :: BaseVar env t -> ()
 rnfBaseVar = rnfVar rnfBaseR

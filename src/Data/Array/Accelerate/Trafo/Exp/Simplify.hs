@@ -43,7 +43,6 @@ import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Shape                   ( ShapeR(..), shapeToList, rank )
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Representation.Vec
-import Data.Array.Accelerate.Representation.Slice                   ( SliceIndex(..) )
 import Data.Array.Accelerate.Trafo.Exp.Algebra
 import Data.Array.Accelerate.Trafo.Environment
 import Data.Array.Accelerate.Trafo.Shrink
@@ -759,8 +758,10 @@ summariseOpenExp = (terms +~ 1) . goE
     travNumType (IntegralNumType t) = travIntegralType t & types +~ 1
     travNumType (FloatingNumType t) = travFloatingType t & types +~ 1
 
+    {- TODO WALL: DEAD CODE
     travBoundedType :: BoundedType t -> Stats
     travBoundedType (IntegralBoundedType t) = travIntegralType t & types +~ 1
+    -}
 
     -- travScalarType :: ScalarType t -> Stats
     -- travScalarType (SingleScalarType t) = travSingleType t & types +~ 1

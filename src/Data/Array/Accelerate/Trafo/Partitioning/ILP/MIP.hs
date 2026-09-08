@@ -124,6 +124,8 @@ sequence' :: (Maybe a, b) -> Maybe (a, b)
 sequence' (Nothing, _) = Nothing
 sequence' (Just x, y) = Just (x, y)
 
+{- TODO WALL: DEAD CODE
 -- assume that both maps have exactly the same keys
 tupleup :: Ord k => M.Map k a -> M.Map k b -> M.Map k (a,b)
 tupleup as bs = M.mapWithKey (\k a -> (a, bs M.!k)) as
+-}

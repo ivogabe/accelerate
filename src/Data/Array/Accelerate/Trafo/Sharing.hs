@@ -349,7 +349,7 @@ convertSharingAcc config alyt aenv (ScopedAcc lams (AccSharing _ preAcc))
       FoldSeg i tp f e acc1 acc2  -> AST.FoldSeg i (cvtF2 tp tp f) (cvtE <$> e) (cvtA acc1) (cvtA acc2)
       Scan  d tp f e acc          -> AST.Scan  d (cvtF2 tp tp f) (cvtE <$> e) (cvtA acc)
       Scan' d tp f e acc          -> AST.Scan' d (cvtF2 tp tp f) (cvtE e)     (cvtA acc)
-      Permute (ArrayR shr tp) f dftAcc acc
+      Permute (ArrayR _shr tp) f dftAcc acc
                                   -> AST.Permute (cvtF2 tp tp <$> f) (cvtA dftAcc) (cvtA acc)
       Backpermute shr newDim perm acc
                                   -> AST.Backpermute shr (cvtE newDim) (cvtF1 (shapeType shr) perm) (cvtA acc)
@@ -1559,14 +1559,14 @@ makeOccMapSharingAcc config accOccMap = traverseAcc
                                                      h1 `max` h2 `max` h3 `max` h4 + 1)
             Scan  d tp f e acc          -> travF2MEA (Scan  d tp) tp tp f e acc
             Scan' d tp f e acc          -> travF2EA (Scan' d tp) tp tp f e acc
-            Permute repr@(ArrayR shr tp) (Just c) acc1 acc2
+            Permute repr@(ArrayR _shr tp) (Just c) acc1 acc2
                                         -> do
                                              (c'   , h1) <- traverseFun2 lvl tp tp c
                                              (acc1', h2) <- traverseAcc lvl acc1
                                              (acc2', h3) <- traverseAcc lvl acc2
                                              return (Permute repr (Just c') acc1' acc2',
                                                      h1 `max` h2 `max` h3 + 1)
-            Permute repr@(ArrayR shr tp) Nothing acc1 acc2
+            Permute repr@(ArrayR _shr _tp) Nothing acc1 acc2
                                         -> do
                                              (acc1', h2) <- traverseAcc lvl acc1
                                              (acc2', h3) <- traverseAcc lvl acc2
@@ -2644,12 +2644,15 @@ determineScopesSharingAcc config accOccMap = scopesAcc
         :: HasCallStack
         => (SmartAcc a1 -> UnscopedAcc a2)
         -> (SmartAcc a1 -> ScopedAcc a2, NodeCounts)
-    scopesAfun1 f = (const (ScopedAcc ssa body'), (counts', graph))
+    scopesAfun1 f =
+        case scopesAcc body of
+          (ScopedAcc [] body', (counts, graph)) ->
+            let (freeCounts, counts') = partition isBoundHere counts
+                ssa = buildInitialEnvAcc fvs [sa | AccNodeCount sa _ <- freeCounts]
+            in  (const (ScopedAcc ssa body'), (counts', graph))
+          _ -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
       where
-        body@(UnscopedAcc fvs _)             = f undefined
-        (ScopedAcc [] body', (counts,graph)) = scopesAcc body
-        (freeCounts, counts')                = partition isBoundHere counts
-        ssa                                  = buildInitialEnvAcc fvs [sa | AccNodeCount sa _ <- freeCounts]
+        body@(UnscopedAcc fvs _) = f undefined
 
         isBoundHere (AccNodeCount (StableSharingAcc _ (AccSharing _ (Atag _ i))) _) = i `elem` fvs
         isBoundHere _                                                               = False
@@ -2721,15 +2724,16 @@ determineScopesExp
     -> OccMap SmartAcc
     -> RootExp t
     -> (ScopedExp t, NodeCounts)          -- Root (closed) expression plus Acc node counts
-determineScopesExp config accOccMap (RootExp expOccMap exp@(UnscopedExp fvs _))
-  = let
-        (ScopedExp [] expWithScopes, (nodeCounts,graph)) = determineScopesSharingExp config accOccMap expOccMap exp
-        (expCounts, accCounts)                           = partition isExpNodeCount nodeCounts
-
-        isExpNodeCount ExpNodeCount{} = True
-        isExpNodeCount _              = False
-    in
-    (ScopedExp (buildInitialEnvExp fvs [se | ExpNodeCount se _ <- expCounts]) expWithScopes, cleanCounts (accCounts,graph))
+determineScopesExp config accOccMap (RootExp expOccMap exp@(UnscopedExp fvs _)) =
+    case determineScopesSharingExp config accOccMap expOccMap exp of
+      (ScopedExp [] expWithScopes, (nodeCounts,graph)) ->
+        let (expCounts, accCounts) = partition isExpNodeCount nodeCounts
+        in  (ScopedExp (buildInitialEnvExp fvs [se | ExpNodeCount se _ <- expCounts]) expWithScopes, cleanCounts (accCounts,graph))
+      _ -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
+  where
+    isExpNodeCount :: NodeCount -> Bool
+    isExpNodeCount ExpNodeCount{} = True
+    isExpNodeCount _              = False
 
 
 determineScopesSharingExp
@@ -2751,12 +2755,15 @@ determineScopesSharingExp config accOccMap expOccMap = scopesExp
         :: HasCallStack
         => (SmartExp a -> UnscopedExp b)
         -> (SmartExp a -> ScopedExp b, NodeCounts)
-    scopesFun1 f = tracePure (bformat ("LAMBDA " % list formatStableSharingExp) ssa) (bformat (list formatNodeCount) counts) (const (ScopedExp ssa body'), (counts',graph))
+    scopesFun1 f =
+      case scopesExp body of
+        (ScopedExp [] body', (counts, graph)) ->
+          let (freeCounts, counts') = partition isBoundHere counts
+              ssa = buildInitialEnvExp fvs [se | ExpNodeCount se _ <- freeCounts]
+          in  tracePure (bformat ("LAMBDA " % list formatStableSharingExp) ssa) (bformat (list formatNodeCount) counts) (const (ScopedExp ssa body'), (counts',graph))
+        _ -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
       where
         body@(UnscopedExp fvs _)              = f undefined
-        (ScopedExp [] body', (counts, graph)) = scopesExp body
-        (freeCounts, counts')                 = partition isBoundHere counts
-        ssa                                   = buildInitialEnvExp fvs [se | ExpNodeCount se _ <- freeCounts]
 
         isBoundHere (ExpNodeCount (StableSharingExp _ (ExpSharing _ (Tag _ i))) _) = i `elem` fvs
         isBoundHere _                                                              = False

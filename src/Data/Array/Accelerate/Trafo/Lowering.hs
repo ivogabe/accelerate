@@ -912,7 +912,7 @@ lowerOpenAcc env = travA
               $ Return (sh `TupRpair` valueOut weakenId)
       Named.Atrace (Named.Message _ _ text) as bs
         | repr <- Named.arraysR as
-        , DeclareVars lhs k value <- declareVars repr
+        , DeclareVars lhs _k value <- declareVars repr
         , LoweredLHS env' lhs' <- lowerLHS env lhs ->
           alet lhs' (travA as)
             $ alet (LeftHandSideSingle $ GroundRscalar $ scalarTypeWord8)

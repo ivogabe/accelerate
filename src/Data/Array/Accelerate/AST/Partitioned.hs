@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE GADTs                  #-}
+{-# LANGUAGE InstanceSigs           #-}
 {-# LANGUAGE LambdaCase             #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE MultiWayIf             #-}
@@ -48,7 +49,7 @@ import Data.Maybe (isJust, fromMaybe)
 import Data.Array.Accelerate.Trafo.Operation.Simplify (SimplifyOperation(..))
 import Data.Array.Accelerate.Representation.Array (Array, Buffer, Buffers, ArrayR (..))
 import Data.Array.Accelerate.AST.LeftHandSide
-import Data.Array.Accelerate.Representation.Shape (ShapeR (..), shapeType, typeShape, rank)
+import Data.Array.Accelerate.Representation.Shape (ShapeR (..), shapeType, rank)
 import Data.Type.Equality
 import Unsafe.Coerce (unsafeCoerce)
 import Data.Array.Accelerate.Representation.Type
@@ -77,6 +78,10 @@ type PartitionedAfun op = PreOpenAfun (Clustered op)
 
 
 data Clustered op args = Clustered (Cluster op args) (BackendCluster op args)
+
+instance NFData' op => NFData' (Clustered op) where
+  rnf' :: NFData' op => Clustered op a -> ()
+  rnf' _c = () -- TODO
 
 data Cluster op args where
   SingleOp :: SingleOp op args -> Node Comp -> Cluster op args

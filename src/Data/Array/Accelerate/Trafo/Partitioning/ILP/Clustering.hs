@@ -30,27 +30,24 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering where
 import Data.Array.Accelerate.AST.LeftHandSide ( Exists(..), LeftHandSide (..), lhsToTupR )
 import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.AST.Var
-import Data.Array.Accelerate.AST.Operation ( ReindexPartial )
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Type ( scalarType )
 import Data.Array.Accelerate.Trafo.Operation.Simplify
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (readEdges, writeEdges, strictEdges, dataflowEdges, symbols, graph)
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels hiding (EnvLabelTupF)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
 import Data.Array.Accelerate.Analysis.Match
 import Data.Array.Accelerate.Error
 
 import qualified Data.Map as M
 import qualified Data.Graph as G
 import qualified Data.Set as S
-import Data.Maybe (fromJust, fromMaybe)
-import Data.Type.Equality ( type (:~:)(Refl) )
+import Data.Maybe (fromJust)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve (ClusterLs (Execs, NonExec))
 import Data.Array.Accelerate.AST.Environment (weakenWithLHS)
 
 import Prelude hiding ( take )
-import Lens.Micro (_1)
 import Lens.Micro.Extras (view)
-import Data.Array.Accelerate.Representation.Array (ArrayR (ArrayR), ArraysR)
+import Data.Array.Accelerate.Representation.Array (ArrayR (ArrayR))
 import Data.Functor.Identity
 import qualified Data.Tree as T
 import Data.Array.Accelerate.Representation.Shape (shapeType)
@@ -60,8 +57,6 @@ import qualified Data.Array.Accelerate.Pretty.Operation as P
 import qualified Data.Array.Accelerate.Pretty.Exp as P
 
 import Lens.Micro
-import Debug.Trace
-import Data.Foldable (fold)
 
 {-
 Within each cluster (Labels), we do a topological sort using the edges in Graph
@@ -119,13 +114,13 @@ topSort singletons (FusionGraph _ _ strictEdges dataflowEdges _) cluster readDir
     (fedges, fpedges) = S.partition (\(c1, _, c2) -> S.notMember (c1, c2) strictEdges) dataflowEdges
 
     -- Make a graph of all these labels and their incoming edges (for horizontal fusion)...
-    fpparents =                    S.unions $ S.map (\l -> (S.\\ cluster) $ S.map (\(a:->_)->a) $ S.filter (\(_:->b)->l==b) fpedges) cluster
-    parents   = (S.\\ fpparents) $ S.unions $ S.map (\l -> (S.\\ cluster) $ S.map (\(a:->_)->a) $ S.filter (\(_:->b)->l==b) fedges ) cluster
+    fpparents = S.unions $ S.map (\l -> (S.\\ cluster) $ S.map (\(w,_,_)->w) $ S.filter (\(_,_,r)->l==r) fpedges) cluster
+    parents   = (S.\\ fpparents) $ S.unions $ S.map (\l -> (S.\\ cluster) $ S.map (\(w,_,_)->w) $ S.filter (\(_,_,r)->l==r) fedges ) cluster
     parentsPlusEdges :: S.Set (Node Comp, Int, Node Comp) -- (Parent, Order, Target)
-    parentsPlusEdges = S.unions $ S.unions $ S.map (\l -> let relevantEdges = S.filter (\(a:->b)->l==a && b `S.member` cluster) (fedges S.\\ fpedges)
+    parentsPlusEdges = S.unions $ S.unions $ S.map (\l -> let relevantEdges = S.filter (\(w,_,r)->l==w && r `S.member` cluster) (fedges S.\\ fpedges)
                                                               -- TODO: why not just `ordersWithEdges = S.map (\e@(_ :->b) -> (l,readOrderOf e,b)) relevantEdges`?
                                                               orders = S.map readOrderOf relevantEdges
-                                                              ordersWithEdges = S.map (\o -> S.map (\(_:->b) -> (l,o,b)) $ S.filter (\e-> readOrderOf e == o) relevantEdges) orders
+                                                              ordersWithEdges = S.map (\o -> S.map (\(_,_,r) -> (l,o,r)) $ S.filter (\e-> readOrderOf e == o) relevantEdges) orders
                                                           in ordersWithEdges) parents
 
     nodes = S.map (,defaultDir) cluster <> S.map (\(x,y,_)-> (x,y)) parentsPlusEdges
@@ -157,7 +152,11 @@ openReconstruct   :: (MakesILP op, SimplifyOperation op)
                   -> ReadDirM
                   -> InplaceM
                   -> Exists (PreOpenAcc (Clustered op) aenv)
-openReconstruct  a b c d   e f g h = (\(Left x) -> x) $ openReconstruct' a b c d Nothing e f g h
+openReconstruct  a b c d   e f g h =
+    case openReconstruct' a b c d Nothing e f g h of
+      Left x  -> x
+      Right{} -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
+
 openReconstructF  :: (MakesILP op, SimplifyOperation op)
                   => Bool
                   -> Env aenv
@@ -169,7 +168,10 @@ openReconstructF  :: (MakesILP op, SimplifyOperation op)
                   -> ReadDirM
                   -> InplaceM
                   -> Exists (PreOpenAfun (Clustered op) aenv)
-openReconstructF a b c d l e f g h = (\(Right x) -> x) $ openReconstruct' a b c d (Just l) e f g h
+openReconstructF a b c d l e f g h =
+    case openReconstruct' a b c d (Just l) e f g h of
+      Right x -> x
+      Left{}  -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 openReconstruct' :: forall op aenv. (MakesILP op, SimplifyOperation op) => Bool -> Env aenv -> FusionGraph -> [ClusterLs] -> Maybe (Node Comp) -> M.Map (Node Comp) [ClusterLs] -> Symbols op -> ReadDirM -> InplaceM -> Either (Exists (PreOpenAcc (Clustered op) aenv)) (Exists (PreOpenAfun (Clustered op) aenv))
 openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symbols readDirM inplaceM =
@@ -232,10 +234,10 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
                 case makeAST env' ctail of
                   Exists scp
                     -> Exists $ tryBuildAlet lhs u bnd scp
-          | SFen env' set <- con ->
+          | SFen env' set' <- con ->
             case makeAST env ctail of
               Exists next ->
-                Exists $ Fence (fromJust $ reindexIdxSet (mkReindexPartial' env' env) set) next
+                Exists $ Fence (fromJust $ reindexIdxSet (mkReindexPartial' env' env) set') next
         _ -> let res = makeAST env [cluster] in case cluster of
               ExecL _ -> case (res, makeAST env ctail) of
                 (Exists exec@Exec{}, Exists scp) -> Exists $ Alet LeftHandSideUnit (shared TupRunit) exec scp
@@ -245,12 +247,12 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
 
     makeASTF :: forall env. Env env -> Node Comp -> Exists (PreOpenAfun (Clustered op) env)
     makeASTF env l = case makeCluster env (NonExecL l) of
-      NotFold (SBod l') -> case makeAST env (subcluster l) of
+      NotFold (SBod _l') -> case makeAST env (subcluster l) of
           Exists acc -> Exists $ Abody acc
       NotFold (SFun lhs l') -> createLHS lhs env $ \env' lhs' ->
         case makeASTF env' l' of
           Exists fun -> Exists $ Alam lhs' fun
-      NotFold sym -> error $ "wrong type: acc"
+      NotFold _sym -> error $ "wrong type: acc"
       _ -> error "not a notfold"
 
     findTopOfF :: [ClusterL] -> Node Comp
@@ -258,10 +260,15 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
     findTopOfF [NonExecL x] = x
     findTopOfF (x@(NonExecL l):xs) = case symbols !?? l of
       SBod _    -> findTopOfF xs
-      SFun _ l' -> findTopOfF $ filter (\(NonExecL l'') -> l'' /= l') xs ++ [x]
+      SFun _ l' -> findTopOfF $ filter (nonExecLNotEqual l') xs ++ [x]
       _ -> error "should be a function"
       -- findTopOfF $ filter (\(NonExecL l) -> Just l /= p) xs ++ [x]
     findTopOfF _ = error "should be a function"
+
+    nonExecLNotEqual :: Node Comp -> ClusterL -> Bool
+    nonExecLNotEqual l' = \case
+      NonExecL l'' -> l'' /= l'
+      ExecL{}      -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
     -- do the topological sorting for each set
     -- TODO: add 'backend-specific' edges to the graph for sorting, see 3.3.1 in the PLDI paper
@@ -357,10 +364,6 @@ fuseVertically
   (LOp (ArgArray Out (ArrayR shr _) sh _) (getLabelDeps -> bs)  b)
   (LOp (ArgArray In  _              _  _) (getLabelDeps -> bs') _)
   = LOp (ArgVar $ groundToExpVar (shapeType shr) sh) (NotArr $ bs <> bs') b
-
-instance NFData' op => NFData' (Clustered op) where
-  rnf' :: NFData' op => Clustered op a -> ()
-  rnf' c = () -- TODO
 
 expectType :: HasCallStack => GroundsR t -> PreOpenAcc op env s -> PreOpenAcc op env t
 expectType repr term

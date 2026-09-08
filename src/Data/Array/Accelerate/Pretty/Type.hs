@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE LambdaCase          #-}
@@ -25,7 +26,11 @@ import Data.Array.Accelerate.Pretty.Exp
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Representation.Type
 
+#if MIN_VERSION_prettyprinter (1,7,1)
+import Prettyprinter
+#else
 import Data.Text.Prettyprint.Doc
+#endif
 
 prettyScalarType :: ScalarType t -> Adoc
 prettyScalarType (SingleScalarType t) = prettySingleType t

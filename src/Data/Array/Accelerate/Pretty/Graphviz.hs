@@ -24,15 +24,20 @@
 module Data.Array.Accelerate.Pretty.Graphviz (
 
   Graph,
-  PrettyGraph(..), Detail(..),
+  PrettyGraph, Detail,
 
   graphDelayedAcc, graphDelayedAfun,
 
 ) where
 
 import Data.Kind (Type, Constraint)
+
+graphDelayedAcc :: a
 graphDelayedAcc = undefined
-graphDelayedAfun = undefined 
+
+graphDelayedAfun :: a
+graphDelayedAfun = undefined
+
 type Graph = ()
 type PrettyGraph :: Type -> Constraint
 type PrettyGraph a = ()

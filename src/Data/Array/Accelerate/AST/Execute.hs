@@ -25,10 +25,8 @@ module Data.Array.Accelerate.AST.Execute (
   GFunctionR(..)
 ) where
 
-import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.AST.Schedule
 import Data.Array.Accelerate.Representation.Ground
-import Data.Type.Equality
 import Data.Kind
 
 class Execute sched kernel where

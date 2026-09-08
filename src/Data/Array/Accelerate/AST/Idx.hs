@@ -35,11 +35,11 @@ module Data.Array.Accelerate.AST.Idx (
 ) where
 
 import Control.DeepSeq
-import Data.Kind
 import Language.Haskell.TH.Extra                                    hiding ( Type )
 import Data.Type.Equality                                           ( (:~:)(Refl) )
 
 #ifndef ACCELERATE_INTERNAL_CHECKS
+import Data.Kind
 import Unsafe.Coerce                                                ( unsafeCoerce )
 #endif
 

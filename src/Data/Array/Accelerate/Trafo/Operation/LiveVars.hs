@@ -317,32 +317,38 @@ shrinkArgs (SubArgsLive sarg sargs) (a:>:args) = shrinkArg sarg a :>: shrinkArgs
 defaultSlvGenerate
   :: (forall sh' t'. op (Fun' (sh' -> t') -> Out sh' t' -> ()))
   -> Maybe (ShrinkOperation op (Fun' (sh -> t) -> Out sh t -> ()))
-defaultSlvGenerate mkGenerate = Just $ ShrinkOperation $ \subArgs args@(ArgFun f :>: array :>: ArgsNil) _ -> case subArgs of
-  SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
-    -> ShrunkOperation mkGenerate args
-  SubArgKeep `SubArgsLive` SubArgOut subTp `SubArgsLive` SubArgsNil
-    -> ShrunkOperation mkGenerate (ArgFun (subTupFun subTp f) :>: array :>: ArgsNil)
-  _ `SubArgsLive` SubArgsDead _ -> internalError "At least one output should be preserved"
+defaultSlvGenerate mkGenerate = Just $ ShrinkOperation $ \subArgs args _ -> case args of
+    ArgFun f :>: array :>: ArgsNil -> case subArgs of
+      SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
+        -> ShrunkOperation mkGenerate args
+      SubArgKeep `SubArgsLive` SubArgOut subTp `SubArgsLive` SubArgsNil
+        -> ShrunkOperation mkGenerate (ArgFun (subTupFun subTp f) :>: array :>: ArgsNil)
+      _ `SubArgsLive` SubArgsDead _ -> internalError "At least one output should be preserved"
+    _ -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 defaultSlvMap
   :: (forall sh' s' t'. op (Fun' (s' -> t') -> In sh' s' -> Out sh' t' -> ()))
   -> Maybe (ShrinkOperation op (Fun' (s -> t)    -> In sh s -> Out sh  t -> ()))
-defaultSlvMap mkMap = Just $ ShrinkOperation $ \subArgs args@(ArgFun f :>: input :>: output :>: ArgsNil) _ -> case subArgs of
-  SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
-    -> ShrunkOperation mkMap args
-  SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgOut subTp `SubArgsLive` SubArgsNil
-    -> ShrunkOperation mkMap (ArgFun (subTupFun subTp f) :>: input :>: output :>: ArgsNil)
-  _ `SubArgsLive` _ `SubArgsLive` SubArgsDead _ -> internalError "At least one output should be preserved"
+defaultSlvMap mkMap = Just $ ShrinkOperation $ \subArgs args _ -> case args of
+    ArgFun f :>: input :>: output :>: ArgsNil -> case subArgs of
+      SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
+        -> ShrunkOperation mkMap args
+      SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgOut subTp `SubArgsLive` SubArgsNil
+        -> ShrunkOperation mkMap (ArgFun (subTupFun subTp f) :>: input :>: output :>: ArgsNil)
+      _ `SubArgsLive` _ `SubArgsLive` SubArgsDead _ -> internalError "At least one output should be preserved"
+    _ -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 defaultSlvBackpermute
   :: (forall sh1' sh2' t'. op (Fun' (sh2' -> sh1') -> In sh1' t' -> Out sh2' t' -> ()))
   -> Maybe (ShrinkOperation op (Fun' (sh2 -> sh1) -> In sh1 t -> Out sh2 t -> ()))
-defaultSlvBackpermute mkBackpermute = Just $ ShrinkOperation $ \subArgs args@(f :>: ArgArray In (ArrayR shr r) sh buf :>: output :>: ArgsNil) _ -> case subArgs of
-    SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
-      -> ShrunkOperation mkBackpermute args
-    SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgOut s `SubArgsLive` SubArgsNil
-      -> ShrunkOperation mkBackpermute (f :>: ArgArray In (ArrayR shr (subTupR s r)) sh (subTupDBuf s buf) :>: output :>: ArgsNil)
-    _ `SubArgsLive` _ `SubArgsLive` SubArgsDead _ -> internalError "At least one output should be preserved"
+defaultSlvBackpermute mkBackpermute = Just $ ShrinkOperation $ \subArgs args _ -> case args of
+    f :>: ArgArray In (ArrayR shr r) sh buf :>: output :>: ArgsNil -> case subArgs of
+      SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
+        -> ShrunkOperation mkBackpermute args
+      SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgOut s `SubArgsLive` SubArgsNil
+        -> ShrunkOperation mkBackpermute (f :>: ArgArray In (ArrayR shr (subTupR s r)) sh (subTupDBuf s buf) :>: output :>: ArgsNil)
+      _ `SubArgsLive` _ `SubArgsLive` SubArgsDead _ -> internalError "At least one output should be preserved"
+    _ -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 reEnvArrayInstr :: ReEnv env subenv -> ArrayInstr env t -> ArrayInstr subenv t
 reEnvArrayInstr re (Parameter var) = Parameter $ expectJust $ reEnvVar re var

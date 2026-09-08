@@ -427,10 +427,10 @@ findConstant env tp1 value1 = go env
   where
     go :: WEnv' Info env2 env1 -> Maybe (Idx env1 t)
     go WEmpty = Nothing
-    go (WPushA e (InfoConst d tp2 value2))
+    go (WPushA _e (InfoConst d tp2 value2))
       | IdxSet.null d
       , Just idx <- tryMatch tp2 value2 = Just idx
-    go (WPushB e (InfoConst d tp2 value2))
+    go (WPushB _e (InfoConst d tp2 value2))
       | IdxSet.null d
       , Just idx <- tryMatch tp2 value2 = Just idx
     go (WPushA e _) = SuccIdx <$> go e
@@ -464,7 +464,7 @@ bindingEnv _ fenceSet lhs (Compute expr) (InfoEnv environment) = InfoEnv $ go we
     go k (LeftHandSidePair l1 l2) (Pair e1 e2) env
       = go (weakenWithLHS l1 .> k) l2 e2 $ go k l1 e1 env
 
-    go k (LeftHandSideWildcard _) _ env = env
+    go _k (LeftHandSideWildcard _) _ env = env
 
     go _ l _ env = goUnknown l env
 
@@ -524,11 +524,13 @@ invalidate indices infoEnv@(InfoEnv env1) =
     dropCopyOf :: env' :> env -> Info env' t -> Info env' t
     dropCopyOf _ (InfoBuffer unitScalar _ c)
       = InfoBuffer unitScalar Nothing c
+    dropCopyOf _ _ = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
     -- Forgets that this buffer is copied to buffers in indices'
     dropCopyTo :: env' :> env -> Info env' t -> Info env' t
     dropCopyTo k (InfoBuffer unitScalar copyOf copiedTo')
       = InfoBuffer unitScalar copyOf $ filter (\idx -> not $ k >:> idx `IdxSet.member` indices) copiedTo'
+    dropCopyTo _ _ = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 outputArrays :: Args env args -> IdxSet env
 outputArrays = IdxSet.fromList . mapMaybe f . argsVars
@@ -624,8 +626,8 @@ awhileSimplifyInvariant us cond step initial = case awhileDropInvariantFun initi
 awhileDropInvariantFun :: GroundVars env t -> OperationAfun op env (t -> t) -> Exists (SubTupR t)
 awhileDropInvariantFun initial (Alam lhs (Abody body)) =
   awhileDropInvariant (mapTupR (weaken $ weakenWithLHS lhs) initial) (lhsMaybeVars lhs) body
-awhileDropInvariantFun initial (Alam lhs (Alam _ _))   = groundFunctionImpossible (lhsToTupR lhs)
-awhileDropInvariantFun initial (Abody body)            = groundFunctionImpossible (groundsR body)
+awhileDropInvariantFun _initial (Alam lhs (Alam _ _))   = groundFunctionImpossible (lhsToTupR lhs)
+awhileDropInvariantFun _initial (Abody body)            = groundFunctionImpossible (groundsR body)
 
 -- Computes a SubTupR that removes variables that are invariant in the while loop.
 -- Invariant here means that the step function of the loop returns the input unchanged,

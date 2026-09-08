@@ -21,12 +21,8 @@
 module Data.Array.Accelerate.Analysis.Hash.Operation ( EncodeOperation(..), hashOperation, encodePreArgs, encodeArg ) where
 
 import Data.Array.Accelerate.Analysis.Hash.Exp
-import Data.Array.Accelerate.AST.Idx
-import Data.Array.Accelerate.AST.Var
 import Data.Array.Accelerate.AST.Partitioned
-import Data.Array.Accelerate.Trafo.LiveVars
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (MakesILP, encodeBackendClusterArg)
-import Data.Array.Accelerate.Trafo.Operation.LiveVars
 
 import Crypto.Hash.XKCP
 import Data.ByteString.Builder
@@ -45,15 +41,15 @@ instance (MakesILP op, EncodeOperation op) => EncodeOperation (Clustered op) whe
     encodePreArgs encodeBackendClusterArg backendCluster <> encodeCluster cluster
 
 encodePreArgs :: (forall t. arg t -> Builder) -> PreArgs arg f -> Builder
-encodePreArgs f (a :>: as) = intHost $(hashQ (":>:" :: String)) <> f a <> encodePreArgs f as
-encodePreArgs f ArgsNil    = intHost $(hashQ ("ArgsNil" :: String))
+encodePreArgs f  (a :>: as) = intHost $(hashQ (":>:" :: String)) <> f a <> encodePreArgs f as
+encodePreArgs _f ArgsNil    = intHost $(hashQ ("ArgsNil" :: String))
 
 encodeArg :: Arg env t -> Builder
 encodeArg (ArgArray m repr sh buffers)
   = intHost $(hashQ ("Array" :: String)) <> encodeModifier m <> encodeArrayType repr <> encodeGroundVars sh <> encodeGroundVars buffers
-encodeArg (ArgVar var) = intHost $(hashQ ("Var" :: String)) <> encodeTupR encodeExpVar var
-encodeArg (ArgExp exp) = intHost $(hashQ ("Exp" :: String)) <> encodeOpenExp exp
-encodeArg (ArgFun fun) = intHost $(hashQ ("Fun" :: String)) <> encodeOpenFun fun
+encodeArg (ArgVar var)  = intHost $(hashQ ("Var" :: String)) <> encodeTupR encodeExpVar var
+encodeArg (ArgExp exp') = intHost $(hashQ ("Exp" :: String)) <> encodeOpenExp exp'
+encodeArg (ArgFun fun)  = intHost $(hashQ ("Fun" :: String)) <> encodeOpenFun fun
 
 encodeModifier :: Modifier m -> Builder
 encodeModifier In  = intHost $(hashQ ("In" :: String))
@@ -63,8 +59,8 @@ encodeModifier Mut = intHost $(hashQ ("Mut" :: String))
 encodeCluster :: EncodeOperation op => Cluster op args -> Builder
 encodeCluster (SingleOp op label)
   = intHost $(hashQ ("SingleOp" :: String)) <> encodeSingleOp op <> encodeLabel label
-encodeCluster (Fused fusion left right)
-  = intHost $(hashQ ("Fused" :: String)) <> encodeFusion fusion <> encodeCluster left <> encodeCluster right
+encodeCluster (Fused fusion clusterL clusterR)
+  = intHost $(hashQ ("Fused" :: String)) <> encodeFusion fusion <> encodeCluster clusterL <> encodeCluster clusterR
 
 encodeLabel :: Node Comp -> Builder
 encodeLabel (Node idx Nothing) = intHost idx <> intHost $(hashQ ("Nothing" :: String))

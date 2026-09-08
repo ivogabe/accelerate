@@ -5,13 +5,18 @@
 module Main where
 
 import Distribution.Extra.Doctest
-import Distribution.PackageDescription hiding (Flag)
 import Distribution.Simple
 import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.Setup
 import Distribution.Simple.Utils
 import Distribution.System
 import Distribution.Verbosity
+
+#if MIN_VERSION_Cabal(3,4,0)
+import Distribution.PackageDescription
+#else
+import Distribution.PackageDescription hiding (Flag)
+#endif
 
 #if MIN_VERSION_Cabal(3,14,0)
 -- Note [Cabal 3.14]

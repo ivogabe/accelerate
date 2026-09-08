@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
@@ -13,9 +14,14 @@
 
 module Data.BitSet where
 
-import Data.Bits
+#if MIN_VERSION_base (4,20,0)
 -- foldl' is exported by Prelude from GHC 9.10
 import Prelude                                            hiding ( foldl, foldr, foldl' )
+#else
+import Prelude                                            hiding ( foldl, foldr )
+#endif
+
+import Data.Bits
 import qualified Data.List                                as List
 
 import GHC.Exts                                           ( IsList, build )
