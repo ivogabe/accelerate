@@ -1,10 +1,4 @@
-{-# LANGUAGE CPP                  #-}
-{-# LANGUAGE FlexibleContexts     #-}
 {-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
@@ -36,7 +30,6 @@ module Data.Array.Accelerate.Pretty (
 ) where
 
 import Data.Array.Accelerate.AST                                    hiding ( Acc, Exp )
-import Data.Array.Accelerate.Debug.Internal.Flags
 import Data.Array.Accelerate.Pretty.Graphviz
 import Data.Array.Accelerate.Pretty.Print                           hiding ( Keyword(..) )
 -- import Data.Array.Accelerate.Trafo.Delayed
@@ -52,11 +45,13 @@ import qualified Data.Text.Lazy                                     as T
 import qualified System.Console.ANSI                                as Term
 import qualified System.Console.Terminal.Size                       as Term
 
+{- TODO WALL: DEAD CODE
 #if ACCELERATE_DEBUG
 import Control.DeepSeq
+import Data.Array.Accelerate.Debug.Internal.Flags
 import Data.Array.Accelerate.Debug.Internal.Stats
 #endif
-
+-}
 
 -- instance Typeable a => Show (Seq a) where
 --   show = withSimplStats . show . convertSeq
@@ -147,6 +142,7 @@ extractOpenAcc (OpenAcc pacc) = pacc
 -- Debugging
 -- ---------
 
+{- TODO WALL: DEAD CODE
 -- Attach simplifier statistics to the tail of the given string. Since the
 -- statistics rely on fully evaluating the expression this is difficult to do
 -- generally (without an additional deepseq), but easy enough for our show
@@ -163,4 +159,4 @@ withSimplStats x = unsafePerformIO $ do
 #else
 withSimplStats x = x
 #endif
-
+-}

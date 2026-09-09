@@ -1,6 +1,10 @@
 {-# LANGUAGE CPP               #-}
-{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
+
+#ifdef ACCELERATE_DEBUG
+{-# LANGUAGE LambdaCase #-}
+#endif
+
 {-# OPTIONS_GHC -fno-warn-unused-binds   #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 -- |

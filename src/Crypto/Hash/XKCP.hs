@@ -1,10 +1,9 @@
-{-# LANGUAGE BangPatterns             #-}
-{-# LANGUAGE CPP                      #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE MagicHash                #-}
-{-# LANGUAGE TemplateHaskell          #-}
-{-# LANGUAGE UnboxedTuples            #-}
-{-# LANGUAGE UnliftedFFITypes         #-}
+{-# LANGUAGE BangPatterns     #-}
+{-# LANGUAGE CPP              #-}
+{-# LANGUAGE MagicHash        #-}
+{-# LANGUAGE TemplateHaskell  #-}
+{-# LANGUAGE UnboxedTuples    #-}
+{-# LANGUAGE UnliftedFFITypes #-}
 {-# OPTIONS_GHC -fobject-code #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |

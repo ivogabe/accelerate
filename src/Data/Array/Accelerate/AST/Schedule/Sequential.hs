@@ -1,9 +1,7 @@
 {-# LANGUAGE GADTs                #-}
-{-# LANGUAGE RankNTypes           #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE TypeApplications     #-}
 {-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.AST.Schedule.Sequential
@@ -182,6 +180,7 @@ convertSchedule' (Operation.Awhile us condition step initial) = Awhile us (conve
 convertSchedule' (Operation.Aassert msg cond) = Alet (LeftHandSideWildcard TupRunit) TupRunit (Aassert msg cond) $ Compute $ Const scalarTypeWord8 0
 convertSchedule' (Operation.Aassume cond) = Alet (LeftHandSideWildcard TupRunit) TupRunit (Aassume cond) $ Compute $ Const scalarTypeWord8 0
 convertSchedule' (Operation.Fence _ next) = convertSchedule' next
+convertSchedule' Operation.Atrace{} = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 convertScheduleFun'' :: forall kernel env t. IsKernel kernel => Partition.PartitionedAfun (KernelOperation kernel) env t -> SeqScheduleFun kernel env t
 convertScheduleFun'' (Operation.Alam lhs f) = Slam lhs $ convertScheduleFun'' f

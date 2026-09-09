@@ -1,15 +1,15 @@
+{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE GADTs               #-}
-{-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 {-# OPTIONS_HADDOCK hide #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TupleSections #-}
 -- |
 -- Module      : Data.Array.Accelerate.AST.Environment
 -- Copyright   : [2008..2020] The Accelerate Team
@@ -329,6 +329,32 @@ data env :> env' where
 
   WeakenEmpty :: () :> env'
 
+#ifdef ACCELERATE_INTERNAL_CHECKS
+
+  -- The GADT representations cannot be @UNPACK@ed.
+
+  WeakenReplace
+    :: env :> env'
+    -> !(Idx env' t)
+    -> (env, t) :> env'
+
+  WeakenKeep
+    :: env1 :> env2
+    -> !(Keep env1 env2 env1' env2')
+    -> env1' :> env2'
+
+  WeakenSkip
+    :: !(Skip env2 env1)
+    -> env2 :> env3
+    -> env1 :> env3
+
+  WeakenSkip'
+    :: env1 :> env2
+    -> !(Skip env3 env2)
+    -> env1 :> env3
+
+#else
+
   WeakenReplace
     :: env :> env'
     -> {-# UNPACK #-} !(Idx env' t)
@@ -348,6 +374,8 @@ data env :> env' where
     :: env1 :> env2
     -> {-# UNPACK #-} !(Skip env3 env2)
     -> env1 :> env3
+
+#endif
 
   WeakenChain
     :: env1 :> env2

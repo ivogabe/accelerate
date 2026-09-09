@@ -5,22 +5,18 @@ Description : Nodes representing nodes in the graph.
 This module provides the labels that represent nodes in the graph. A node can
 either be a computation or a buffer.
 -}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels where
 
 import Data.Array.Accelerate.AST.Idx
@@ -48,11 +44,9 @@ import Data.Maybe (fromJust)
 import Data.List ( intercalate )
 import Debug.Trace
 import Data.Array.Accelerate.Analysis.Match
-import Data.Array.Accelerate.Representation.Ground (groundRelt)
 import qualified Data.Array.Accelerate.Pretty.Operation as P
 import qualified Data.Array.Accelerate.Pretty.Exp as P
 import Data.String (fromString)
-import Control.Monad
 
 
 --------------------------------------------------------------------------------

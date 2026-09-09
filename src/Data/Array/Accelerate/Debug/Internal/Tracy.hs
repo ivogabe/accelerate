@@ -1,6 +1,9 @@
-{-# LANGUAGE CPP                      #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE TemplateHaskell          #-}
+{-# LANGUAGE CPP #-}
+
+#if defined(ACCELERATE_TRACY) && !defined(__GHCIDE__)
+{-# LANGUAGE TemplateHaskell #-}
+#endif
+
 {-# OPTIONS_GHC -fobject-code #-}
 -- |
 -- Module      : Data.Array.Accelerate.Debug.Internal.Tracy

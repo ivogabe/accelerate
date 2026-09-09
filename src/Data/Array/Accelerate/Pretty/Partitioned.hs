@@ -1,18 +1,10 @@
-{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE InstanceSigs        #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE PatternGuards       #-}
 {-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE StandaloneDeriving       #-}
-{-# LANGUAGE ViewPatterns        #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE InstanceSigs #-}
 -- |
 -- Module      : Data.Array.Accelerate.Pretty.Operation
 -- Copyright   : [2008..2020] The Accelerate Team
@@ -26,16 +18,10 @@
 module Data.Array.Accelerate.Pretty.Partitioned ({- instance PrettyOp (Cluster op) -}) where
 
 import Data.Array.Accelerate.Pretty.Exp hiding (Val(..), prj)
-import qualified Data.Array.Accelerate.Pretty.Exp as Pretty
-import Data.Array.Accelerate.Pretty.Type
 import Data.Array.Accelerate.Pretty.Operation
-import Data.Array.Accelerate.AST.Environment (Env)
-import qualified Data.Array.Accelerate.AST.Environment as Env
 import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.Type
-import Data.Array.Accelerate.Trafo.Operation.LiveVars
-import Data.Array.Accelerate.Error
 
 import Prettyprinter
 
@@ -43,8 +29,6 @@ import Prelude hiding (exp)
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Representation.Array
-import Data.Array.Accelerate.AST.Idx (Idx (..))
-import Data.Bifunctor (second)
 import Data.Array.Accelerate.AST.Var (varsType)
 
 instance (PrettyOp op, SetOpIndices op) => PrettyOp (Clustered op) where
@@ -91,10 +75,10 @@ newtype Adoc' t = Adoc' Adoc
 
 prettyCluster :: Bool -> PrettyOp op => Cluster op t -> PrettyArgs t -> Int -> (Adoc, Int)
 prettyCluster topLevel (SingleOp singleOp _) args fresh = (prettySingleOp topLevel singleOp args, fresh)
-prettyCluster _ (Fused fusion left right) args fresh
+prettyCluster _ (Fused fusion clusterL clusterR) args fresh
   | (leftArgs, rightArgs, horizontals, verticals, diagonals, fresh') <- splitEnv fusion args fresh
-  , (leftDoc, fresh'') <- prettyCluster False left leftArgs fresh'
-  , (rightDoc, fresh''') <- prettyCluster False right rightArgs fresh''
+  , (leftDoc, fresh'') <- prettyCluster False clusterL leftArgs fresh'
+  , (rightDoc, fresh''') <- prettyCluster False clusterR rightArgs fresh''
   = ( leftDoc <> line <>
       prettyFuseList (annotate Statement "fused horizontally") horizontals <>
       prettyFuseList (annotate Statement "fused vertically") verticals <>
@@ -139,22 +123,22 @@ prettyPrettyArg (PrettyArgVarShape doc _) = doc
 prettyPrettyArg (PrettyArgOther doc) = doc
 
 prettyPairArg :: PrettyArg (f left) -> PrettyArg (f right) -> PrettyArg (f (left, right))
-prettyPairArg (PrettyArgArray m sh left) (PrettyArgArray _ _ right) = PrettyArgArray m sh $ TupRpair left right
+prettyPairArg (PrettyArgArray m sh buffersL) (PrettyArgArray _ _ buffersR) = PrettyArgArray m sh $ TupRpair buffersL buffersR
 prettyPairArg _ _ = PrettyArgOther "?"
 
 splitEnv :: Fusion largs rargs t -> PrettyArgs t -> Int -> (PrettyArgs largs, PrettyArgs rargs, [Adoc], [Adoc], [Adoc], Int)
 splitEnv EmptyF _ fresh = (ArgsNil, ArgsNil, [], [], [], fresh)
 splitEnv (Vertical _ next) (a :>: as) fresh =
   let
-    (left, right, horizontals, verticals, diagonals, fresh') = splitEnv next as (fresh + 1)
+    (argsL, argsR, horizontals, verticals, diagonals, fresh') = splitEnv next as (fresh + 1)
     sh = case a of
       PrettyArgVarShape _ sh' -> sh'
       _ -> "?"
     buffer = "%" <> viaShow fresh
     buffers = TupRsingle $ Adoc' buffer
   in
-    ( PrettyArgArray Out sh buffers :>: left
-    , PrettyArgArray In  sh buffers :>: right
+    ( PrettyArgArray Out sh buffers :>: argsL
+    , PrettyArgArray In  sh buffers :>: argsR
     , horizontals
     , buffer : verticals
     , diagonals
@@ -162,13 +146,13 @@ splitEnv (Vertical _ next) (a :>: as) fresh =
     )
 splitEnv (Horizontal next) (a :>: as) fresh =
   let
-    (left, right, horizontals, verticals, diagonals, fresh') = splitEnv next as fresh
+    (argsL, argsR, horizontals, verticals, diagonals, fresh') = splitEnv next as fresh
     buffer = case a of
       PrettyArgArray _ _ (TupRsingle (Adoc' b)) -> b
       _ -> prettyPrettyArg a
   in
-    ( a :>: left
-    , a :>: right
+    ( a :>: argsL
+    , a :>: argsR
     , buffer : horizontals
     , verticals
     , diagonals
@@ -176,7 +160,7 @@ splitEnv (Horizontal next) (a :>: as) fresh =
     )
 splitEnv (Diagonal next) (a :>: as) fresh =
   let
-    (left, right, horizontals, verticals, diagonals, fresh') = splitEnv next as fresh
+    (argsL, argsR, horizontals, verticals, diagonals, fresh') = splitEnv next as fresh
     a' = case a of
       PrettyArgArray _ sh bs -> PrettyArgArray In sh bs
       _ -> PrettyArgOther "?"
@@ -184,8 +168,8 @@ splitEnv (Diagonal next) (a :>: as) fresh =
       PrettyArgArray _ _ (TupRsingle (Adoc' b)) -> b
       _ -> prettyPrettyArg a
   in
-    ( a :>: left
-    , a' :>: right
+    ( a :>: argsL
+    , a' :>: argsR
     , horizontals
     , verticals
     , buffer : diagonals
@@ -197,19 +181,20 @@ splitEnv (IntroI2 next) as fresh = splitEnv (IntroR next) as fresh
 splitEnv (IntroO2 next) as fresh = splitEnv (IntroR next) as fresh
 splitEnv (IntroL next) (a :>: as) fresh =
   let
-    (left, right, horizontals, verticals, diagonals, fresh') = splitEnv next as fresh
+    (argsL, argsR, horizontals, verticals, diagonals, fresh') = splitEnv next as fresh
   in
-    (a :>: left, right, horizontals, verticals, diagonals, fresh')
+    (a :>: argsL, argsR, horizontals, verticals, diagonals, fresh')
 splitEnv (IntroR next) (a :>: as) fresh =
   let
-    (left, right, horizontals, verticals, diagonals, fresh') = splitEnv next as fresh
+    (argsL, argsR, horizontals, verticals, diagonals, fresh') = splitEnv next as fresh
   in
-    (left, a :>: right, horizontals, verticals, diagonals, fresh')
+    (argsL, a :>: argsR, horizontals, verticals, diagonals, fresh')
 
 prettyFuseList :: Adoc -> [Adoc] -> Adoc
 prettyFuseList _ [] = ""
 prettyFuseList name docs = (hang 2 $ group $ vsep $ [name, tupled docs]) <> line
 
+{- TODO WALL: DEAD CODE
 prettyFlatCluster :: PrettyOp op => Val env -> FlatCluster op env -> Adoc
 prettyFlatCluster env (FlatCluster _ idxLhs sizes directions localR localLHS ops) =
   annotate Execute "execute" <+> "{" <> line
@@ -303,3 +288,4 @@ prettyArgWithIdx env idxEnv arg idxArg
   | otherwise = arg'
   where
     arg' = prettyArg env arg
+-}

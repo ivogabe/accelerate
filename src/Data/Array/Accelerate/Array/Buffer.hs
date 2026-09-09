@@ -1,15 +1,11 @@
-{-# LANGUAGE BangPatterns         #-}
-{-# LANGUAGE CPP                  #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE MagicHash            #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE TemplateHaskell      #-}
-{-# LANGUAGE TypeApplications     #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE TypeOperators        #-}
-{-# LANGUAGE UnboxedTuples        #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE CPP                 #-}
+{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE TypeOperators       #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Array.Buffer
@@ -60,9 +56,6 @@ module Data.Array.Accelerate.Array.Buffer (
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Type
-#ifdef ACCELERATE_DEBUG
-import Data.Array.Accelerate.Lifetime
-#endif
 
 import Data.Array.Accelerate.Debug.Internal.Flags
 import Data.Array.Accelerate.Debug.Internal.Trace
@@ -82,8 +75,6 @@ import System.IO.Unsafe
 import Prelude                                                      hiding ( mapM )
 
 import GHC.Exts                                                     hiding ( build )
-import GHC.ForeignPtr
-import GHC.Types
 
 import System.Mem
 
@@ -144,6 +135,10 @@ foreign import ccall unsafe "accelerate_memory_counter_max" memoryCounterMax :: 
 
 memoryCounterReset :: IO ()
 memoryCounterReset = return ()
+
+#endif
+
+#if defined(__GHCIDE__)
 
 memoryCounterTotal :: IO Word64
 memoryCounterTotal = return 0

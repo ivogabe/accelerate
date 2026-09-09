@@ -1,8 +1,5 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve where
 
@@ -29,7 +26,6 @@ import Data.Maybe (fromJust,  mapMaybe )
 import Control.Monad.State
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration (freshName)
 import Data.Foldable
-import Control.Monad
 
 data Objective
   -- Old fusion only objectives:
@@ -67,8 +63,10 @@ makeILP obj (FusionILP graph constraints bounds) =
     readE :: S.Set ReadEdge
     readE = graph^.readEdges
 
+    {- TODO WALL: DEAD CODE
     writeE :: S.Set WriteEdge
     writeE = graph^.writeEdges
+    -}
 
     dataflowE :: S.Set DataflowEdge
     dataflowE = graph^.dataflowEdges
@@ -204,8 +202,10 @@ makeILP obj (FusionILP graph constraints bounds) =
     -- Number of in-place updates:
     numberOfNonInplaceUpdates = foldMap inplace inplaceP
 
+    {- TODO WALL: DEAD CODE
     -- Weighted sum of in-place updates:
     weightedNumberOfNonInplaceUpdates = M.foldMapWithKey (\p w -> w .*. inplace p) inplacePweights
+    -}
 
     -- If inplace p, then c1 == c2
     acrossClusterC = flip foldMap inplaceP \case
@@ -362,7 +362,7 @@ splitExecs (xs, xM) symbolM = (f xs, M.map f xM)
     -- Tests say that this happens, and that it's correct anyway, but I'm unsure why.
     -- The reason I doubt is because if multiple non-exec, non-lhs nodes are here, the current reconstruction code
     -- (I think) ignores all but the last one.
-    afterexecs ls = let xs = map NonExec (S.toList $ S.filter isAfterExec ls) in if length xs > 1 then xs {-error "dunno what this means"-} else xs
+    afterexecs ls = let xs' = map NonExec (S.toList $ S.filter isAfterExec ls) in if length xs' > 1 then xs' {-error "dunno what this means"-} else xs'
 
 -- Only needs Applicative
 newtype MonadMonoid f m = MonadMonoid { getMonadMonoid :: f m }

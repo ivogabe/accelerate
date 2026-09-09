@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes   #-}
-{-# LANGUAGE ViewPatterns #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Issues.Issue427
 -- Copyright   : [2009..2020] The Accelerate Team

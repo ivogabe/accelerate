@@ -1,12 +1,11 @@
-{-# LANGUAGE AllowAmbiguousTypes   #-}
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE CPP                   #-}
-{-# LANGUAGE ConstraintKinds       #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE GADTs                 #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE PatternGuards         #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE RebindableSyntax      #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
@@ -14,8 +13,6 @@
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}   -- pattern synonyms
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE BlockArguments #-}
 -- |
 -- Module      : Data.Array.Accelerate.Prelude
 -- Copyright   : [2009..2020] The Accelerate Team

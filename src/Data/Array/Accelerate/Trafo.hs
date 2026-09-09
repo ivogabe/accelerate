@@ -2,10 +2,9 @@
 {-# LANGUAGE ConstraintKinds     #-}
 {-# LANGUAGE CPP                 #-}
 {-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE OverloadedStrings   #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Trafo
@@ -35,7 +34,6 @@ module Data.Array.Accelerate.Trafo (
   inspectCompiler', convertAfunWithObj,
 ) where
 
-import Data.Array.Accelerate.Sugar.Array                  ( ArraysR )
 import Data.Array.Accelerate.Sugar.Elt                    ( EltR )
 import Data.Array.Accelerate.Smart
 import Data.Array.Accelerate.Trafo.Config
@@ -61,7 +59,7 @@ import System.IO.Unsafe (unsafePerformIO)
 
 import Control.DeepSeq
 import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph as Partitioning
-import Data.Array.Accelerate.Representation.Ground (LoweredArrays, LoweredAfun)
+import Data.Array.Accelerate.Representation.Ground (LoweredAfun)
 import Data.Array.Accelerate.Trafo.Lowering (LowerAcc, lowerAfun)
 import qualified Data.Array.Accelerate.Trafo.NewNewFusion as NewNewFusion
 import Prettyprinter                                      as Pretty
@@ -77,11 +75,9 @@ import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph as Graph
 import Data.Array.Accelerate.Pretty.Print (configPlain, Val (Empty))
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve (Objective(..))
-import Data.Array.Accelerate.Trafo.NewNewFusion (Benchmarking)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP (FusionType(..), defaultObjective)
 import Control.Monad.Trans.Writer (runWriter, Writer, writer)
 import Control.Monad ((>=>))
-import Data.Array.Accelerate.Pretty.Exp (context0)
 import Data.Array.Accelerate.Trafo.Operation.Bounds
 
 inspectCompiler'

@@ -1,8 +1,5 @@
-{-# LANGUAGE BangPatterns             #-}
-{-# LANGUAGE CPP                      #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE RankNTypes               #-}
-{-# LANGUAGE TypeOperators            #-}
+{-# LANGUAGE CPP        #-}
+{-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Issues.Issue437

@@ -27,7 +27,9 @@ module Data.Array.Accelerate.Debug.Internal (
 ) where
 
 import Data.Array.Accelerate.Debug.Internal.Flags                   as Debug
+{- TODO WALL: DEAD CODE
 import Data.Array.Accelerate.Debug.Internal.Graph                   as Debug
+-}
 import Data.Array.Accelerate.Debug.Internal.Profile                 as Debug
 import Data.Array.Accelerate.Debug.Internal.Stats                   as Debug
 import Data.Array.Accelerate.Debug.Internal.Timed                   as Debug

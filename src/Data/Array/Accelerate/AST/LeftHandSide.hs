@@ -1,14 +1,13 @@
 {-# LANGUAGE GADTs                 #-}
-{-# LANGUAGE KindSignatures        #-}
+{-# LANGUAGE InstanceSigs          #-}
 {-# LANGUAGE PatternSynonyms       #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE StandaloneDeriving    #-}
-{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE TemplateHaskellQuotes #-}
 {-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE UndecidableInstances  #-}
 {-# OPTIONS_HADDOCK hide #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE InstanceSigs #-}
 -- |
 -- Module      : Data.Array.Accelerate.AST.LeftHandSide
 -- Copyright   : [2008..2020] The Accelerate Team

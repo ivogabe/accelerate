@@ -1,9 +1,6 @@
-{-# LANGUAGE CPP                      #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE MagicHash                #-}
-{-# LANGUAGE NoImplicitPrelude        #-}
-{-# LANGUAGE TemplateHaskell          #-}
-{-# LANGUAGE UnboxedTuples            #-}
+{-# LANGUAGE CPP               #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE TemplateHaskell   #-}
 {-# OPTIONS_GHC -fobject-code #-}
 -- |
 -- Module      : Data.Atomic

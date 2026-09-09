@@ -1,8 +1,5 @@
-{-# LANGUAGE CPP                 #-}
-{-# LANGUAGE KindSignatures      #-}
-{-# LANGUAGE PolyKinds           #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE CPP                   #-}
+{-# LANGUAGE TemplateHaskellQuotes #-}
 -- |
 -- Module      : Language.Haskell.TH.Extra
 -- Copyright   : [2019..2020] The Accelerate Team

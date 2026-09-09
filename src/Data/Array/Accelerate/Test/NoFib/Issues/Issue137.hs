@@ -1,6 +1,4 @@
 {-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators       #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Issues.Issue137
 -- Copyright   : [2009..2020] The Accelerate Team

@@ -1,28 +1,14 @@
-{-# LANGUAGE AllowAmbiguousTypes    #-}
 {-# LANGUAGE BangPatterns           #-}
-{-# LANGUAGE BlockArguments         #-}
 {-# LANGUAGE EmptyCase              #-}
-{-# LANGUAGE FlexibleContexts       #-}
-{-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE GADTs                  #-}
-{-# LANGUAGE InstanceSigs           #-}
 {-# LANGUAGE LambdaCase             #-}
 {-# LANGUAGE MagicHash              #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE OverloadedStrings      #-}
-{-# LANGUAGE PatternGuards          #-}
-{-# LANGUAGE PatternSynonyms        #-}
 {-# LANGUAGE RankNTypes             #-}
-{-# LANGUAGE RecordWildCards        #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
 {-# LANGUAGE TemplateHaskell        #-}
-{-# LANGUAGE TupleSections          #-}
-{-# LANGUAGE TypeApplications       #-}
-{-# LANGUAGE TypeFamilyDependencies #-}
-{-# LANGUAGE TypeOperators          #-}
-{-# LANGUAGE UndecidableInstances   #-}
-{-# LANGUAGE ViewPatterns           #-}
-{-# LANGUAGE DataKinds              #-}
+{-# LANGUAGE TypeFamilies           #-}
 
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 {-# OPTIONS_HADDOCK prune #-}
@@ -47,7 +33,6 @@ module Data.Array.Accelerate.Interpreter (
 ) where
 
 import Prelude                                                      hiding (take, (!!), sum, Either(..) )
-import qualified Prelude
 import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.AST.Kernel
 import Data.Array.Accelerate.Trafo.Lowering
@@ -59,7 +44,6 @@ import Data.Array.Accelerate.Analysis.Hash.Operation
 import Data.Array.Accelerate.Representation.Ground
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Representation.Shape
-import Data.Array.Accelerate.Representation.Slice
 import Data.Array.Accelerate.AST.Environment hiding (prjVars)
 import Data.Array.Accelerate.Type
 import Data.Primitive.Vec
@@ -203,6 +187,7 @@ instance EncodeOperation InterpretOp where
   encodeOperation (IScan1 RightToLeft _) = intHost $(hashQ ("Scanr1" :: String))
   -- encodeOperation (IAppend Left  n)    = intHost $(hashQ ("Appendl" :: String)) <> intHost n
   -- encodeOperation (IAppend Right n)    = intHost $(hashQ ("Appendr" :: String)) <> intHost n
+  encodeOperation IPermuteUnique{}     = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 -- mkAppend :: Side -> Int -> Arg env (Fun' ((sh, Int) -> e)) -> Arg env (In (sh, Int) e) -> Arg env (Out (sh, Int) e) -> OperationAcc InterpretOp env ()
 -- mkAppend side i a b c = Exec (IAppend side i) (a :>: b :>: c :>: ArgsNil)
@@ -419,6 +404,7 @@ instance NFData' InterpretOp where
   rnf' IBackpermute = ()
   rnf' IGenerate = ()
   rnf' IPermute = ()
+  rnf' IPermuteUnique{} = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 instance PrettyOp InterpretOp where
   prettyOp IMap         = "map"
@@ -430,6 +416,7 @@ instance PrettyOp InterpretOp where
   prettyOp (IScan1 LeftToRight _) = "scanl1"
   prettyOp (IScan1 RightToLeft _) = "scanr1"
   -- prettyOp (IAppend _ _) = "append"
+  prettyOp IPermuteUnique{} = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 instance Execute UniformScheduleFun InterpretKernel where
   data Linked UniformScheduleFun InterpretKernel t = InterpretLinked (UniformScheduleFun InterpretKernel () t)
@@ -459,6 +446,7 @@ executeSchedule !env = \case
     executeAwhile env io step (prjVars input env)
     executeSchedule env next
     -- TODO: S.AwhileSeq
+  S.AwhileSeq{} -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
   S.Spawn a b -> do
     _ <- forkIO (executeSchedule env a)
     executeSchedule env b
@@ -500,6 +488,7 @@ executeEffect env = \case
   S.Aassert msg cond
     | runIdentity (evalExp cond $ evalArrayInstrDefault env) == 1 -> return ()
     | otherwise -> errorWithoutStackTrace ("\n*** Assertion failed: " ++ T.unpack msg)
+  S.Atrace{} -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
   where
     await :: Idx env S.Signal -> IO ()
     await idx = do
@@ -562,7 +551,7 @@ writeOutputInterpreter :: TypeR e -> Vars s env (Buffers e) -> Val env -> Int ->
 writeOutputInterpreter r buf env n x = writeBuffers r (veryUnsafeUnfreezeBuffers r $ varsGetVal buf env) n x
 
 evalClusterInterpreter :: Clustered InterpretOp args -> Args env args -> Val env -> IO ()
-evalClusterInterpreter (Clustered c b) args env = error "TODO: Implement evaluator for interpreter"
+evalClusterInterpreter (Clustered _c _b) _args _env = error "TODO: Implement evaluator for interpreter"
 -- evalClusterInterpreter c@(Cluster _ (Cluster' io _)) args env = doNTimes (iterationsize io args env) $ evalCluster c args env
 
 -- iterationsize (Op _) ArgsNil env = Nothing

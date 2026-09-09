@@ -23,12 +23,9 @@ import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Array
 import Data.Array.Accelerate.Trafo.Substitution
-import Data.Array.Accelerate.Trafo.Exp.Substitution
 import Data.Array.Accelerate.Type
 
 import Data.Array.Accelerate.Debug.Internal.Stats                   as Stats
-
-import Data.Maybe
 
 -- An environment that holds let-bound scalar expressions. The second
 -- environment variable env' is used to project out the corresponding

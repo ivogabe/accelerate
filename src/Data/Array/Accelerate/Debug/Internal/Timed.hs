@@ -1,6 +1,10 @@
 {-# LANGUAGE CPP               #-}
-{-# LANGUAGE MagicHash         #-}
 {-# LANGUAGE OverloadedStrings #-}
+
+#ifdef ACCELERATE_DEBUG
+{-# LANGUAGE MagicHash #-}
+#endif
+
 -- |
 -- Module      : Data.Array.Accelerate.Debug.Internal.Timed
 -- Copyright   : [2016..2020] The Accelerate Team

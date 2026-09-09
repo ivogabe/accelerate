@@ -1,15 +1,8 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE EmptyCase           #-}
-{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE MultiWayIf          #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE PatternGuards       #-}
-{-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
@@ -47,7 +40,6 @@ import Data.Array.Accelerate.Trafo.Exp.Shrink
 import Data.Array.Accelerate.Trafo.Exp.Simplify
 import Data.Array.Accelerate.Trafo.Substitution
 import Data.Array.Accelerate.Trafo.WeakenedEnvironment
-import Data.Array.Accelerate.Trafo.SkipEnvironment
 import Data.Array.Accelerate.Representation.Array
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Type
@@ -59,7 +51,6 @@ import Data.Array.Accelerate.Trafo.Operation.Bounds.Environment
 
 import Data.Maybe (mapMaybe)
 import Data.List (foldl')
-import Data.Typeable ( (:~:)(..) )
 
 boundsOptimizeAfun
   :: forall op f.
@@ -140,12 +131,12 @@ boundsOptimizeAcc env@(BoundsEnv _ _ zero bindings) acc = case acc of
       , Alet lhs uniquenesses bnd' body'
       )
 
-  Acond condVar true false
+  Acond condVar trueOp falseOp
     | cond <- case wprj (varIdx condVar) (boundsBindings env) of
       BindExp expr -> expr
       _ -> ArrayInstr (Parameter condVar) Nil
-    , (modified1, _, trueBounds, true') <- boundsOptimizeAcc (assumeTrue env cond) true
-    , (modified2, _, falseBounds, false') <- boundsOptimizeAcc (assumeFalse env cond) false
+    , (modified1, _, trueBounds, true') <- boundsOptimizeAcc (assumeTrue env cond) trueOp
+    , (modified2, _, falseBounds, false') <- boundsOptimizeAcc (assumeFalse env cond) falseOp
     , modified <- IdxSet.union modified1 modified2
     -- We cannot easily intersect the two environments (yet), so we just remove any
     -- invalid information from the original environment and return that.
@@ -288,7 +279,7 @@ boundsOptimizeExp env@(BoundsEnv _ _ zero _) expr = detectConst env $ case expr 
 
     Index (Var (GroundRscalar tp) _) -> bufferImpossible tp
     Index v@(Var (GroundRbuffer _) ix)
-      | ix' <- accIdx env ix ->
+      | _ix' <- accIdx env ix ->
         -- This value has the same bounds as the buffer.
         ( TupRsingle $ castTermBound $ boundOfAcc env ix
         , ArrayInstr (Index v) $ travE arg
@@ -319,14 +310,14 @@ boundsOptimizeExp env@(BoundsEnv _ _ zero _) expr = detectConst env $ case expr 
     | (bounds, alts', def') <- caseAlts alts def ->
       (bounds, Case (travE tag) alts' def')
   
-  Cond c true false -> case travE c of
+  Cond c trueExp falseExp -> case travE c of
     -- Check if the condition is already known based on the bounds analysis
-    Const _ 1 -> boundsOptimizeExp env true
-    Const _ 0 -> boundsOptimizeExp env false
+    Const _ 1 -> boundsOptimizeExp env trueExp
+    Const _ 0 -> boundsOptimizeExp env falseExp
 
     c'
-      | (trueBounds, true') <- boundsOptimizeExp (assumeTrue env c') true
-      , (falseBounds, false') <- boundsOptimizeExp (assumeFalse env c') false ->
+      | (trueBounds, true') <- boundsOptimizeExp (assumeTrue env c') trueExp
+      , (falseBounds, false') <- boundsOptimizeExp (assumeFalse env c') falseExp ->
         ( unions (makeTransitives env trueBounds) (makeTransitives env falseBounds)
         , Cond c' true' false' )
 

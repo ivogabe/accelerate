@@ -1,14 +1,6 @@
-{-# LANGUAGE FlexibleInstances   #-}
-{-# LANGUAGE GADTs               #-}
-{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE CPP                 #-}
+{-# LANGUAGE MonoLocalBinds      #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE PatternGuards       #-}
-{-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE ViewPatterns        #-}
 -- |
 -- Module      : Data.Array.Accelerate.Pretty.Type
 -- Copyright   : [2008..2020] The Accelerate Team
@@ -25,7 +17,11 @@ import Data.Array.Accelerate.Pretty.Exp
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Representation.Type
 
+#if MIN_VERSION_prettyprinter (1,7,1)
+import Prettyprinter
+#else
 import Data.Text.Prettyprint.Doc
+#endif
 
 prettyScalarType :: ScalarType t -> Adoc
 prettyScalarType (SingleScalarType t) = prettySingleType t

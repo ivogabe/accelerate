@@ -1,16 +1,11 @@
-{-# LANGUAGE MonoLocalBinds #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ViewPatterns #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP where
 -- No joke, this really needs to get a massive refactor...
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
-    ( interpretClusters, makeILP, splitExecs, ClusterLs, Objective (..), interpretReadDirs, interpretWriteDirs, interpretInplaceUpdates )
+    ( interpretClusters, makeILP, splitExecs, ClusterLs, Objective (..), interpretReadDirs, interpretInplaceUpdates )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
     ( reconstruct, reconstructF, ReadDirM, InplaceM )
 import Data.Array.Accelerate.AST.Partitioned
@@ -18,20 +13,17 @@ import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.AST.Operation
     ( OperationAcc, OperationAfun )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
-    ( ILPSolver, solve, (.==.), int, Solution )
+    ( ILPSolver, solve, Solution )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP
     ( cbc, cplex, glpsol, gurobiCl, lpSolve, scip, MIP(..) )
 
 import System.IO.Unsafe (unsafePerformIO)
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Node, GVal, Comp, traceWith)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Node, Comp)
 import Data.Map (Map, toList, foldMapWithKey, filterWithKey)
 import Data.Array.Accelerate.Trafo.Operation.Simplify
 import qualified Data.Array.Accelerate.Pretty.Operation as Pretty
-import Data.Function ((&))
-import qualified Data.Set as Set
-import Lens.Micro ((^.), (<>~), (<&>))
-import Data.Maybe (isJust, fromMaybe)
-import Debug.Trace
+import Lens.Micro ((^.))
+import Data.Maybe (fromMaybe)
 -- import Data.Array.Accelerate.Trafo.Partitioning.ILP.HiGHS
 
 data Benchmarking = GreedyUp | GreedyDown | NoFusion
@@ -118,7 +110,7 @@ ppSolution solution = "solution: " ++ foldMap ppVar (toList solution)
 ppList :: Show a => [a] -> String
 ppList [] = "[]"
 ppList [x] = "[" ++ show x ++ "]"
-ppList (x:xs) = "[ " ++ show x ++ foldMap (\x -> "\n, " ++ show x) xs ++ "\n]"
+ppList (x:xs) = "[ " ++ show x ++ foldMap (\x' -> "\n, " ++ show x') xs ++ "\n]"
 
 ppScopedClusters :: (Show k, Show v) => ([v], Map k [v]) -> String
 ppScopedClusters (top, sub) = "top =\n" ++ ppList top ++ foldMapWithKey (\k v -> "\n" ++ show k ++ " =\n" ++ ppList v) sub

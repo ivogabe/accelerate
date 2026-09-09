@@ -1,16 +1,9 @@
-{-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE EmptyCase           #-}
 {-# LANGUAGE GADTs               #-}
-{-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeOperators       #-}
 {-# OPTIONS_HADDOCK hide #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TupleSections #-}
 -- |
 -- Module      : Data.Array.Accelerate.AST.Graph
 -- Copyright   : [2008..2020] The Accelerate Team
@@ -33,11 +26,7 @@ module Data.Array.Accelerate.AST.Graph (
 
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.Environment
-import Data.Array.Accelerate.AST.Var
-import Data.Array.Accelerate.AST.LeftHandSide
-import Data.Array.Accelerate.Error
 
-import Data.Functor
 import Data.Functor.Const
 import Data.Maybe
 import Data.Typeable ( (:~:)(..) )

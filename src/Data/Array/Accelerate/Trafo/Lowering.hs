@@ -1,13 +1,12 @@
-{-# LANGUAGE AllowAmbiguousTypes  #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE RankNTypes           #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ViewPatterns         #-}
-{-# LANGUAGE TypeApplications     #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE TypeOperators        #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE KindSignatures      #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications    #-}
+{-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE ViewPatterns        #-}
 -- |
 -- Module      : Data.Array.Accelerate.Trafo.Lowering
 -- Copyright   : [2012..2020] The Accelerate Team
@@ -912,7 +911,7 @@ lowerOpenAcc env = travA
               $ Return (sh `TupRpair` valueOut weakenId)
       Named.Atrace (Named.Message _ _ text) as bs
         | repr <- Named.arraysR as
-        , DeclareVars lhs k value <- declareVars repr
+        , DeclareVars lhs _k value <- declareVars repr
         , LoweredLHS env' lhs' <- lowerLHS env lhs ->
           alet lhs' (travA as)
             $ alet (LeftHandSideSingle $ GroundRscalar $ scalarTypeWord8)

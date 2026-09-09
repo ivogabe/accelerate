@@ -1,9 +1,6 @@
-{-# LANGUAGE ConstraintKinds     #-}
-{-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE OverloadedLists     #-}
-{-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedLists  #-}
+{-# LANGUAGE RankNTypes       #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Issues.Issue185
 -- Copyright   : [2009..2020] The Accelerate Team

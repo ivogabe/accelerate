@@ -1,20 +1,13 @@
-{-# LANGUAGE ConstraintKinds     #-}
 {-# LANGUAGE EmptyCase           #-}
-{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE GADTs               #-}
-{-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE MultiWayIf          #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE PatternGuards       #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell     #-}
-{-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE ViewPatterns        #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
@@ -707,7 +700,10 @@ downgradeAwhileFun signalIdx (BuildLam lhsInput (BuildLam lhsBool (BuildLam lhsO
         $ weaken' kOutput f
       LeftHandSideWildcard _ ->
         internalError "Infinite awhile loop: condition of the loop never returns"
-      LeftHandSideWildcard (TupRsingle tp) -> pairImpossible tp
+      -- TODO WALL: REDUNDANT PATTERN MATCH
+      --LeftHandSideWildcard (TupRsingle tp) -> pairImpossible tp
+      LeftHandSideSingle{} ->
+        error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
   where
     lhsSnd :: BLeftHandSide ((), b) e1 e2 -> BLeftHandSide b e1 e2
     lhsSnd (LeftHandSidePair LeftHandSideWildcard{} l) = l
@@ -837,9 +833,11 @@ data SignalAnalysis env where
   SEmpty :: SignalAnalysis env
   SPush  :: SignalAnalysis env -> SignalInfo env t -> SignalAnalysis (env, t)
 
+{- TODO WALL: DEAD CODE
 spush :: SignalAnalysis env -> SignalInfo env t -> SignalAnalysis (env, t)
 spush SEmpty SINone = SEmpty
 spush env info = SPush env info
+-}
 
 data SignalInfo env t where
   -- This SignalResolver is resolved at the same time as the given list of SignalResolvers.
@@ -884,6 +882,7 @@ analyseEffect _ = SEmpty
 
 analyseSignalResolve :: [Idx env SignalResolver] -> SignalAnalysis env
 analyseSignalResolve = const SEmpty -- go . sort
+{- TODO WALL: DEAD CODE
   where
     -- input is sorted from low indices to high indices
     go :: [Idx env SignalResolver] -> SignalAnalysis env
@@ -896,6 +895,7 @@ analyseSignalResolve = const SEmpty -- go . sort
     unSucc :: Idx (env, s) t -> Idx env t
     unSucc (SuccIdx idx) = idx
     unSucc ZeroIdx = internalError "Expected non-zero index. Is the list of indices sorted and unique?"
+-}
 
 -- Removes Signals from the InputOutputR of an awhile loop
 ioRemoveSignal :: InputOutputR input output -> InputOutputR (NoSignal input) (NoSignal output)

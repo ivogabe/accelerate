@@ -1,12 +1,7 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE GADTs               #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE MagicHash           #-}
-{-# LANGUAGE PatternGuards       #-}
-{-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MonoLocalBinds      #-}
 {-# LANGUAGE TemplateHaskell     #-}
-{-# LANGUAGE TypeApplications    #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Analysis.Hash.Exp
@@ -22,30 +17,17 @@ module Data.Array.Accelerate.Analysis.Hash.Schedule.Uniform (
   hashUniformScheduleFun
 ) where
 
-import Data.Array.Accelerate.AST.Exp
-import Data.Array.Accelerate.AST.Idx
-import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Var
 import Data.Array.Accelerate.AST.Kernel
 import Data.Array.Accelerate.AST.Schedule.Uniform
-import Data.Array.Accelerate.AST.Operation (encodeGroundR)
 import Data.Array.Accelerate.Analysis.Hash.TH
 import Data.Array.Accelerate.Analysis.Hash.Exp
 import Data.Array.Accelerate.Analysis.Hash.Operation (encodePreArgs)
-import Data.Array.Accelerate.Representation.Array
-import Data.Array.Accelerate.Representation.Shape
-import Data.Array.Accelerate.Representation.Slice
-import Data.Array.Accelerate.Representation.Type
-import Data.Array.Accelerate.Type
-import Data.Primitive.Vec
 
 import Crypto.Hash.XKCP
 import Data.ByteString.Builder
-import Data.ByteString.Builder.Extra
 import Data.ByteString.Short.Internal                               ( ShortByteString(..) )
 import qualified Data.Hashable                                      as Hashable
-import Data.Monoid
-import Data.Text.Encoding (encodeUtf8)
 
 hashUniformScheduleFun :: IsKernel kernel => UniformScheduleFun kernel env f -> Hash
 hashUniformScheduleFun = hashlazy . toLazyByteString . encodeUniformScheduleFun
@@ -98,8 +80,10 @@ encodeBaseR BaseRsignalResolver = intHost $(hashQ ("SignalResolver" :: String))
 encodeBaseR (BaseRref tp)       = intHost $(hashQ ("Ref" :: String)) <> encodeGroundR tp
 encodeBaseR (BaseRrefWrite tp)  = intHost $(hashQ ("RefWrite" :: String)) <> encodeGroundR tp
 
+{- TODO WALL: DEAD CODE
 encodeBasesR :: BasesR t -> Builder
 encodeBasesR = encodeTupR encodeBaseR
+-}
 
 encodeBinding :: Binding env t -> Builder
 encodeBinding = \case

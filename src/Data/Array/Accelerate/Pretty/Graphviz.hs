@@ -1,17 +1,5 @@
-{-# LANGUAGE CPP                  #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE PatternGuards        #-}
-{-# LANGUAGE RankNTypes           #-}
-{-# LANGUAGE RecordWildCards      #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE TupleSections        #-}
-{-# LANGUAGE TypeApplications     #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE ViewPatterns         #-}
+{-# LANGUAGE ConstraintKinds          #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
-{-# LANGUAGE ConstraintKinds #-}
 -- |
 -- Module      : Data.Array.Accelerate.Pretty.Graphviz
 -- Copyright   : [2015..2020] The Accelerate Team
@@ -24,15 +12,20 @@
 module Data.Array.Accelerate.Pretty.Graphviz (
 
   Graph,
-  PrettyGraph(..), Detail(..),
+  PrettyGraph, Detail,
 
   graphDelayedAcc, graphDelayedAfun,
 
 ) where
 
 import Data.Kind (Type, Constraint)
+
+graphDelayedAcc :: a
 graphDelayedAcc = undefined
-graphDelayedAfun = undefined 
+
+graphDelayedAfun :: a
+graphDelayedAfun = undefined
+
 type Graph = ()
 type PrettyGraph :: Type -> Constraint
 type PrettyGraph a = ()

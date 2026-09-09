@@ -1,8 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE GADTs               #-}
-{-# LANGUAGE PatternGuards       #-}
-{-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeFamilies        #-}
@@ -55,7 +52,6 @@ import qualified Data.Array.Accelerate.Smart as Smart
 import Data.Array.Accelerate.AST.Schedule
 import Data.Array.Accelerate.AST.Kernel
 import Data.Array.Accelerate.AST.Execute
-import qualified Data.Array.Accelerate.AST.Partitioned as Partitioned
 import qualified Data.Array.Accelerate.Sugar.Array as Sugar
 import Data.Array.Accelerate.Representation.Array
 import Data.Array.Accelerate.Representation.Ground
@@ -74,7 +70,6 @@ import Data.Kind
 import Data.Type.Equality
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.Array.Accelerate.AST.Operation as Operation
-import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph as Graph
 
 
 class
@@ -85,7 +80,9 @@ class
   type Schedule backend :: (Type -> Type) -> Type -> Type -> Type
   type Kernel backend :: Type -> Type
 
+{- TODO WALL: DEAD CODE
 type Operation backend = KernelOperation (Kernel backend)
+-}
 
 -- Backend can be chosen with an explicit type application, for instance:
 --   run @Interpreter acc
