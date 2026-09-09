@@ -15,7 +15,7 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP (
   MIP(..)
   ) where
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (Var)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Var (Var)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint hiding (var)

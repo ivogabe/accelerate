@@ -2,7 +2,7 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration where
 
 import Control.Monad.State ( State, gets, modify )
 import Data.Char ( ord )
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (Var)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Var (Var)
 import qualified Data.Map as M
 import Lens.Micro.Mtl (zoom)
 import Lens.Micro (_2)

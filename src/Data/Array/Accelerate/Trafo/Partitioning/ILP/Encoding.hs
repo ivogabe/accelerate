@@ -9,6 +9,7 @@ import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (graph, constra
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Node, parent, Nodes, Comp, GVal, DataflowEdge, StrictEdge, ReadEdge, InplacePath, WriteEdge)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (finalize)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Var
 
 import Data.List (groupBy, sortOn)
 import Prelude hiding (sum, pi, read )

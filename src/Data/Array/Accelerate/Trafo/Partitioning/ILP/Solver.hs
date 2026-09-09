@@ -12,7 +12,7 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver where
 
 import qualified Data.Map as M
 import qualified Data.Set as S
-import {-# SOURCE #-} Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (Var)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Var (Var)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
 
 
@@ -23,14 +23,14 @@ class ILPSolver ilp where
   solvePartial :: ilp -> ILP -> IO (Maybe Solution)
 
 
-solve :: (ILPSolver ilp, Ord Var) => ilp -> ILP -> IO (Maybe Solution)
+solve :: ILPSolver ilp => ilp -> ILP -> IO (Maybe Solution)
 solve x ilp = fmap (<> M.fromSet (const 0) (allVars ilp)) -- add zeroes to the ILP for missing variables
            <$> solvePartial x (finalize ilp)
 
 -- adds potentially missing constraints and bounds:
 -- some solvers require all variables to have a bound
 -- or all variables to be in a constraint.
-finalize :: Ord Var => ILP -> ILP
+finalize :: ILP -> ILP
 finalize ilp@(ILP dir obj constr bnds n) =
   ILP dir obj (constr <> extraconstr) (bnds <> extrabnds) n
   where
@@ -41,27 +41,27 @@ data OptDir = Maximise | Minimise
   deriving (Show, Eq)
 
 data ILP = ILP OptDir Expression LinearConstraint Bounds Constants
-deriving instance Show Var => Show ILP
+  deriving (Show)
 
 type Solution = M.Map Var Int
 
 -- helpers for solving an ILP
-allVars :: Ord Var => ILP -> S.Set Var
+allVars :: ILP -> S.Set Var
 allVars (ILP _ cost constraint bounds _) = varsExpr cost <> varsConstr constraint <> varsBounds bounds
 
-varsExpr :: Ord Var => Expression -> S.Set Var
+varsExpr :: Expression -> S.Set Var
 varsExpr (Constant _) = mempty
 varsExpr (a :+ b) = varsExpr a <> varsExpr b
 varsExpr (_ :* v) = S.singleton v
 
-varsConstr :: Ord Var => LinearConstraint -> S.Set Var
+varsConstr :: LinearConstraint -> S.Set Var
 varsConstr TrueConstraint = mempty
 varsConstr (a :&& b) = varsConstr a <> varsConstr b
 varsConstr (a :>= b) = varsExpr a <> varsExpr b
 varsConstr (a :== b) = varsExpr a <> varsExpr b
 varsConstr (a :<= b) = varsExpr a <> varsExpr b
 
-varsBounds :: Ord Var => Bounds -> S.Set Var
+varsBounds :: Bounds -> S.Set Var
 varsBounds NoBounds  = mempty
 varsBounds (a :<> b) = varsBounds a <> varsBounds b
 varsBounds (Binary v) = S.singleton v

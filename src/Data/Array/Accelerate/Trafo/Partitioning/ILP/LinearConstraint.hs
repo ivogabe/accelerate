@@ -3,13 +3,11 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint (Constants (..), Number (..), Expression (..), IsNumber (..), (.+.), (.-.), (.*.), times, timesN, nCompsE, var, LinearConstraint (..), (.>=.), (.<=.), (.==.), (.>.), (.<.), allEqual, between, Bounds (..), binary, lowerUpper, lower, upper, equal, notB, impliesB, andB, allB, orB, anyB, isEqualRangeN, isEqualRange, packB, coverB, partitionB) where
 
 import Data.Array.Accelerate.Error
-import {-# SOURCE #-} Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (Var)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Var (Var)
 import Data.Foldable
 
 data Constants = Constants
@@ -50,8 +48,7 @@ data Expression where
   Constant :: Number -> Expression
   (:+) :: Expression -> Expression -> Expression
   (:*) :: Number -> Var -> Expression
-
-deriving instance (Show Var) => Show Expression
+  deriving (Show)
 
 instance Semigroup Expression where
   (<>) :: Expression -> Expression -> Expression
@@ -118,8 +115,7 @@ data LinearConstraint where
   (:==) :: Expression -> Expression -> LinearConstraint
   (:&&) :: LinearConstraint -> LinearConstraint -> LinearConstraint
   TrueConstraint :: LinearConstraint
-
-deriving instance (Show Var) => Show LinearConstraint
+  deriving (Show)
 
 instance Semigroup LinearConstraint where
   (<>) :: LinearConstraint -> LinearConstraint -> LinearConstraint
@@ -178,8 +174,7 @@ data Bounds where
   Upper :: Var -> Int -> Bounds
   (:<>) :: Bounds -> Bounds -> Bounds
   NoBounds :: Bounds
-
-deriving instance (Show Var) => Show Bounds
+  deriving (Show)
 
 instance Semigroup Bounds where
   (<>) :: Bounds -> Bounds -> Bounds

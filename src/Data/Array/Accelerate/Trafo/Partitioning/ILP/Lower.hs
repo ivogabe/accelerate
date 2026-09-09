@@ -3,7 +3,8 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.Lower (LowerEnv (..), Lower,
 import Control.Monad (replicateM)
 import Control.Monad.State (State, evalState)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (Var (Other), fused, inFoldSize, inplace, manifest, maxCluster, outFoldSize, pi, pimax, readDir, readDirs, writeDir, writeDirs)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (fused, inFoldSize, inplace, manifest, maxCluster, outFoldSize, pi, pimax, readDir, readDirs, writeDir, writeDirs)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Var (Var (Other))
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Comp, GVal, Node, nodeId)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint (Bounds, Expression, LinearConstraint, allB, allEqual, between, binary, impliesB, int, isEqualRangeN, lowerUpper, nCompsE, notB, packB, timesN, var, (.+.), (.-.), (.<.), (.<=.), (.==.), (.>.), (.>=.))
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration (freshName)
