@@ -11,7 +11,7 @@ import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (finalize)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Var
 
-import Data.List (groupBy, sortOn)
+import Data.List (groupBy, sortOn, foldl')
 import Prelude hiding (sum, pi, read )
 
 import qualified Data.Map as M

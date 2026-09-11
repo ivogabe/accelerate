@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+{-# OPTIONS_HADDOCK hide #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Lower (LowerEnv (..), Lower, lowerAll, lower) where
 
 import Control.Monad (replicateM)
@@ -26,7 +28,7 @@ lowerAll env constraints = evalState (mconcat <$> mapM (lower env) constraints) 
 
 -- | Lower a single 'Constraint'.
 lower :: LowerEnv -> Constraint -> Lower
-lower env constraint = case constraint of
+lower env = \case
   ClusterBefore i j -> pure (pi i .<. pi j, mempty, mempty)
   DifferentCluster i j -> pure (fused (i, j) .==. int 1, mempty, mempty)
   NotManifestIfAllFused b pairs -> pure (allB (map fused pairs) (notB $ manifest b), mempty, mempty)

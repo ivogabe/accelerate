@@ -4,10 +4,18 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint (Constants (..), Number (..), Expression (..), IsNumber (..), (.+.), (.-.), (.*.), times, timesN, nCompsE, var, LinearConstraint (..), (.>=.), (.<=.), (.==.), (.>.), (.<.), allEqual, between, Bounds (..), binary, lowerUpper, lower, upper, equal, notB, impliesB, andB, allB, orB, anyB, isEqualRangeN, isEqualRange, packB, coverB, partitionB) where
+module Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
+  ( Constants (..), Number (..), Expression (..), IsNumber (..)
+  , LinearConstraint (..), Bounds (..), Var(..)
+  , (.+.), (.-.), (.*.), times, timesN, nCompsE, var
+  , (.>=.), (.<=.), (.==.), (.>.), (.<.), allEqual
+  , between, binary, lowerUpper, lower, upper
+  , equal, notB, impliesB, andB, allB, orB, anyB, isEqualRangeN, isEqualRange
+  , packB, coverB, partitionB
+  ) where
 
 import Data.Array.Accelerate.Error
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Var (Var)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Var (Var(..))
 import Data.Foldable
 
 data Constants = Constants
@@ -83,7 +91,7 @@ infixl 8 .*.
 times :: (Constants -> Int) -> Expression -> Expression
 times f = (Number f .*.)
 
--- | Multiply by @n@ (the total number of computations + some safety margine).
+-- | Multiply by @n@ (the total number of computations + some safety margin).
 --
 -- This is only here because the old definitions used timesN and not all of them
 -- have been replaced yet.

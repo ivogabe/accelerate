@@ -28,7 +28,7 @@ data Var
   | Other String
     -- ^ For one-shot variables that don't deserve a constructor. These are also integer variables, and the responsibility is on the user to pick a unique name!
     -- It is possible to add a variation for continuous variables too, see `allIntegers` in MIP.hs.
-    -- We currently use this in Solve.hs for cost functions.
+    -- We currently use this in Lower.hs for cost functions.
 
   -- Variables introduced for in-place updates:
   | InPlace (Node GVal) (Node Comp) (Node Comp) (Node GVal)
