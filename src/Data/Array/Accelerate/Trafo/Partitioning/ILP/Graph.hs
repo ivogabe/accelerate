@@ -10,9 +10,7 @@
 {-# LANGUAGE RankNTypes               #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
 {-# LANGUAGE StandaloneDeriving       #-}
-{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TupleSections            #-}
-{-# LANGUAGE TypeApplications         #-}
 {-# LANGUAGE TypeFamilyDependencies   #-}
 {-# LANGUAGE UndecidableInstances     #-}
 {-# LANGUAGE ViewPatterns             #-}
@@ -20,7 +18,6 @@
 {-# OPTIONS_GHC -Wno-orphans          #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TypeOperators #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph where
 
 import Prelude hiding ( init, reads )
@@ -28,20 +25,20 @@ import Prelude hiding ( init, reads )
 -- Accelerate imports
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet (IdxSet(..))
-import qualified Data.Array.Accelerate.AST.IdxSet as IdxSet
-import qualified Data.Array.Accelerate.AST.Environment as E
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Operation hiding (Var)
 import Data.Array.Accelerate.Analysis.Hash.Exp
 import Data.Array.Accelerate.Analysis.Match
 import Data.Array.Accelerate.Array.Buffer
 import Data.Array.Accelerate.Error
-import Data.Array.Accelerate.Representation.Elt
 import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Trafo.Operation.LiveVars
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage (Constraint)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Var
 import Data.Array.Accelerate.Type
 
 -- Data structures
@@ -57,23 +54,11 @@ import Lens.Micro.Mtl
 import Control.Monad.State.Strict (State, runState)
 import Data.Foldable (Foldable (foldr'), traverse_, toList)
 import Data.Kind (Type)
-import Debug.Trace
-import Unsafe.Coerce (unsafeCoerce)
-
 
 
 --------------------------------------------------------------------------------
 -- Fusion Graph
 --------------------------------------------------------------------------------
-
-type ReadEdge      = (Node GVal, Node Comp)
-type WriteEdge     = (Node Comp, Node GVal)
-type StrictEdge    = (Node Comp, Node Comp)
-type DataflowEdge  = (Node Comp, Node GVal, Node Comp)
-type FusibleEdge   = DataflowEdge
-type InfusibleEdge = DataflowEdge
-type InplacePath   = (ReadEdge, WriteEdge)
-
 
 -- For backwards compatitibility:
 pattern (:->) :: Node Comp -> Node Comp -> DataflowEdge
@@ -113,21 +98,23 @@ pattern w :-> r <- (w,_,r)
 -- @
 --
 data FusionGraph = FusionGraph   -- TODO: Use hashmaps and hashsets in production.
-  { _compNodes     :: Set (Node Comp)         -- ^ Computation nodes.
-  , _valueNodes    :: Set (Node GVal)         -- ^ Value nodes.
-  , _strictEdges   :: Set StrictEdge          -- ^ Edges that enforce strict ordering.
-  , _dataflowEdges :: Set DataflowEdge        -- ^ Edges that represent data-flow.
-  , _inplacePaths  :: Map InplacePath Number  -- ^ Summary paths between buffers for in-place updates + their weight.
+  { _compNodes       :: Set (Node Comp)         -- ^ Computation nodes.
+  , _valueNodes      :: Set (Node GVal)         -- ^ Value nodes.
+  , _strictEdges     :: Set StrictEdge          -- ^ Edges that enforce strict ordering.
+  , _dataflowEdges   :: Set DataflowEdge        -- ^ Edges that represent data-flow.
+  , _inplacePaths    :: Map InplacePath Number  -- ^ Summary paths between buffers for in-place updates + their weight.
+  , _manifestValues  :: Set (Node GVal)         -- ^ Values forced manifest.
+  , _noInplaceValues :: Set (Node GVal)         -- ^ Values that must stay live past every cluster.
   }
 
 instance Semigroup FusionGraph where
   (<>) :: FusionGraph -> FusionGraph -> FusionGraph
-  (<>) (FusionGraph c1 v1 s1 d1 i1) (FusionGraph c2 v2 s2 d2 i2)
-    = FusionGraph (c1 <> c2) (v1 <> v2) (s1 <> s2) (d1 <> d2) (i1 <> i2)
+  (<>) (FusionGraph c1 v1 s1 d1 i1 m1 p1) (FusionGraph c2 v2 s2 d2 i2 m2 p2)
+    = FusionGraph (c1 <> c2) (v1 <> v2) (s1 <> s2) (d1 <> d2) (i1 <> i2) (m1 <> m2) (p1 <> p2)
 
 instance Monoid FusionGraph where
   mempty :: FusionGraph
-  mempty = FusionGraph mempty mempty mempty mempty mempty
+  mempty = FusionGraph mempty mempty mempty mempty mempty mempty mempty
 
 -- | Class for types that contain a fusion graph.
 --
@@ -151,6 +138,12 @@ class HasFusionGraph g where
   inplacePaths :: Lens' g (Map InplacePath Number)
   inplacePaths = fusionGraph.inplacePaths
 
+  manifestValues :: Lens' g (Set (Node GVal))
+  manifestValues = fusionGraph.manifestValues
+
+  noInplaceValues :: Lens' g (Set (Node GVal))
+  noInplaceValues = fusionGraph.noInplaceValues
+
 -- | Base instance of 'HasFusionGraph' for 'FusionGraph'.
 --
 -- This instance cannot make use of lenses defined in 'HasFusionGraph' because
@@ -173,6 +166,12 @@ instance HasFusionGraph FusionGraph where
 
   inplacePaths :: Lens' FusionGraph (Map InplacePath Number)
   inplacePaths f s = f (_inplacePaths s) <&> \ps -> s{_inplacePaths = ps}
+
+  manifestValues :: Lens' FusionGraph (Set (Node GVal))
+  manifestValues f s = f (_manifestValues s) <&> \ns -> s{_manifestValues = ns}
+
+  noInplaceValues :: Lens' FusionGraph (Set (Node GVal))
+  noInplaceValues f s = f (_noInplaceValues s) <&> \ns -> s{_noInplaceValues = ns}
 
 insertComputation :: (HasCallStack, HasFusionGraph g) => Node Comp -> g -> g
 insertComputation c = computationNodes %~ S.insert c
@@ -266,10 +265,10 @@ writeEdgesOf b = to (\g -> S.filter (\(_,b') -> b' == b) (g^.writeEdges))
 -- Separating the ILP into blocks then allows us to pass much smaller ILPs to
 -- the solver, which should make the whole process faster.
 -- If not, we can always merge the blocks together later.
-data FusionILP op = FusionILP
+data FusionILP (op :: Type -> Type) = FusionILP
   { _graph       :: FusionGraph
-  , _constraints :: Constraint op
-  , _bounds      :: Bounds op
+  , _constraints :: [Constraint]
+  , _bounds      :: Bounds
   }
 
 instance Semigroup (FusionILP op) where
@@ -292,10 +291,10 @@ class HasFusionILP s op | s -> op where
 graph :: Lens' (FusionILP op) FusionGraph
 graph f s = f (_graph s) <&> \g -> s{_graph = g}
 
-constraints :: Lens' (FusionILP op) (Constraint op)
+constraints :: Lens' (FusionILP op) [Constraint]
 constraints f s = f (_constraints s) <&> \c -> s{_constraints = c}
 
-bounds :: Lens' (FusionILP op) (Bounds op)
+bounds :: Lens' (FusionILP op) Bounds
 bounds f s = f (_bounds s) <&> \b -> s{_bounds = b}
 
 instance HasFusionGraph (FusionILP op) where
@@ -375,8 +374,8 @@ allInfusible prods buff cons ilp = foldr' (\prod -> infusible prod buff cons) il
 (|->) = ($)
 (|=>) = ($)
 
-noInplace :: HasCallStack => Node GVal -> FusionILP op -> FusionILP op
-noInplace node ilp = ilp{ _constraints = _constraints ilp <> pimax node :>= Constant (Number nComps) }
+noInplace :: (HasCallStack, HasFusionGraph g) => Node GVal -> g -> g
+noInplace node = noInplaceValues %~ S.insert node
 
 --------------------------------------------------------------------------------
 -- Backend specific definitions
@@ -409,13 +408,7 @@ instance HasWritersEnv (BackendGraphState op env) where
 
 type BackendCluster op = PreArgs (BackendClusterArg op)
 
-class ( ShrinkArg (BackendClusterArg op), Eq (BackendVar op)
-      , Ord (BackendVar op), Eq (BackendArg op), Show (BackendArg op)
-      , Ord (BackendArg op), Show (BackendVar op)
-      ) => MakesILP op where
-
-  -- | ILP variables for backend-specific fusion rules.
-  type BackendVar op
+class ( ShrinkArg (BackendClusterArg op), Eq (BackendArg op) , Show (BackendArg op), Ord (BackendArg op) ) => MakesILP op where
 
   -- | Information that the backend attaches to arguments for use in
   --   interpreting/code generation.
@@ -434,7 +427,7 @@ class ( ShrinkArg (BackendClusterArg op), Eq (BackendVar op)
 
   -- | Given an ILP solution, attach the backend-specific information to an
   --   argument.
-  labelLabelledArg :: Solution op -> Node Comp -> LabelledArg env a -> LabelledArgOp op env a
+  labelLabelledArg :: Solution -> Node Comp -> LabelledArg env a -> LabelledArgOp op env a
 
   -- | Convert a labelled argument to a cluster argument.
   getClusterArg :: LabelledArgOp op env a -> BackendClusterArg op a
@@ -454,10 +447,10 @@ class ( ShrinkArg (BackendClusterArg op), Eq (BackendVar op)
     -> State (BackendGraphState op env) ()
 
   -- | This function lets the backend define additional constraints on the ILP.
-  finalize :: FusionGraph -> Constraint op
+  finalize :: FusionGraph -> [Constraint]
 
 -- | Attach backend-specific information to labelled arguments.
-labelLabelledArgs :: MakesILP op => Solution op -> Node Comp -> LabelledArgs env args -> LabelledArgsOp op env args
+labelLabelledArgs :: MakesILP op => Solution -> Node Comp -> LabelledArgs env args -> LabelledArgsOp op env args
 labelLabelledArgs sol l (arg :>: args) = labelLabelledArg sol l arg :>: labelLabelledArgs sol l args
 labelLabelledArgs _ _ ArgsNil = ArgsNil
 
@@ -465,93 +458,59 @@ labelLabelledArgs _ _ ArgsNil = ArgsNil
 -- ILP Variables
 --------------------------------------------------------------------------------
 
-data Var (op :: Type -> Type)
-  -- Variables used by fusion:
-  = Pi (Node Comp)
-    -- ^ Used for acyclic ordering of clusters.
-    -- Pi (Node x y) = z means that computation number x (possibly a subcomputation of y, see Node) is fused into cluster z (y ~ Just i -> z is a subcluster of the cluster of i)
-  | Fused (Node Comp) (Node Comp)
-    -- ^ 0 is fused (same cluster), 1 is unfused. We do *not* have one of these for all pairs, only the ones we need for constraints and/or costs!
-    -- Invariant: Like edges, both labels have to have the same parent: Either on top (Node _ Nothing) or as sub-computation of the same label (Node _ (Just x)).
-    -- In fact, this is the Var-equivalent to Edge: an infusible edge has a constraint (== 1).
-  | IsManifest (Node GVal)
-    -- ^ 0 means manifest, 1 is like a `delayed array`.
-    -- Binary variable; will we write the output to a manifest array, or is it fused away (i.e. all uses are in its cluster)?
-  | ReadDir (Node GVal) (Node Comp)
-    -- ^ \-3 can't fuse with anything, -2 for 'left to right', -1 for 'right to left', n for 'unknown', see computation n (currently only backpermute).
-  | WriteDir (Node Comp) (Node GVal)
-    -- ^ See 'ReadDir'.
-  | InFoldSize (Node Comp)  -- Legacy? Probably needs per-edge equivalent
-    -- ^ Keeps track of the fold that's one dimension larger than this operation, and is fused in the same cluster.
-    -- This prevents something like @zipWith f (fold g xs) (fold g ys)@ from illegally fusing
-  | OutFoldSize (Node Comp)  -- Legacy? Probably needs per-edge equivalent
-    -- ^ Keeps track of the fold that's one dimension larger than this operation, and is fused in the same cluster.
-    -- This prevents something like @zipWith f (fold g xs) (fold g ys)@ from illegally fusing
-  | Other String
-    -- ^ For one-shot variables that don't deserve a constructor. These are also integer variables, and the responsibility is on the user to pick a unique name!
-    -- It is possible to add a variation for continuous variables too, see `allIntegers` in MIP.hs.
-    -- We currently use this in Solve.hs for cost functions.
-  | BackendSpecific (BackendVar op)
-    -- ^ Vars needed to express backend-specific fusion rules.
-    -- This is what allows backends to specify how each of the operations can fuse.
-
-  -- Variables introduced for in-place updates:
-  | InPlace (Node GVal) (Node Comp) (Node Comp) (Node GVal)
-    -- ^ 0 means in-place, 1 means not in-place. The first label is an input of a cluster, the second label is an output of a cluster.
-    -- All 'InPlace' variables need to be unique, so we can't omit the computation labels. Taking one path through a cluster is different from taking another.
-  | PiMax (Node GVal)
-    -- ^ The cluster number of the largest reader of the buffer, since in-place updates are only allowed on the final consumer of an array/buffer.
-  -- | WriteDirPiMax (Node GVal)
-  --   -- ^ The write direction of the largest reader of the buffer. This is used to check that all reads of the buffer are in the same direction as the write.
-
-deriving instance Eq   (BackendVar op) => Eq   (Var op)
-deriving instance Ord  (BackendVar op) => Ord  (Var op)
-deriving instance Show (BackendVar op) => Show (Var op)
 
 -- | Constructor for 'Pi' variables.
-pi :: Node Comp -> Expression op
+pi :: Node Comp -> Expression
 pi = var . Pi
 
 -- | No clue what this is for.
-delayed :: MakesILP op => Node GVal -> Expression op
+delayed :: MakesILP op => Node GVal -> Expression
 delayed = notB . manifest
 
 -- | Constructor for 'IsManifest' variables.
-manifest :: Node GVal -> Expression op
+manifest :: Node GVal -> Expression
 manifest = var . IsManifest
 
 -- | Safe constructor for 'Fused' variables.
-fused :: (Node Comp, Node Comp) -> Expression op
+fused :: (Node Comp, Node Comp) -> Expression
 fused = var . uncurry Fused
 
 -- | Safe constructor for 'ReadDir' variables.
-readDir :: ReadEdge -> Expression op
+readDir :: ReadEdge -> Expression
 readDir = var . uncurry ReadDir
 
 -- | Convert a foldable structure of 'ReadEdge' to a list of 'Expression's.
-readDirs :: Foldable f => f ReadEdge -> [Expression op]
+readDirs :: Foldable f => f ReadEdge -> [Expression]
 readDirs = map readDir . toList
 
 -- | Safe constructor for 'WriteDir' variables.
-writeDir :: WriteEdge -> Expression op
+writeDir :: WriteEdge -> Expression
 writeDir = var . uncurry WriteDir
 
 -- | Convert a foldable structure of 'WriteEdge' to a list of 'Expression's.
-writeDirs :: Foldable f => f WriteEdge -> [Expression op]
+writeDirs :: Foldable f => f WriteEdge -> [Expression]
 writeDirs = map writeDir . toList
 
 -- | Safe constructor for 'InPlace' variables.
-inplace :: InplacePath -> Expression op
+inplace :: InplacePath -> Expression
 inplace ((b1,c1),(c2,b2)) = var $ InPlace b1 c1 c2 b2
 
 -- | Safe constructor for 'PiMax' variables.
-pimax :: Node GVal -> Expression op
+pimax :: Node GVal -> Expression
 pimax = var . PiMax
+
+maxCluster :: Expression
+maxCluster = var MaxCluster
 
 dirToInt :: Direction -> Int
 dirToInt LeftToRight = -2
 dirToInt RightToLeft = -1
 
+inFoldSize :: Node Comp -> Expression
+inFoldSize = var . InFoldSize
+
+outFoldSize :: Node Comp -> Expression
+outFoldSize = var . OutFoldSize
 
 --------------------------------------------------------------------------------
 -- Symbol table
@@ -619,7 +578,7 @@ reindexLabelledArgOp k (LOp (ArgArray m repr sh buffers) l o) = (\x -> LOp x l o
 reindexLabelledArgsOp :: Applicative f => ReindexPartial f env env' -> LabelledArgsOp op env t -> f (LabelledArgsOp op env' t)
 reindexLabelledArgsOp = reindexPreArgs reindexLabelledArgOp
 
-attachBackendLabels :: MakesILP op => Solution op -> Symbols op -> Symbols op
+attachBackendLabels :: MakesILP op => Solution -> Symbols op -> Symbols op
 attachBackendLabels sol = M.mapWithKey \cases
   l (SExe env largs op) -> SExe' env (labelLabelledArgs sol l largs) op
   _  SExe'{} -> internalError "already converted???"
@@ -941,9 +900,8 @@ mkFullGraphF acc = finalizeInplacePaths (s^.fusionILP, s^.symbols, s^.allocators
   where (_, s) = runState (mkFusionGraphF acc) initialFusionGraphState
 
 -- | Make the supplied value nodes manifest.
-makeManifest :: (MakesILP op, HasFusionILP g op) => Nodes GVal -> g -> g
-makeManifest bs = fusionILP.constraints <>~ foldMap (\b -> manifest b .==. int 0) bs
-
+makeManifest :: HasFusionILP g op => Nodes GVal -> g -> g
+makeManifest bs = fusionILP.manifestValues <>~ bs
 
 --------------------------------------------------------------------------------
 -- FusionGraph construction

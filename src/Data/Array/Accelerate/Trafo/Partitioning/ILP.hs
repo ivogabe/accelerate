@@ -1,16 +1,13 @@
 {-# LANGUAGE MonoLocalBinds #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ViewPatterns #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP where
 -- No joke, this really needs to get a massive refactor...
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve
-    ( interpretClusters, makeILP, splitExecs, ClusterLs, Objective (..), interpretReadDirs, interpretWriteDirs, interpretInplaceUpdates )
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Var
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding
+    ( interpretClusters, makeILP, splitExecs, ClusterLs, Objective (..), interpretReadDirs, interpretInplaceUpdates )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
     ( reconstruct, reconstructF, ReadDirM, InplaceM )
 import Data.Array.Accelerate.AST.Partitioned
@@ -18,21 +15,17 @@ import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.AST.Operation
     ( OperationAcc, OperationAfun )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
-    ( ILPSolver, solve, (.==.), int, Solution )
+    ( ILPSolver, solve, Solution )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP
     ( cbc, cplex, glpsol, gurobiCl, lpSolve, scip, MIP(..) )
 
 import System.IO.Unsafe (unsafePerformIO)
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Node, GVal, Comp, traceWith)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Node, Comp)
 import Data.Map (Map, toList, foldMapWithKey, filterWithKey)
 import Data.Array.Accelerate.Trafo.Operation.Simplify
 import qualified Data.Array.Accelerate.Pretty.Operation as Pretty
-import Data.Function ((&))
-import qualified Data.Set as Set
-import Lens.Micro ((^.), (<>~), (<&>))
-import Data.Maybe (isJust, fromMaybe)
-import Debug.Trace
--- import Data.Array.Accelerate.Trafo.Partitioning.ILP.HiGHS
+import Lens.Micro ((^.))
+import Data.Maybe (fromMaybe)
 
 data Benchmarking = GreedyUp | GreedyDown | NoFusion
   deriving (Show, Eq, Bounded, Enum)
@@ -66,13 +59,13 @@ ilpFusionF'' (MIPSolver s) = case s of
   SCIP    -> ilpFusionF (MIP scip)
 
 
-ilpFusion  :: (MakesILP op, SimplifyOperation op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
+ilpFusion  :: (MakesILP op, SimplifyOperation op, ILPSolver s, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
 ilpFusion solver objective acc = ilpFusion' mkFullGraph  (reconstruct (groundsR acc) False) solver objective acc
 
-ilpFusionF :: (MakesILP op, SimplifyOperation op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
+ilpFusionF :: (MakesILP op, SimplifyOperation op, ILPSolver s, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
 ilpFusionF solver objective fun = ilpFusion' mkFullGraphF (reconstructF fun False) solver objective fun
 
-ilpFusion' :: (MakesILP op, SimplifyOperation op, ILPSolver s op)
+ilpFusion' :: (MakesILP op, SimplifyOperation op, ILPSolver s)
            => (x -> FullGraph op)
            -> (FusionGraph -> [ClusterLs] -> Map (Node Comp) [ClusterLs] -> Symbols op -> ReadDirM -> InplaceM -> y)
            -> s
@@ -95,7 +88,7 @@ traceGraph g = unsafePerformIO $ do
   writeFile "ilp.dot" $ toDOT (g^.fusionILP.graph) (g^.symbols)
   return g
 
-ppNumInplace :: forall op. MakesILP op => Solution op -> String
+ppNumInplace :: Solution -> String
 ppNumInplace m = "Compilation performed " ++ show numInplace ++ "/" ++ show totalInplace ++ " in-place updates."
   where
     inplaceVars = filterWithKey (\k _ -> case k of InPlace{} -> True; _ -> False) m
@@ -103,10 +96,10 @@ ppNumInplace m = "Compilation performed " ++ show numInplace ++ "/" ++ show tota
     numInplace = length $ filterWithKey (\_ v -> v == 0) inplaceVars
 
 
-ppSolution :: forall op. MakesILP op => Solution op -> String
+ppSolution :: Solution -> String
 ppSolution solution = "solution: " ++ foldMap ppVar (toList solution)
   where
-    ppVar :: (Var op, Int) -> String
+    ppVar :: (Var, Int) -> String
     ppVar (k, v) = "\n" ++ show k ++ " == " ++ show v
     -- ppVar (k, v) = case k of
     --   Pi{}               -> "\n" ++ show k  ++ " == " ++ show v
@@ -126,7 +119,7 @@ ppScopedClusters (top, sub) = "top =\n" ++ ppList top ++ foldMapWithKey (\k v ->
 -- for benchmarking: make all edges infusible
 -- note: does allow for horizontal fusion!
 -- more rigorous is to change 'topSort' in Clustering.hs into separating each cluster completely
-noFusion' :: (MakesILP op, SimplifyOperation op, ILPSolver s op)
+noFusion' :: (MakesILP op, SimplifyOperation op, ILPSolver s)
            => (x -> FullGraph op)
            -> (FusionGraph -> [ClusterLs] -> Map (Node Comp) [ClusterLs] -> Symbols op -> ReadDirM -> InplaceM -> y)
            -> s
@@ -152,7 +145,7 @@ noFusion' = undefined
 -- this search is clearly inefficient, but just an easy implementation. We only benchmark its runtime.
 -- note that this is perhaps still too generous. For example, anything that can fuse into 1 loop will still be fully fused!
 -- it's perhaps more of an 'alternative' than a 'baseline'
-greedyFusion' :: forall s op x y. (MakesILP op, SimplifyOperation op, ILPSolver s op)
+greedyFusion' :: forall s op x y. (MakesILP op, SimplifyOperation op, ILPSolver s)
                     => (x -> FullGraph op)
                     -> (FusionGraph -> [ClusterLs] -> Map (Node Comp) [ClusterLs] -> Symbols op -> ReadDirM -> InplaceM -> y)
                     -> s
@@ -205,11 +198,11 @@ greedyF :: (MakesILP op, SimplifyOperation op, Pretty.PrettyOp (Cluster op)) => 
 greedyF = greedyFusionF (MIP gurobiCl)
 noF :: (MakesILP op, SimplifyOperation op, Pretty.PrettyOp (Cluster op)) => Objective -> OperationAfun op () a -> PartitionedAfun op () a
 noF = noFusionF (MIP gurobiCl)
-greedyFusion  :: (MakesILP op, SimplifyOperation op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Benchmarking -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
+greedyFusion  :: (MakesILP op, SimplifyOperation op, ILPSolver s, Pretty.PrettyOp (Cluster op)) => s -> Benchmarking -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
 greedyFusion  solver b objective acc = greedyFusion' mkFullGraph  (reconstruct (groundsR acc) False) solver b objective acc
-greedyFusionF :: (MakesILP op, SimplifyOperation op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Benchmarking -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
+greedyFusionF :: (MakesILP op, SimplifyOperation op, ILPSolver s, Pretty.PrettyOp (Cluster op)) => s -> Benchmarking -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
 greedyFusionF solver b objective fun = greedyFusion' mkFullGraphF (reconstructF fun False) solver b objective fun
-noFusion      :: (MakesILP op, SimplifyOperation op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
+noFusion      :: (MakesILP op, SimplifyOperation op, ILPSolver s, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAcc  op () a -> PartitionedAcc op () a
 noFusion      solver objective acc =     noFusion' mkFullGraph  (reconstruct (groundsR acc) True) solver objective acc
-noFusionF     :: (MakesILP op, SimplifyOperation op, ILPSolver s op, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
+noFusionF     :: (MakesILP op, SimplifyOperation op, ILPSolver s, Pretty.PrettyOp (Cluster op)) => s -> Objective -> OperationAfun op () a -> PartitionedAfun op () a
 noFusionF     solver objective fun =     noFusion' mkFullGraphF (reconstructF fun True) solver objective fun

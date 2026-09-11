@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ViewPatterns #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.HiGHS where
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (MakesILP)
 
@@ -22,7 +23,7 @@ import qualified Debug.Trace
 
 data HiGHS = Highs
 
-instance MakesILP op => ILPSolver HiGHS op where
+instance ILPSolver HiGHS where
   solvePartial Highs ilp@(ILP dir cost constraint bounds n) = pure . getSolution $
     LP.solve LP.choose bounds' constraint' (dir', cost')
     where

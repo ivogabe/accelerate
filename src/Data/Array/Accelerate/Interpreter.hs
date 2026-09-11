@@ -93,7 +93,7 @@ import Control.Monad (when)
 import Data.Array.Accelerate.Trafo.Var (DeclareVars(DeclareVars), declareVars)
 import Data.Array.Accelerate.Trafo.Operation.Substitution (alet, aletUnique, weaken, LHS (LHS), mkLHS)
 import Data.Map (Map)
-import qualified Data.Text as T 
+import qualified Data.Text as T
 import Data.Functor.Identity
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -263,7 +263,6 @@ data Side = Left | Right
 
 
 -- instance MakesILP InterpretOp where
---   type BackendVar InterpretOp = InterpreterVariables
 --   type BackendArg InterpretOp = Maybe Int
 --   data BackendClusterArg InterpretOp arg where
 --     -- ArrayInfo :: { dim :: Int, idleLeft :: Int, idleRight :: Int} -> BackendClusterArg InterpretOp arg -- can't do (m sh e) because vertically fused arrays get a Var' argument

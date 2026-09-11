@@ -193,6 +193,13 @@ freshL' = id <%= (nodeId +~ 1)
 -- | Set of 'Node's.
 type Nodes t = Set (Node t)
 
+type ReadEdge      = (Node GVal, Node Comp)
+type WriteEdge     = (Node Comp, Node GVal)
+type StrictEdge    = (Node Comp, Node Comp)
+type DataflowEdge  = (Node Comp, Node GVal, Node Comp)
+type FusibleEdge   = DataflowEdge
+type InfusibleEdge = DataflowEdge
+type InplacePath   = (ReadEdge, WriteEdge)
 
 -- | A value consists of its type @s t@ and and the 'Node' that represents it.
 data Val s t = Val

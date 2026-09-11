@@ -76,7 +76,7 @@ import qualified Data.Array.Accelerate.AST.Operation as Operation
 import qualified Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph as Graph
 import Data.Array.Accelerate.Pretty.Print (configPlain, Val (Empty))
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve (Objective(..))
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding (Objective(..))
 import Data.Array.Accelerate.Trafo.NewNewFusion (Benchmarking)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP (FusionType(..), defaultObjective)
 import Control.Monad.Trans.Writer (runWriter, Writer, writer)
@@ -85,7 +85,7 @@ import Data.Array.Accelerate.Pretty.Exp (context0)
 import Data.Array.Accelerate.Trafo.Operation.Bounds
 
 inspectCompiler'
-  :: forall sched kernel f. 
+  :: forall sched kernel f.
      (Afunction f, Trafo sched kernel)
   => f
   -> String

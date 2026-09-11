@@ -44,7 +44,7 @@ import qualified Data.Graph as G
 import qualified Data.Set as S
 import Data.Maybe (fromJust, fromMaybe)
 import Data.Type.Equality ( type (:~:)(Refl) )
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solve (ClusterLs (Execs, NonExec))
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding (ClusterLs (Execs, NonExec))
 import Data.Array.Accelerate.AST.Environment (weakenWithLHS)
 
 import Prelude hiding ( take )
@@ -103,7 +103,7 @@ type InplaceM = M.Map (Node GVal) (Node GVal)
 
 topSort :: Bool -> FusionGraph -> Nodes Comp -> ReadDirM -> [ClusterL]
 topSort _ _ (S.toList -> [l]) _ = [ExecL [l]]  -- If the cluster is empty.
-topSort singletons (FusionGraph _ _ strictEdges dataflowEdges _) cluster readDirM =
+topSort singletons (FusionGraph _ _ strictEdges dataflowEdges _ _ _) cluster readDirM =
   if singletons then concatMap (map (ExecL . pure)) topsorteds else map ExecL topsorteds
   where
     buildGraph =
