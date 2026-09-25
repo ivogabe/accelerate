@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.Orphans
 -- Copyright   : [2008..2020] The Accelerate Team

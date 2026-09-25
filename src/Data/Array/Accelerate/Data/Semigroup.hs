@@ -2,7 +2,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeFamilies    #-}
 {-# LANGUAGE ViewPatterns    #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 #if __GLASGOW_HASKELL__ >= 806
 {-# LANGUAGE UndecidableInstances  #-}
 #endif

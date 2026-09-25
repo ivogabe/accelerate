@@ -1,6 +1,6 @@
 -- {-# LANGUAGE CPP          #-}
 -- {-# LANGUAGE ViewPatterns #-}
--- {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+-- {-# OPTIONS_GHC -Wno-name-shadowing #-}
 -- {-# OPTIONS_HADDOCK hide #-}
 -- -- |
 -- -- Module      : Data.Array.Accelerate.Trafo.Fusion

@@ -1,5 +1,5 @@
 {-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-} -- Shame on me!
+{-# OPTIONS_GHC -Wno-orphans #-} -- Shame on me!
 
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP (
   -- Exports default paths to 6 solvers, as well as an instance to ILPSolver for all of them

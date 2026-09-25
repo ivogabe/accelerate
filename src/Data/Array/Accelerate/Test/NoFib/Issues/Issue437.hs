@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Issues.Issue437
 -- Copyright   : [2009..2020] The Accelerate Team
