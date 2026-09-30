@@ -1,7 +1,7 @@
 {-# LANGUAGE PatternSynonyms  #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE TemplateHaskell  #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.Classes.Ord
 -- Copyright   : [2016..2020] The Accelerate Team

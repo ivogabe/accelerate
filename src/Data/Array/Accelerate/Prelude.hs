@@ -2,7 +2,6 @@
 {-# LANGUAGE CPP              #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE TypeFamilies     #-}
-{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}   -- pattern synonyms
 -- |
 -- Module      : Data.Array.Accelerate.Prelude
 -- Copyright   : [2009..2020] The Accelerate Team
@@ -874,58 +873,90 @@ unzip arr = (map fst arr, map snd arr)
 
 -- | Take an array of triples and return three arrays, analogous to 'unzip'.
 --
-unzip3 :: (Shape sh, Elt a, Elt b, Elt c)
+unzip3 :: forall sh a b c. (Shape sh, Elt a, Elt b, Elt c)
        => Acc (Array sh (a, b, c))
        -> (Acc (Array sh a), Acc (Array sh b), Acc (Array sh c))
 unzip3 xs = (map get1 xs, map get2 xs, map get3 xs)
   where
+    get1 :: Exp (a, b, c) -> Exp a
     get1 (T3 a _ _) = a
+
+    get2 :: Exp (a, b, c) -> Exp b
     get2 (T3 _ b _) = b
+
+    get3 :: Exp (a, b, c) -> Exp c
     get3 (T3 _ _ c) = c
 
 -- | Take an array of quadruples and return four arrays, analogous to 'unzip'.
 --
-unzip4 :: (Shape sh, Elt a, Elt b, Elt c, Elt d)
+unzip4 :: forall sh a b c d. (Shape sh, Elt a, Elt b, Elt c, Elt d)
        => Acc (Array sh (a, b, c, d))
        -> (Acc (Array sh a), Acc (Array sh b), Acc (Array sh c), Acc (Array sh d))
 unzip4 xs = (map get1 xs, map get2 xs, map get3 xs, map get4 xs)
   where
+    get1 :: Exp (a, b, c, d) -> Exp a
     get1 (T4 a _ _ _) = a
+
+    get2 :: Exp (a, b, c, d) -> Exp b
     get2 (T4 _ b _ _) = b
+
+    get3 :: Exp (a, b, c, d) -> Exp c
     get3 (T4 _ _ c _) = c
+
+    get4 :: Exp (a, b, c, d) -> Exp d
     get4 (T4 _ _ _ d) = d
 
 -- | Take an array of 5-tuples and return five arrays, analogous to 'unzip'.
 --
-unzip5 :: (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e)
+unzip5 :: forall sh a b c d e. (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e)
        => Acc (Array sh (a, b, c, d, e))
        -> (Acc (Array sh a), Acc (Array sh b), Acc (Array sh c), Acc (Array sh d), Acc (Array sh e))
 unzip5 xs = (map get1 xs, map get2 xs, map get3 xs, map get4 xs, map get5 xs)
   where
+    get1 :: Exp (a, b, c, d, e) -> Exp a
     get1 (T5 a _ _ _ _) = a
+
+    get2 :: Exp (a, b, c, d, e) -> Exp b
     get2 (T5 _ b _ _ _) = b
+
+    get3 :: Exp (a, b, c, d, e) -> Exp c
     get3 (T5 _ _ c _ _) = c
+
+    get4 :: Exp (a, b, c, d, e) -> Exp d
     get4 (T5 _ _ _ d _) = d
+
+    get5 :: Exp (a, b, c, d, e) -> Exp e
     get5 (T5 _ _ _ _ e) = e
 
 -- | Take an array of 6-tuples and return six arrays, analogous to 'unzip'.
 --
-unzip6 :: (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f)
+unzip6 :: forall sh a b c d e f. (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f)
        => Acc (Array sh (a, b, c, d, e, f))
        -> ( Acc (Array sh a), Acc (Array sh b), Acc (Array sh c)
           , Acc (Array sh d), Acc (Array sh e), Acc (Array sh f))
 unzip6 xs = (map get1 xs, map get2 xs, map get3 xs, map get4 xs, map get5 xs, map get6 xs)
   where
+    get1 :: Exp (a, b, c, d, e, f) -> Exp a
     get1 (T6 a _ _ _ _ _) = a
+
+    get2 :: Exp (a, b, c, d, e, f) -> Exp b
     get2 (T6 _ b _ _ _ _) = b
+
+    get3 :: Exp (a, b, c, d, e, f) -> Exp c
     get3 (T6 _ _ c _ _ _) = c
+
+    get4 :: Exp (a, b, c, d, e, f) -> Exp d
     get4 (T6 _ _ _ d _ _) = d
+
+    get5 :: Exp (a, b, c, d, e, f) -> Exp e
     get5 (T6 _ _ _ _ e _) = e
+
+    get6 :: Exp (a, b, c, d, e, f) -> Exp f
     get6 (T6 _ _ _ _ _ f) = f
 
 -- | Take an array of 7-tuples and return seven arrays, analogous to 'unzip'.
 --
-unzip7 :: (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g)
+unzip7 :: forall sh a b c d e f g. (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g)
        => Acc (Array sh (a, b, c, d, e, f, g))
        -> ( Acc (Array sh a), Acc (Array sh b), Acc (Array sh c)
           , Acc (Array sh d), Acc (Array sh e), Acc (Array sh f)
@@ -934,17 +965,30 @@ unzip7 xs = ( map get1 xs, map get2 xs, map get3 xs
             , map get4 xs, map get5 xs, map get6 xs
             , map get7 xs )
   where
+    get1 :: Exp (a, b, c, d, e, f, g) -> Exp a
     get1 (T7 a _ _ _ _ _ _) = a
+
+    get2 :: Exp (a, b, c, d, e, f, g) -> Exp b
     get2 (T7 _ b _ _ _ _ _) = b
+
+    get3 :: Exp (a, b, c, d, e, f, g) -> Exp c
     get3 (T7 _ _ c _ _ _ _) = c
+
+    get4 :: Exp (a, b, c, d, e, f, g) -> Exp d
     get4 (T7 _ _ _ d _ _ _) = d
+
+    get5 :: Exp (a, b, c, d, e, f, g) -> Exp e
     get5 (T7 _ _ _ _ e _ _) = e
+
+    get6 :: Exp (a, b, c, d, e, f, g) -> Exp f
     get6 (T7 _ _ _ _ _ f _) = f
+
+    get7 :: Exp (a, b, c, d, e, f, g) -> Exp g
     get7 (T7 _ _ _ _ _ _ g) = g
 
 -- | Take an array of 8-tuples and return eight arrays, analogous to 'unzip'.
 --
-unzip8 :: (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g, Elt h)
+unzip8 :: forall sh a b c d e f g h. (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g, Elt h)
        => Acc (Array sh (a, b, c, d, e, f, g, h))
        -> ( Acc (Array sh a), Acc (Array sh b), Acc (Array sh c)
           , Acc (Array sh d), Acc (Array sh e), Acc (Array sh f)
@@ -953,18 +997,33 @@ unzip8 xs = ( map get1 xs, map get2 xs, map get3 xs
             , map get4 xs, map get5 xs, map get6 xs
             , map get7 xs, map get8 xs )
   where
+    get1 :: Exp (a, b, c, d, e, f, g, h) -> Exp a
     get1 (T8 a _ _ _ _ _ _ _) = a
+
+    get2 :: Exp (a, b, c, d, e, f, g, h) -> Exp b
     get2 (T8 _ b _ _ _ _ _ _) = b
+
+    get3 :: Exp (a, b, c, d, e, f, g, h) -> Exp c
     get3 (T8 _ _ c _ _ _ _ _) = c
+
+    get4 :: Exp (a, b, c, d, e, f, g, h) -> Exp d
     get4 (T8 _ _ _ d _ _ _ _) = d
+
+    get5 :: Exp (a, b, c, d, e, f, g, h) -> Exp e
     get5 (T8 _ _ _ _ e _ _ _) = e
+
+    get6 :: Exp (a, b, c, d, e, f, g, h) -> Exp f
     get6 (T8 _ _ _ _ _ f _ _) = f
+
+    get7 :: Exp (a, b, c, d, e, f, g, h) -> Exp g
     get7 (T8 _ _ _ _ _ _ g _) = g
+
+    get8 :: Exp (a, b, c, d, e, f, g, h) -> Exp h
     get8 (T8 _ _ _ _ _ _ _ h) = h
 
 -- | Take an array of 9-tuples and return nine arrays, analogous to 'unzip'.
 --
-unzip9 :: (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g, Elt h, Elt i)
+unzip9 :: forall sh a b c d e f g h i. (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g, Elt h, Elt i)
        => Acc (Array sh (a, b, c, d, e, f, g, h, i))
        -> ( Acc (Array sh a), Acc (Array sh b), Acc (Array sh c)
           , Acc (Array sh d), Acc (Array sh e), Acc (Array sh f)
@@ -973,14 +1032,31 @@ unzip9 xs = ( map get1 xs, map get2 xs, map get3 xs
             , map get4 xs, map get5 xs, map get6 xs
             , map get7 xs, map get8 xs, map get9 xs )
   where
+    get1 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp a
     get1 (T9 a _ _ _ _ _ _ _ _) = a
+
+    get2 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp b
     get2 (T9 _ b _ _ _ _ _ _ _) = b
+
+    get3 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp c
     get3 (T9 _ _ c _ _ _ _ _ _) = c
+
+    get4 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp d
     get4 (T9 _ _ _ d _ _ _ _ _) = d
+
+    get5 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp e
     get5 (T9 _ _ _ _ e _ _ _ _) = e
+
+    get6 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp f
     get6 (T9 _ _ _ _ _ f _ _ _) = f
+
+    get7 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp g
     get7 (T9 _ _ _ _ _ _ g _ _) = g
+
+    get8 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp h
     get8 (T9 _ _ _ _ _ _ _ h _) = h
+
+    get9 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp i
     get9 (T9 _ _ _ _ _ _ _ _ i) = i
 
 

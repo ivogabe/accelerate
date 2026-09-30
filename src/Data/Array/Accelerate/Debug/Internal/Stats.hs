@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -fno-warn-unused-binds   #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+{-# OPTIONS_GHC -Wno-unused-binds   #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 -- |
 -- Module      : Data.Array.Accelerate.Debug.Internal.Stats
 -- Copyright   : [2008..2020] The Accelerate Team

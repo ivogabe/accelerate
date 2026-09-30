@@ -1,9 +1,9 @@
 {-# LANGUAGE CPP             #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports     #-}
-{-# OPTIONS_GHC -fno-warn-unused-top-binds   #-}
-{-# OPTIONS_GHC -fobject-code                #-} -- SEE: [linking to .c files]
+{-# OPTIONS_GHC -Wno-missing-signatures #-}
+{-# OPTIONS_GHC -Wno-unused-imports     #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds   #-}
+{-# OPTIONS_GHC -fobject-code           #-} -- SEE: [linking to .c files]
 -- |
 -- Module      : Data.Array.Accelerate.Debug.Internal.Flags
 -- Copyright   : [2008..2020] The Accelerate Team
