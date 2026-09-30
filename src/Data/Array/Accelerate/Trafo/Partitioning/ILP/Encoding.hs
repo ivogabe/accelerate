@@ -66,7 +66,7 @@ makeILP obj (FusionILP graph constraints bounds) =
         <> manifestValueConstraints
         <> noInPlaceConstraints
 
-    fusionBounds = piB <> fusedB <> manifestB <> loweredBounds
+    fusionBounds = piB <> fusedB <> manifestB <> loweredBounds <> binaryBounds
 
     inPlaceConstraints = if enableIU
         then onManifestConstraints
@@ -181,6 +181,8 @@ makeILP obj (FusionILP graph constraints bounds) =
     -- 0 <= m_i  <= 1
     manifestB = foldMap (binary . IsManifest) buffN
 
+    binaryBounds = foldMap binary $ S.filter isBinaryVar $ varsExpr objFun <> varsConstr loweredConstraints
+
 
     ----------------------------------------------------------------------------
     -- In-place updates:
@@ -269,6 +271,12 @@ makeILP obj (FusionILP graph constraints bounds) =
       MemoryUsage         -> (True,  Minimise, numberOfManifestArrays .+. numberOfNonInplaceUpdates)
       MemoryUsage'        -> (True,  Minimise, (int (m+1) .*. numberOfManifestArrays) .+. (int m .*. numberOfNonInplaceUpdates))  -- We want to prioritise solutions that use fusion, so the weight of fusion is increased by a small factor.
 
+-- | Check if a variable is binary.
+isBinaryVar :: Var -> Bool
+isBinaryVar (Fused _ _) = True
+isBinaryVar (IsManifest _) = True
+isBinaryVar (InPlace _ _ _ _) = True
+isBinaryVar _ = False
 
 -- | Extract the read directions from the ILP solution.
 interpretReadDirs :: Solution -> M.Map ReadEdge Int
