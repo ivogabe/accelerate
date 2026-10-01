@@ -355,32 +355,27 @@ common lang
     -Wcompat
     -Widentities
     -Wno-unticked-promoted-constructors
+    -Wunused-packages
 
 library
   import:               lang
 
   build-depends:
         , ansi-terminal                 >= 0.6.2
-        , array                         >= 0.4
         , base-orphans                  >= 0.3
-        , bifunctors
         , bytestring                    >= 0.10.2
         -- , comfort-array                 >= 0.5.5
-        , composition
         , containers                    >= 0.3
         , deepseq                       >= 1.3
         , directory                     >= 1.0
         , double-conversion             >= 2.0
-        , exceptions                    >= 0.6
         , filepath                      >= 1.0
         , formatting                    >= 7.0
-        , ghc-prim
         , half                          >= 0.3
         , hashable                      >= 1.1
         , hashtables                    >= 1.2.3
         , hedgehog                      >= 0.5
         , microlens                     >= 0.4
-        , microlens-th                  >= 0.4
         , microlens-mtl                 >= 0.2
         , MIP                           >= 0.2
         , mtl                           >= 2.0
@@ -770,9 +765,6 @@ library
         -fexternal-interpreter
     build-depends:
         Win32
-  else
-    build-depends:
-        unix
 
   -- We assume only SSE2 to make Accelerate widely compatible; Windows 8
   -- assumes SSE2. However, we tune for native, see the next block.

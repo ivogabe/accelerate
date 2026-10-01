@@ -36,10 +36,9 @@ import Control.Monad.Trans                              ( liftIO )
 import System.CPUTime
 import Prelude
 
+import GHC.Exts
 import GHC.Int
-import GHC.Prim
 import GHC.Stats
-import GHC.Types
 import GHC.Word
 #if   MIN_VERSION_base(4,16,0)
 import GHC.Float
