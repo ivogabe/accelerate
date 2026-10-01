@@ -332,9 +332,32 @@ flag nofib
   default:              False
   description:          Build the nofib test suite (required for backend testing)
 
+common lang
+  build-depends:        base >= 4.12 && < 4.23
+
+  default-language:     GHC2021
+
+  -- Used extensions that are in GHC2024 but not GHC2021 are enabled by default.
+  -- In addition, OverloadedStrings is enabled by default to ensure that every
+  -- module is compatible with it, to support use of GHCi with it enabled.
+  default-extensions:
+    DataKinds
+    DerivingStrategies
+    ExplicitNamespaces
+    GADTs
+    InstanceSigs
+    LambdaCase
+    OverloadedStrings
+    RoleAnnotations
+
+  ghc-options:
+    -Wall
+    -Wcompat
+
 library
+  import:               lang
+
   build-depends:
-          base                          >= 4.12 && < 4.23
         , ansi-terminal                 >= 0.6.2
         , array                         >= 0.4
         , base-orphans                  >= 0.3
@@ -615,21 +638,6 @@ library
     exposed-modules:
         Data.Array.Accelerate.Data.Semigroup
 
-  default-language:
-        GHC2021
-
-  -- Note OverloadedStrings is enabled by default to ensure that every module
-  -- is compatible with it, as many people configure GHCi to use it.
-  default-extensions:
-        DataKinds
-        DerivingStrategies
-        ExplicitNamespaces
-        GADTs
-        InstanceSigs
-        LambdaCase
-        OverloadedStrings
-        RoleAnnotations
-
   other-extensions:
         AllowAmbiguousTypes
         BlockArguments
@@ -670,9 +678,6 @@ library
 
   ghc-options:
         -O2
-        -Wall
-        -Wcompat
-        -- -Wredundant-constraints
         -freduction-depth=100
         -fspec-constr-count=50
         -funbox-strict-fields
