@@ -138,10 +138,8 @@ import Data.Array.Accelerate.Data.Bits
 import Lens.Micro                                                   ( Lens', (&), (^.), (.~), (+~), (-~), lens, over )
 import Prelude                                                      ( (.), ($), Maybe(..), const, id, flip )
 import Data.String                                                  ( fromString )
-import GHC.Stack
-#if __GLASGOW_HASKELL__ >= 904
 import Data.Type.Equality
-#endif
+import GHC.Stack
 
 #ifdef ACCELERATE_INTERNAL_CHECKS
 import Data.Typeable

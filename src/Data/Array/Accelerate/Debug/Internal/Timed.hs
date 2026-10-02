@@ -37,16 +37,10 @@ import System.CPUTime
 import Prelude
 
 import GHC.Exts
+import GHC.Float
 import GHC.Int
 import GHC.Stats
 import GHC.Word
-#if   MIN_VERSION_base(4,16,0)
-import GHC.Float
-#elif MIN_VERSION_base(4,15,0)
-import GHC.Integer
-#else
-import GHC.Num
-#endif
 #endif
 
 
@@ -82,11 +76,7 @@ timed_simpl fmt action = do
   cpu1  <- liftIO getCPUTime
   --
   let wallTime = wall1 - wall0
-#if MIN_VERSION_base(4,16,0)
       cpuTime  = D# (integerToDouble# (cpu1 - cpu0) *## 1E-12##)
-#else
-      cpuTime  = D# (doubleFromInteger (cpu1 - cpu0) *## 1E-12##)
-#endif
   --
   liftIO $ putTraceMsg builder (bformat fmt wallTime cpuTime) -- XXX
   return res
@@ -126,13 +116,6 @@ timed_gc fmt action = do
 
   return res
 
-#if __GLASGOW_HASKELL__ < 904
-word64ToWord# :: Word# -> Word#
-word64ToWord# x = x
-
-int64ToInt# :: Int# -> Int#
-int64ToInt# x = x
-#endif
 #endif
 
 {-# INLINE elapsed #-}
