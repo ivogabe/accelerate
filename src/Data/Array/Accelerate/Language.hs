@@ -119,12 +119,8 @@ import Data.Text                                                    ( Text )
 import GHC.Stack
 import Data.String                                                  ( fromString )
 
-import Prelude                                                      ( ($), (.), (<>), Maybe(..), Char )
-#if __GLASGOW_HASKELL__ >= 904
 import Data.Type.Equality
-#endif
-
-import Prelude ()
+import Prelude                                                      ( ($), (.), (<>), Maybe(..), Char )
 
 -- $setup
 -- >>> :seti -XFlexibleContexts

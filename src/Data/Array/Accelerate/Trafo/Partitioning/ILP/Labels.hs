@@ -30,7 +30,7 @@ import Prelude hiding (exp)
 import qualified Data.Functor.Const as C
 import Data.Coerce
 import Control.Monad
-import Control.Monad.State.Strict
+import Control.Monad.State.Strict (State)
 import Data.Kind (Type)
 import Data.Maybe (fromJust)
 import Data.List ( intercalate )

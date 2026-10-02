@@ -1,9 +1,8 @@
-{-# LANGUAGE CPP                   #-}
-{-# LANGUAGE PatternSynonyms       #-}
-{-# LANGUAGE RebindableSyntax      #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE UndecidableInstances  #-}
-{-# LANGUAGE ViewPatterns          #-}
+{-# LANGUAGE PatternSynonyms      #-}
+{-# LANGUAGE RebindableSyntax     #-}
+{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns         #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.Data.Complex
@@ -56,12 +55,10 @@ import Data.Array.Accelerate.Type
 import Data.Primitive.Vec
 
 import Data.Complex                                                 ( Complex(..) )
-import Prelude                                                      ( ($) )
 import qualified Data.Complex                                       as C
-import qualified Prelude                                            as P
-#if __GLASGOW_HASKELL__ >= 904
 import Data.Type.Equality
-#endif
+import Prelude                                                      ( ($) )
+import qualified Prelude                                            as P
 
 
 infix 6 ::+

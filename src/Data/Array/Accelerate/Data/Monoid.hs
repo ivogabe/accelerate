@@ -1,11 +1,8 @@
-{-# LANGUAGE BlockArguments  #-}
-{-# LANGUAGE CPP             #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TypeFamilies    #-}
+{-# LANGUAGE BlockArguments       #-}
+{-# LANGUAGE PatternSynonyms      #-}
+{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-#if __GLASGOW_HASKELL__ >= 806
-{-# LANGUAGE UndecidableInstances  #-}
-#endif
 -- |
 -- Module      : Data.Array.Accelerate.Data.Monoid
 -- Copyright   : [2016..2020] The Accelerate Team

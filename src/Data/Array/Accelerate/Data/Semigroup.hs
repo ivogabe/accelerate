@@ -1,11 +1,8 @@
-{-# LANGUAGE CPP             #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TypeFamilies    #-}
-{-# LANGUAGE ViewPatterns    #-}
+{-# LANGUAGE PatternSynonyms      #-}
+{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns         #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-#if __GLASGOW_HASKELL__ >= 806
-{-# LANGUAGE UndecidableInstances  #-}
-#endif
 -- |
 -- Module      : Data.Array.Accelerate.Data.Semigroup
 -- Copyright   : [2018..2020] The Accelerate Team

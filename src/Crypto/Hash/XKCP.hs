@@ -81,12 +81,6 @@ instance Ord SHA3_256 where
     in
     go 0#
 
-#if !MIN_VERSION_base(4,16,0)
-{-# INLINE word8ToWord# #-}
-word8ToWord# :: Word# -> Word#
-word8ToWord# w# = w#
-#endif
-
 -- | Hash a strict 'S.ByteString' into a digest
 --
 hash :: S.ByteString -> SHA3_256
