@@ -405,6 +405,7 @@ library
         Data.Array.Accelerate.Data.Maybe
         Data.Array.Accelerate.Data.Monoid
         Data.Array.Accelerate.Data.Ratio
+        Data.Array.Accelerate.Data.Semigroup
         Data.Array.Accelerate.Debug.Trace
         Data.Array.Accelerate.Unsafe
 
@@ -630,10 +631,6 @@ library
     cpp-options:
         -DACCELERATE_DISABLE_NOFIB
 
-  if impl(ghc >= 8.0)
-    exposed-modules:
-        Data.Array.Accelerate.Data.Semigroup
-
   other-extensions:
         AllowAmbiguousTypes
         BlockArguments
@@ -679,9 +676,6 @@ library
         -funbox-strict-fields
         -optc=-O3
         -optc=-Wall
-
-  if impl(ghc >= 8.10)
-    ghc-options:
         -optcxx=-O3
         -optcxx=-Wall
         -optcxx=-std=c++20
@@ -720,8 +714,7 @@ library
         -DTRACY_ENABLE
         -DTRACY_NO_SAMPLING
 
-    if impl(ghc >= 8.10)
-      ghc-options:
+    ghc-options:
         -optcxx=-DTRACY_ENABLE
         -optcxx=-DTRACY_NO_SAMPLING
 
@@ -770,17 +763,17 @@ library
   if !arch(aarch64)
     cc-options: -msse2
     cxx-options: -msse2
-    ghc-options: -optc=-msse2
-    if impl(ghc >= 8.10)
-      ghc-options: -optcxx=-msse2
+    ghc-options:
+        -optc=-msse2
+        -optcxx=-msse2
 
   -- https://stackoverflow.com/questions/65966969/why-does-march-native-not-work-on-apple-m1
   if !(os(darwin) && arch(aarch64))
     cc-options: -mtune=native
     cxx-options: -mtune=native
-    ghc-options: -optc=-mtune=native
-    if impl(ghc >= 8.10)
-      ghc-options: -optcxx=-mtune=native
+    ghc-options:
+        -optc=-mtune=native
+        -optcxx=-mtune=native
 
 
 test-suite doctest
