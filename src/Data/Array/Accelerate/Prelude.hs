@@ -1483,7 +1483,14 @@ scanl'Seg
     -> Acc (Segments i)
     -> Acc (Array (sh:.Int) e, Array (sh:.Int) e)
 scanl'Seg f z arr seg =
-  T2 body sums
+  -- This assertion should have been placed between the construction of offset
+  -- and its uses, but that prevents fusion. Hence we perform this check later
+  -- on, and make sure the other code doesn't crash unexpectedly when this
+  -- assertion will fail.
+  -- TODO: Also add these bounds checks to other segmented functions
+  assertBounds "The innermost dimension must have at least as many elements as the sum of the segment descriptor."
+    (\_ -> indexHead (shape arr) >= fromIntegral len)
+    $ T2 body sums
   where
     -- Segmented scan' is implemented by deconstructing a segmented exclusive
     -- scan, to separate the final value and scan body.
@@ -1516,10 +1523,22 @@ scanl'Seg f z arr seg =
     --
     offset      = scanl1 (+) $ map (assertBounds "Segment sizes in foldSeg should be non-negative" (>= 0)) seg
     inc         = scanl1 (+)
-                $ permute' (+) (fill (I1 $ size arr + 1) 0)
-                $ map (\o -> Just_ (T2 (index1' o) (1 :: Exp i))) offset
+                $ permute' (+) (fill (I1 $ indexHead $ shape arr) 0)
+                $ map (\o ->
+                    -- In normal situations, o should be less than or equal to
+                    -- the innermost dimension. When it is less than, we perform
+                    -- write via permute.
+                    -- When it is equal, we ignore this element. When it is
+                    -- larger than the innermost dimension, the segment
+                    -- descriptor is invalid. We later have an assertion that
+                    -- checks this.
+                    if fromIntegral o < indexHead (shape arr) then
+                      Just_ (T2 (index1' o) (1 :: Exp i))
+                    else
+                      Nothing_)
+                  offset
 
-    len         = offset ! I1 (length offset - 1)
+    len         = if length offset == 0 then 0 else offset ! I1 (length offset - 1)
     body        = backpermute
                     (indexTail (shape arr) ::. fromIntegral len)
                     (\(sz ::. i) -> sz ::. i + fromIntegral (inc ! I1 i))
