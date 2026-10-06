@@ -1,8 +1,8 @@
-cabal-version:          2.2
+cabal-version:          3.0
 
 name:                   accelerate
 version:                1.4.0.0
-tested-with:            GHC >= 8.6
+tested-with:            GHC >= 9.4.8
 build-type:             Custom
 
 synopsis:               An embedded language for accelerated array processing
@@ -13,113 +13,112 @@ description:
   regular arrays are expressed in the form of parameterised collective
   operations, such as maps, reductions, and permutations. These computations may
   then be online compiled and executed on a range of architectures.
-  .
+
   [/A simple example/]
-  .
+
   As a simple example, consider the computation of a dot product of two vectors
   of floating point numbers:
-  .
+
   > dotp :: Acc (Vector Float) -> Acc (Vector Float) -> Acc (Scalar Float)
   > dotp xs ys = fold (+) 0 (zipWith (*) xs ys)
-  .
+
   Except for the type, this code is almost the same as the corresponding Haskell
   code on lists of floats. The types indicate that the computation may be
   online-compiled for performance - for example, using
   @Data.Array.Accelerate.LLVM.PTX@ it may be on-the-fly off-loaded to the GPU.
-  .
+
   See the "Data.Array.Accelerate" module for further information.
-  .
+
   [/Additional components/]
-  .
+
   The following supported add-ons are available as separate packages. Use them by
   adding them as dependencies to your project's cabal file.
-  .
+
     * @accelerate-llvm-native@: Backend supporting parallel execution on
       multicore CPUs.
-  .
+
     * @accelerate-llvm-ptx@: Backend supporting parallel execution on
       CUDA-capable NVIDIA GPUs. Requires a GPU with compute capability 2.0 or
       greater. See the following table for supported GPUs:
       <http://en.wikipedia.org/wiki/CUDA#Supported_GPUs>
-  .
+
     * @containers-accelerate@: Container types for use with Accelerate.
-  .
+
     * @hashable-accelerate@: Class for types which can be converted to a hash
       value.
-  .
+
     * @colour-accelerate@: Colour representations in Accelerate (RGB, sRGB, HSV, and HSL).
-  .
+
     * @mwc-random-accelerate@: Generate Accelerate arrays filled with high
       quality pseudorandom numbers.
-  .
+
   Additional libraries that have worked in the past but are not included in the
   current release (they may be updated later, check to be sure):
-  .
+
     * @accelerate-examples@: Computational kernels and applications
       demonstrating the use of Accelerate.
-  .
+
     * @accelerate-io*@: Fast conversions between Accelerate arrays and other
       array and data formats.
-  .
+
     * @accelerate-fft@: Discrete Fourier transforms, with FFI bindings to
       optimised implementations.
-  .
+
     * @accelerate-blas@: Numeric linear algebra, with FFI bindings to optimised
       implementations.
-  .
+
     * @accelerate-bignum@: Fixed-width large integer arithmetic.
-  .
+
     * @gloss-accelerate@: Generate gloss pictures from Accelerate.
-  .
+
     * @gloss-raster-accelerate@: Parallel rendering of raster images and
       animations.
-  .
+
     * @lens-accelerate@: Lens operators for Accelerate types.
-  .
+
     * @linear-accelerate@: Linear vector spaces in Accelerate.
-  .
+
   [/Examples and documentation/]
-  .
+
   Haddock documentation is included in the package.
-  .
+
   The @accelerate-examples@ package demonstrates a range of computational
   kernels and several complete applications, including:
-  .
+
     * An implementation of the Canny edge detection algorithm
-  .
+
     * Interactive Mandelbrot and Julia set generators
-  .
+
     * A particle-based simulation of stable fluid flows
-  .
+
     * An /n/-body simulation of gravitational attraction between solid particles
-  .
+
     * An implementation of the PageRank algorithm
-  .
+
     * A simple interactive ray tracer
-  .
+
     * A cellular automata simulation
-  .
+
     * A \"password recovery\" tool, for dictionary lookup of MD5 hashes
-  .
+
   @lulesh-accelerate@ is an implementation of the Livermore Unstructured
   Lagrangian Explicit Shock Hydrodynamics (LULESH) mini-app. LULESH represents a
   typical hydrodynamics code such as ALE3D, but is highly simplified and
   hard-coded to solve the Sedov blast problem on an unstructured hexahedron
   mesh.
-  .
+
   [/Mailing list and contacts/]
-  .
+
     * Gitter chat: <https://gitter.im/AccelerateHS/Lobby>
-  .
+
     * Mailing list: <accelerate-haskell@googlegroups.com> (discussion of both
       use and development welcome).
-  .
+
     * Sign up for the mailing list here:
       <http://groups.google.com/group/accelerate-haskell>
-  .
+
     * Bug reports and issue tracking:
       <https://github.com/AccelerateHS/accelerate/issues>
-  .
 
 license:                BSD-3-Clause
 license-file:           LICENSE
@@ -190,11 +189,11 @@ extra-doc-files:
 
 custom-setup
   setup-depends:
-      base              >= 4.10 && < 4.23
-    , Cabal             >= 2 && < 3.18
-    , cabal-doctest     >= 1.0
-    , directory         >= 1.0
-    , filepath          >= 1.0
+    , base              >= 4.17.2.1 && < 4.23
+    , Cabal             >= 3.8.1    && < 3.18
+    , cabal-doctest     >= 1
+    , directory         >= 1.3.7.1
+    , filepath          >= 1.4.2.2
 
 flag debug
   manual:               True
@@ -333,42 +332,61 @@ flag nofib
   default:              False
   description:          Build the nofib test suite (required for backend testing)
 
+common lang
+  build-depends:        base >= 4.17.2.1 && < 4.23
+
+  default-language:     GHC2021
+
+  -- Used extensions that are in GHC2024 but not GHC2021 are enabled by default.
+  -- In addition, OverloadedStrings is enabled by default to ensure that every
+  -- module is compatible with it, to support use of GHCi with it enabled.
+  default-extensions:
+    DataKinds
+    DerivingStrategies
+    ExplicitNamespaces
+    GADTs
+    InstanceSigs
+    LambdaCase
+    OverloadedStrings
+    RoleAnnotations
+
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Widentities
+    -Wno-unticked-promoted-constructors
+    -Wunused-packages
+
 library
+  import:               lang
+
   build-depends:
-          base                          >= 4.12 && < 4.23
         , ansi-terminal                 >= 0.6.2
-        , array                         >= 0.4
         , base-orphans                  >= 0.3
-        , bifunctors
-        , bytestring                    >= 0.10.2
-        -- , comfort-array                 >= 0.5.5
-        , composition
-        , containers                    >= 0.3
-        , deepseq                       >= 1.3
-        , directory                     >= 1.0
+        , bytestring                    >= 0.11.5.3
+        , containers                    >= 0.6.7
+        , deepseq                       >= 1.4.8
+        , directory                     >= 1.3.7.1
         , double-conversion             >= 2.0
-        , exceptions                    >= 0.6
-        , filepath                      >= 1.0
+        , filepath                      >= 1.4.2.2
         , formatting                    >= 7.0
-        , ghc-prim
         , half                          >= 0.3
         , hashable                      >= 1.1
         , hashtables                    >= 1.2.3
         , hedgehog                      >= 0.5
         , microlens                     >= 0.4
-        , microlens-th                  >= 0.4
         , microlens-mtl                 >= 0.2
         , MIP                           >= 0.2
-        , mtl                           >= 2.0
+        , mtl                           >= 2.2.2
         , prettyprinter                 >= 1.7
         , prettyprinter-ansi-terminal   >= 1.1.2
         , primitive                     >= 0.6.4
         , scientific                    >= 0.3.6.2
         , tasty                         >= 0.11
-        , template-haskell              < 2.25
+        , template-haskell              >= 2.19.0.0 && < 2.25
         , terminal-size                 >= 0.3
-        , text                          >= 1.2.4
-        , transformers                  >= 0.3
+        , text                          >= 2.0.2
+        , transformers                  >= 0.5.6.2
         , unordered-containers          >= 0.2
         , vector                        >= 0.10
   exposed-modules:
@@ -387,6 +405,7 @@ library
         Data.Array.Accelerate.Data.Maybe
         Data.Array.Accelerate.Data.Monoid
         Data.Array.Accelerate.Data.Ratio
+        Data.Array.Accelerate.Data.Semigroup
         Data.Array.Accelerate.Debug.Trace
         Data.Array.Accelerate.Unsafe
 
@@ -612,25 +631,6 @@ library
     cpp-options:
         -DACCELERATE_DISABLE_NOFIB
 
-  if impl(ghc >= 8.0)
-    exposed-modules:
-        Data.Array.Accelerate.Data.Semigroup
-
-  default-language:
-        GHC2021
-
-  -- Note OverloadedStrings is enabled by default to ensure that every module
-  -- is compatible with it, as many people configure GHCi to use it.
-  default-extensions:
-        DataKinds
-        DerivingStrategies
-        ExplicitNamespaces
-        GADTs
-        InstanceSigs
-        LambdaCase
-        OverloadedStrings
-        RoleAnnotations
-
   other-extensions:
         AllowAmbiguousTypes
         BlockArguments
@@ -671,17 +671,11 @@ library
 
   ghc-options:
         -O2
-        -Wall
-        -Wcompat
-        -- -Wredundant-constraints
         -freduction-depth=100
         -fspec-constr-count=50
         -funbox-strict-fields
         -optc=-O3
         -optc=-Wall
-
-  if impl(ghc >= 8.10)
-    ghc-options:
         -optcxx=-O3
         -optcxx=-Wall
         -optcxx=-std=c++20
@@ -720,8 +714,7 @@ library
         -DTRACY_ENABLE
         -DTRACY_NO_SAMPLING
 
-    if impl(ghc >= 8.10)
-      ghc-options:
+    ghc-options:
         -optcxx=-DTRACY_ENABLE
         -optcxx=-DTRACY_NO_SAMPLING
 
@@ -764,26 +757,23 @@ library
         -fexternal-interpreter
     build-depends:
         Win32
-  else
-    build-depends:
-        unix
 
   -- We assume only SSE2 to make Accelerate widely compatible; Windows 8
   -- assumes SSE2. However, we tune for native, see the next block.
   if !arch(aarch64)
     cc-options: -msse2
     cxx-options: -msse2
-    ghc-options: -optc=-msse2
-    if impl(ghc >= 8.10)
-      ghc-options: -optcxx=-msse2
+    ghc-options:
+        -optc=-msse2
+        -optcxx=-msse2
 
   -- https://stackoverflow.com/questions/65966969/why-does-march-native-not-work-on-apple-m1
   if !(os(darwin) && arch(aarch64))
     cc-options: -mtune=native
     cxx-options: -mtune=native
-    ghc-options: -optc=-mtune=native
-    if impl(ghc >= 8.10)
-      ghc-options: -optcxx=-mtune=native
+    ghc-options:
+        -optc=-mtune=native
+        -optcxx=-mtune=native
 
 
 test-suite doctest
@@ -795,15 +785,14 @@ test-suite doctest
   -- autogen-modules:      Build_doctests
 
   build-depends:
-          base                          >= 4.10
         , accelerate
-        -- , doctest                       >= 0.11
+        , array                         >= 0.5.4
+        , base                          >= 4.17.2.1
+        , binary                        >= 0.8.9.1
         , criterion
-        , binary
+        , directory                     >= 1.3.7.1
         , normaldistribution
-        , array
         , random
-        , directory
 
   ghc-options:
         -Wall
@@ -829,8 +818,8 @@ test-suite nofib-interpreter
     buildable: False
 
   build-depends:
-          base                          >= 4.10
         , accelerate
+        , base                          >= 4.17.2.1
         , tasty
 
   ghc-options:
@@ -855,8 +844,8 @@ executable tracy
     buildable: False
 
   build-depends:
-        base                            >= 4.10
       , accelerate
+      , base                            >= 4.17.2.1
       , formatting
 
   pkgconfig-depends:
@@ -883,8 +872,8 @@ executable tracy-capture
     buildable: False
 
   build-depends:
-        base                            >= 4.10
       , accelerate
+      , base                            >= 4.17.2.1
       , formatting
 
   cpp-options:

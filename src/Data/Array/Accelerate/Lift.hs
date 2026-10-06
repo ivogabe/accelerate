@@ -1,9 +1,6 @@
-{-# LANGUAGE CPP             #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies    #-}
-#if __GLASGOW_HASKELL__ >= 806
-{-# LANGUAGE UndecidableInstances  #-}
-#endif
+{-# LANGUAGE TemplateHaskell      #-}
+{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- |
 -- Module      : Data.Array.Accelerate.Lift
 -- Copyright   : [2016..2020] The Accelerate Team
