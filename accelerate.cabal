@@ -376,13 +376,49 @@ common lang
     cc-options: -mtune=native
     cxx-options: -mtune=native
 
+library ffi
+  import:               lang
+  hs-source-dirs:       src-ffi
+
+  exposed-modules:
+    Crypto.Hash.XKCP
+
+  build-depends:
+    , bytestring >= 0.11.5.3
+
+  other-extensions:
+    CApiFFI
+    MagicHash
+    UnboxedTuples
+    UnliftedFFITypes
+
+  ghc-options:
+    -O2
+
+  include-dirs:
+    cbits
+
+  c-sources:
+    cbits/xkcp/KeccakHash.c
+    cbits/xkcp/KeccakSponge.c
+    cbits/xkcp/SimpleFIPS202.c
+    cbits/xkcp/KeccakP-1600-opt64.c
+
 library
   import:               lang
 
+  -- Internal dependencies
+  build-depends:
+        , accelerate:ffi
+
+  -- Inherited dependencies
+  build-depends:
+        , bytestring
+
+  -- External dependencies
   build-depends:
         , ansi-terminal                 >= 0.6.2
         , base-orphans                  >= 0.3
-        , bytestring                    >= 0.11.5.3
         , containers                    >= 0.6.7
         , deepseq                       >= 1.4.8
         , directory                     >= 1.3.7.1
@@ -534,6 +570,8 @@ library
         -- Other
         Data.BitSet
         Data.Primitive.Vec
+
+  reexported-modules:
         Crypto.Hash.XKCP
 
   other-modules:
@@ -677,7 +715,6 @@ library
         TypeFamilyDependencies
         UnboxedTuples
         UndecidableInstances
-        UnliftedFFITypes
         ViewPatterns
 
   hs-source-dirs:
