@@ -349,6 +349,33 @@ common lang
     -Wno-unticked-promoted-constructors
     -Wunused-packages
 
+  cc-options:
+    -O3
+    -Wall
+
+  cxx-options:
+    -O3
+    -std=c++20
+    -Wall
+
+  if os(windows)
+    cc-options:
+      -- https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65782
+      -fno-asynchronous-unwind-tables
+    ghc-options:
+      -fexternal-interpreter
+
+  -- We assume only SSE2 to make Accelerate widely compatible; Windows 8
+  -- assumes SSE2. However, we tune for native, see the next block.
+  if !arch(aarch64)
+    cc-options: -msse2
+    cxx-options: -msse2
+
+  -- https://stackoverflow.com/questions/65966969/why-does-march-native-not-work-on-apple-m1
+  if !(os(darwin) && arch(aarch64))
+    cc-options: -mtune=native
+    cxx-options: -mtune=native
+
 library
   import:               lang
 
@@ -381,6 +408,11 @@ library
         , transformers                  >= 0.5.6.2
         , unordered-containers          >= 0.2
         , vector                        >= 0.10
+
+  if os(windows)
+    build-depends:
+        Win32
+
   exposed-modules:
         -- The core language and reference implementation
         Data.Array.Accelerate
@@ -652,15 +684,6 @@ library
   hs-source-dirs:
         src
 
-  cc-options:
-        -O3
-        -Wall
-
-  cxx-options:
-        -O3
-        -Wall
-        -std=c++20
-
   ghc-options:
         -O2
         -freduction-depth=100
@@ -739,33 +762,6 @@ library
   if flag(internal-checks)
     cpp-options:
         -DACCELERATE_INTERNAL_CHECKS
-
-  if os(windows)
-    cc-options:
-        -- https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65782
-        -fno-asynchronous-unwind-tables
-    ghc-options:
-        -optc=-fno-asynchronous-unwind-tables
-        -fexternal-interpreter
-    build-depends:
-        Win32
-
-  -- We assume only SSE2 to make Accelerate widely compatible; Windows 8
-  -- assumes SSE2. However, we tune for native, see the next block.
-  if !arch(aarch64)
-    cc-options: -msse2
-    cxx-options: -msse2
-    ghc-options:
-        -optc=-msse2
-        -optcxx=-msse2
-
-  -- https://stackoverflow.com/questions/65966969/why-does-march-native-not-work-on-apple-m1
-  if !(os(darwin) && arch(aarch64))
-    cc-options: -mtune=native
-    cxx-options: -mtune=native
-    ghc-options:
-        -optc=-mtune=native
-        -optcxx=-mtune=native
 
 
 test-suite doctest
