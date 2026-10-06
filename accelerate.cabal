@@ -593,6 +593,9 @@ library
         Language.Haskell.TH.Extra
 
   if flag(nofib)
+    cpp-options:
+        -DACCELERATE_NOFIB
+
     build-depends:
           tasty-expected-failure        >= 0.11
         , tasty-hedgehog                >= 0.1
@@ -650,10 +653,6 @@ library
         Data.Array.Accelerate.Test.NoFib.Misc
         Data.Array.Accelerate.Test.NoFib.Misc.Cache
         Data.Array.Accelerate.Test.NoFib.Misc.Scanl1
-
-  else
-    cpp-options:
-        -DACCELERATE_DISABLE_NOFIB
 
   other-extensions:
         AllowAmbiguousTypes
