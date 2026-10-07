@@ -47,12 +47,12 @@ module Data.Array.Accelerate.Array.Buffer (
 ) where
 
 
-import Data.Array.Accelerate.Error
-import Data.Array.Accelerate.Representation.Type
-import Data.Array.Accelerate.Type
-
 import Data.Array.Accelerate.Debug.Internal.Flags
 import Data.Array.Accelerate.Debug.Internal.Trace
+import Data.Array.Accelerate.Error
+import Data.Array.Accelerate.FFI.Memory
+import Data.Array.Accelerate.Representation.Type
+import Data.Array.Accelerate.Type
 
 import Control.Applicative
 import Data.Bits
@@ -64,7 +64,6 @@ import Foreign.Storable
 import Foreign.Marshal.Array                                        ( copyArray, peekArray )
 import Formatting                                                   hiding ( bytes )
 import Language.Haskell.TH.Extra                                    hiding ( Type )
-import Language.Haskell.TH.Syntax
 import System.IO.Unsafe
 import Prelude                                                      hiding ( mapM )
 
@@ -88,64 +87,7 @@ type Buffers e = Distribute Buffer e
 newtype MutableBuffer e = MutableBuffer (ForeignPtr e)
 type MutableBuffers e = Distribute MutableBuffer e
 
--- SEE: [HLS and GHC IDE]
---
-#ifndef __GHCIDE__
-
-foreign import ccall unsafe "accelerate_buffer_alloc" memoryAlloc :: Word64 -> IO (Ptr ())
-foreign import ccall unsafe "accelerate_buffer_byte_size" memoryByteSize :: Ptr () -> IO Word64
-foreign import ccall unsafe "accelerate_buffer_retain" memoryRetain :: Ptr () -> IO ()
-foreign import ccall unsafe "accelerate_buffer_release" memoryRelease :: Ptr () -> IO ()
-foreign import ccall unsafe "&accelerate_buffer_release" memoryReleaseRef :: FunPtr (Ptr () -> IO ())
-
-#else
-
-memoryAlloc :: Word64 -> IO (Ptr ())
-memoryAlloc = undefined
-
-memoryByteSize :: Ptr () -> IO Word64
-memoryByteSize = undefined
-
-memoryRetain :: Ptr () -> IO ()
-memoryRetain = undefined
-
-memoryRelease :: Ptr () -> IO ()
-memoryRelease = undefined
-
-memoryReleaseRef :: FunPtr (Ptr () -> IO ())
-memoryReleaseRef = undefined
-
-#endif
-
-
-#if defined(ACCELERATE_MEMORY_COUNTER) && !defined(__GHCIDE__)
-
-foreign import ccall unsafe "accelerate_memory_counter_reset" memoryCounterReset :: IO ()
-foreign import ccall unsafe "accelerate_memory_counter_total" memoryCounterTotal :: IO Word64
-foreign import ccall unsafe "accelerate_memory_counter_init" memoryCounterInit :: IO Word64
-foreign import ccall unsafe "accelerate_memory_counter_max" memoryCounterMax :: IO Word64
-
-#else
-
-memoryCounterReset :: IO ()
-memoryCounterReset = return ()
-
-#endif
-
-#if defined(__GHCIDE__)
-
-memoryCounterTotal :: IO Word64
-memoryCounterTotal = return 0
-
-memoryCounterInit :: IO Word64
-memoryCounterInit = return 0
-
-memoryCounterMax :: IO Word64
-memoryCounterMax = return 0
-
-#endif
-
-#if defined(ACCELERATE_MEMORY_COUNTER) || defined(__GHCIDE__)
+#if defined(ACCELERATE_MEMORY_COUNTER)
 
 memoryCounterReport :: IO ()
 memoryCounterReport = do
@@ -162,14 +104,6 @@ memoryCounterReport :: IO ()
 memoryCounterReport = putStrLn "MEMORY COUNTER DISABLED"
 
 #endif
-
---
--- SEE: [linking to .c files]
---
-runQ $ do
-  addForeignFilePath LangC "cbits/memory.c"
-  addForeignFilePath LangCxx "cbits/alloc.cpp"
-  return []
 
 data ScalarArrayDict a where
   ScalarArrayDict :: ( Buffers a ~ Buffer a, Storable a )

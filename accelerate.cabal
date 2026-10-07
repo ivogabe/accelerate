@@ -376,18 +376,30 @@ common lang
     cc-options: -mtune=native
     cxx-options: -mtune=native
 
+  if flag(memory-counter)
+    cpp-options:
+      -DACCELERATE_MEMORY_COUNTER
+
+-- Virtual package @system-cxx-std-lib@ is used to configure the system C++
+-- standard library.  In versions before GHC 10, @-Wunused-packages@ warns that
+-- the package is not used, but this warning should be ignored.
+common cxx-stdlib
+  build-depends:        system-cxx-std-lib == 1.0
+
 library ffi
-  import:               lang
+  import:               lang, cxx-stdlib
   hs-source-dirs:       src-ffi
 
   exposed-modules:
     Crypto.Hash.XKCP
+    Data.Array.Accelerate.FFI.Memory
 
   build-depends:
     , bytestring >= 0.11.5.3
 
   other-extensions:
     CApiFFI
+    CPP
     MagicHash
     UnboxedTuples
     UnliftedFFITypes
@@ -399,10 +411,18 @@ library ffi
     cbits
 
   c-sources:
+    cbits/memory.c
     cbits/xkcp/KeccakHash.c
     cbits/xkcp/KeccakSponge.c
     cbits/xkcp/SimpleFIPS202.c
     cbits/xkcp/KeccakP-1600-opt64.c
+
+  cxx-sources:
+    cbits/alloc.cpp
+
+  if flag(memory-counter)
+    cc-options:
+      -DACCELERATE_MEMORY_COUNTER
 
 library
   import:               lang
@@ -783,13 +803,6 @@ library
   if flag(bounds-checks)
     cpp-options:
         -DACCELERATE_BOUNDS_CHECKS
-
-  if flag(memory-counter)
-    cpp-options:
-        -DACCELERATE_MEMORY_COUNTER
-
-    cc-options:
-        -DACCELERATE_MEMORY_COUNTER
 
   -- if flag(unsafe-checks)
   --   cpp-options:
