@@ -29,7 +29,7 @@ import Data.Text.Lazy.Builder
 import Formatting
 
 #if ACCELERATE_DEBUG
-import Data.Array.Accelerate.Debug.Internal.Clock
+import Data.Array.Accelerate.FFI.Clock
 
 import Control.Applicative
 import Control.Monad.Trans                              ( liftIO )

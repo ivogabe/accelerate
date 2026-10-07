@@ -15,6 +15,8 @@
  * <https://github.com/corsis/clock/tree/0.5.1>
  */
 
+#include "clock.h"
+
 #if defined(__MACH__) && defined(__APPLE__)
 /*
  * macOS

@@ -31,7 +31,7 @@ import Data.Text.Lazy.Builder
 import Formatting
 
 #ifdef ACCELERATE_DEBUG
-import Data.Array.Accelerate.Debug.Internal.Clock
+import Data.Array.Accelerate.FFI.Clock
 import System.IO                                                    hiding ( stderr )
 import System.IO.Unsafe
 import qualified Data.Text.IO                                       as T

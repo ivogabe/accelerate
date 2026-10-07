@@ -392,6 +392,7 @@ library ffi
 
   exposed-modules:
     Crypto.Hash.XKCP
+    Data.Array.Accelerate.FFI.Clock
     Data.Array.Accelerate.FFI.Memory
 
   build-depends:
@@ -411,6 +412,7 @@ library ffi
     cbits
 
   c-sources:
+    cbits/clock.c
     cbits/memory.c
     cbits/xkcp/KeccakHash.c
     cbits/xkcp/KeccakSponge.c
@@ -611,7 +613,6 @@ library
         Data.Array.Accelerate.Classes.RealFloat
         Data.Array.Accelerate.Classes.RealFrac
         Data.Array.Accelerate.Classes.ToFloating
-        Data.Array.Accelerate.Debug.Internal.Clock
         Data.Array.Accelerate.Debug.Internal.Flags
         Data.Array.Accelerate.Debug.Internal.Graph
         Data.Array.Accelerate.Debug.Internal.Profile
