@@ -400,6 +400,7 @@ library ffi
     Data.Array.Accelerate.FFI.Clock
     Data.Array.Accelerate.FFI.Flags
     Data.Array.Accelerate.FFI.Memory
+    Data.Array.Accelerate.FFI.Monitoring
 
   build-depends:
     , bytestring >= 0.11.5.3
@@ -423,6 +424,7 @@ library ffi
     cbits/flags.c
     cbits/getopt_long.c
     cbits/memory.c
+    cbits/monitoring.c
     cbits/xkcp/KeccakHash.c
     cbits/xkcp/KeccakSponge.c
     cbits/xkcp/SimpleFIPS202.c
