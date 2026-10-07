@@ -53,8 +53,8 @@ import qualified Data.HashMap.Strict                                as Map
 import Control.Monad
 #endif
 
-import Data.Atomic                                                  ( Atomic )
-import qualified Data.Atomic                                        as Atomic
+import Data.Array.Accelerate.FFI.Atomic                             ( Atomic )
+import qualified Data.Array.Accelerate.FFI.Atomic                   as Atomic
 
 import Data.Int
 import Language.Haskell.TH.Syntax

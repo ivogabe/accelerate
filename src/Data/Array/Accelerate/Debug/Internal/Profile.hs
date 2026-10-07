@@ -1,6 +1,5 @@
 {-# LANGUAGE CPP             #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -fobject-code #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Debug.Internal.Profile
@@ -33,8 +32,8 @@ import Control.Monad
 import qualified Data.Array.Accelerate.Debug.Internal.Tracy         as Tracy
 #endif
 
-import Data.Atomic                                                  ( Atomic )
-import qualified Data.Atomic as Atomic
+import Data.Array.Accelerate.FFI.Atomic                             ( Atomic )
+import qualified Data.Array.Accelerate.FFI.Atomic as Atomic
 
 import Data.Char
 import Foreign.C.String

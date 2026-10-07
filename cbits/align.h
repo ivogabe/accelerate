@@ -1,5 +1,5 @@
 /*
- * Module      : Data.Atomic.Align
+ * Module      : Data.Array.Accelerate.FFI.Memory
  * Copyright   : [2021] The Accelerate Team
  * License     : BSD3
  *

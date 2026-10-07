@@ -392,6 +392,7 @@ library ffi
 
   exposed-modules:
     Crypto.Hash.XKCP
+    Data.Array.Accelerate.FFI.Atomic
     Data.Array.Accelerate.FFI.Clock
     Data.Array.Accelerate.FFI.Memory
 
@@ -412,6 +413,7 @@ library ffi
     cbits
 
   c-sources:
+    cbits/atomic.c
     cbits/clock.c
     cbits/memory.c
     cbits/xkcp/KeccakHash.c
@@ -641,7 +643,6 @@ library
         Data.Array.Accelerate.Trafo.Operation.Bounds.Algebra
         Data.Array.Accelerate.Trafo.Operation.Bounds.Environment
         Data.Array.Accelerate.Trafo.Shrink
-        Data.Atomic
 
         -- Data.Array.Accelerate.Array.Lifted
 
