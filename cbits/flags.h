@@ -1,5 +1,5 @@
 /*
- * Module      : Data.Array.Accelerate.Debug.Flags
+ * Module      : Data.Array.Accelerate.FFI.Flags
  * Copyright   : [2017..2020] The Accelerate Team
  * License     : BSD3
  *

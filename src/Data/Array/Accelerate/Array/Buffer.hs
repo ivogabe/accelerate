@@ -47,9 +47,9 @@ module Data.Array.Accelerate.Array.Buffer (
 ) where
 
 
-import Data.Array.Accelerate.Debug.Internal.Flags
 import Data.Array.Accelerate.Debug.Internal.Trace
 import Data.Array.Accelerate.Error
+import qualified Data.Array.Accelerate.FFI.Flags                    as Flags
 import Data.Array.Accelerate.FFI.Memory
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Type
@@ -268,7 +268,7 @@ allocateArray !size = internalCheck "size must be >= 0" (size >= 0) $ do
 
   ptr <- memoryAlloc $ fromIntegral bytes
   foreignPtr <- newForeignPtr memoryReleaseRef ptr
-  traceM dump_gc ("gc: allocated new host array (size=" % int % ", ptr=" % build % ")") bytes ptr
+  traceM Flags.dump_gc ("gc: allocated new host array (size=" % int % ", ptr=" % build % ")") bytes ptr
   return $ castForeignPtr foreignPtr
 
 -- Once per 1GB of allocations, perform garbage collection.

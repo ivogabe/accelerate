@@ -21,8 +21,8 @@ module Data.Array.Accelerate.Debug.Internal.Timed (
 
 ) where
 
-import Data.Array.Accelerate.Debug.Internal.Flags
 import Data.Array.Accelerate.Debug.Internal.Trace
+import Data.Array.Accelerate.FFI.Flags                  ( Flag )
 
 import Control.Monad.Trans                              ( MonadIO )
 import Data.Text.Lazy.Builder
@@ -30,6 +30,7 @@ import Formatting
 
 #if ACCELERATE_DEBUG
 import Data.Array.Accelerate.FFI.Clock
+import qualified Data.Array.Accelerate.FFI.Flags        as Flags
 
 import Control.Applicative
 import Control.Monad.Trans                              ( liftIO )
@@ -52,10 +53,10 @@ import GHC.Word
 timed :: MonadIO m => Flag -> Format Builder (Double -> Double -> Builder) -> m a -> m a
 #ifdef ACCELERATE_DEBUG
 timed f fmt action = do
-  enabled <- liftIO $ getFlag f
+  enabled <- liftIO $ Flags.getFlag f
   if enabled
     then do
-      with_gc <- liftIO $ (&&) <$> getRTSStatsEnabled <*> getFlag verbose
+      with_gc <- liftIO $ (&&) <$> getRTSStatsEnabled <*> Flags.getFlag Flags.verbose
       if with_gc
         then timed_gc    fmt action
         else timed_simpl fmt action

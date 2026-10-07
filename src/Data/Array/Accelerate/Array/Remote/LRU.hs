@@ -35,8 +35,8 @@ import Data.Array.Accelerate.Array.Remote.Table                     ( StableBuff
 import Data.Array.Accelerate.Error                                  ( internalError )
 import Data.Array.Accelerate.Type
 import qualified Data.Array.Accelerate.Array.Remote.Table           as Basic
-import qualified Data.Array.Accelerate.Debug.Internal.Flags         as Debug
 import qualified Data.Array.Accelerate.Debug.Internal.Trace         as Debug
+import qualified Data.Array.Accelerate.FFI.Flags                    as Flags
 
 import Control.Concurrent.MVar                                      ( MVar, newMVar, withMVar, takeMVar, putMVar, mkWeakMVar )
 import Control.Monad                                                ( filterM )
@@ -435,5 +435,5 @@ trace msg next = message builder msg >> next
 
 {-# INLINE message #-}
 message :: MonadIO m => Format (m ()) a -> a
-message fmt = Debug.traceM Debug.dump_gc ("gc: " % fmt)
+message fmt = Debug.traceM Flags.dump_gc ("gc: " % fmt)
 

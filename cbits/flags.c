@@ -1,5 +1,5 @@
 /*
- * Module      : Data.Array.Accelerate.Debug.Flags
+ * Module      : Data.Array.Accelerate.FFI.Flags
  * Copyright   : [2017..2020] The Accelerate Team
  * License     : BSD3
  *
@@ -8,7 +8,7 @@
  * Portability : non-portable (GHC extensions)
  *
  * Option parsing for debug flags. This is a translation of the module
- * Data.Array.Accelerate.Debug.Flags into C, so that we can implement it at
+ * Data.Array.Accelerate.FFI.Flags into C, so that we can implement it at
  * program initialisation.
  *
  * This processes flags between +ACC ... -ACC on the command line. The
@@ -59,8 +59,8 @@ enum {
  * - The -f enablers and -f disablers lists must be exactly the same, including
  *   the order.
  * - The order of the options in __flags_t in flags.h must also be the same.
- * - Data.Array.Accelerate.Debug.Internal.Flags contains 2 blocks of code
- *   hard-coding offsets into this options list.
+ * - Data.Array.Accelerate.FFI.Flags contains 2 blocks of code hard-coding
+ *   offsets into this options list.
  * - Some metrics about this options list used in the bit hacks are at the top
  *   of this file (def_enabled_opts_bitfield etc.).
  */

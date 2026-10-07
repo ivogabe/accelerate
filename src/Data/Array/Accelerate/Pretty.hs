@@ -47,8 +47,8 @@ import qualified System.Console.Terminal.Size                       as Term
 {- TODO WALL: DEAD CODE
 #if ACCELERATE_DEBUG
 import Control.DeepSeq
-import Data.Array.Accelerate.Debug.Internal.Flags
 import Data.Array.Accelerate.Debug.Internal.Stats
+import qualified Data.Array.Accelerate.FFI.Flags as Flags
 #endif
 -}
 
@@ -153,7 +153,7 @@ extractOpenAcc (OpenAcc pacc) = pacc
 withSimplStats :: String -> String
 #ifdef ACCELERATE_DEBUG
 withSimplStats x = unsafePerformIO $ do
-  when dump_simpl_stats $ x `deepseq` dumpSimplStats
+  Flags.when Flags.dump_simpl_stats $ x `deepseq` dumpSimplStats
   return x
 #else
 withSimplStats x = x

@@ -48,8 +48,8 @@
 -- import Data.Array.Accelerate.Analysis.Match
 -- import Data.Array.Accelerate.Type
 
--- import Data.Array.Accelerate.Debug.Internal.Flags                   ( array_fusion )
 -- import qualified Data.Array.Accelerate.Debug.Internal.Stats         as Stats
+-- import qualified Data.Array.Accelerate.FFI.Flags                    as Flags
 -- #ifdef ACCELERATE_DEBUG
 -- import System.IO.Unsafe -- for debugging
 -- #endif
@@ -420,7 +420,7 @@
 --     --
 --     unembed :: HasCallStack => Embed OpenAcc aenv arrs -> Embed OpenAcc aenv arrs
 --     unembed x
---       | array_fusion `member` options config = x
+--       | Flags.array_fusion `member` options config = x
 --       | Embed env cc <- x
 --       , pacc         <- compute cc
 --       = case avarsOut extractOpenAcc pacc of

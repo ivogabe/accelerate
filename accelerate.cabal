@@ -376,6 +376,10 @@ common lang
     cc-options: -mtune=native
     cxx-options: -mtune=native
 
+  if flag(debug)
+    cpp-options:
+      -DACCELERATE_DEBUG
+
   if flag(memory-counter)
     cpp-options:
       -DACCELERATE_MEMORY_COUNTER
@@ -394,6 +398,7 @@ library ffi
     Crypto.Hash.XKCP
     Data.Array.Accelerate.FFI.Atomic
     Data.Array.Accelerate.FFI.Clock
+    Data.Array.Accelerate.FFI.Flags
     Data.Array.Accelerate.FFI.Memory
 
   build-depends:
@@ -415,6 +420,8 @@ library ffi
   c-sources:
     cbits/atomic.c
     cbits/clock.c
+    cbits/flags.c
+    cbits/getopt_long.c
     cbits/memory.c
     cbits/xkcp/KeccakHash.c
     cbits/xkcp/KeccakSponge.c
@@ -423,6 +430,10 @@ library ffi
 
   cxx-sources:
     cbits/alloc.cpp
+
+  if flag(debug)
+    cc-options:
+      -DACCELERATE_DEBUG
 
   if flag(memory-counter)
     cc-options:
@@ -445,9 +456,7 @@ library
         , base-orphans                  >= 0.3
         , containers                    >= 0.6.7
         , deepseq                       >= 1.4.8
-        , directory                     >= 1.3.7.1
         , double-conversion             >= 2.0
-        , filepath                      >= 1.4.2.2
         , formatting                    >= 7.0
         , half                          >= 0.3
         , hashable                      >= 1.1
@@ -615,7 +624,6 @@ library
         Data.Array.Accelerate.Classes.RealFloat
         Data.Array.Accelerate.Classes.RealFrac
         Data.Array.Accelerate.Classes.ToFloating
-        Data.Array.Accelerate.Debug.Internal.Flags
         Data.Array.Accelerate.Debug.Internal.Graph
         Data.Array.Accelerate.Debug.Internal.Profile
         Data.Array.Accelerate.Debug.Internal.Stats
@@ -752,13 +760,6 @@ library
         -optcxx=-O3
         -optcxx=-Wall
         -optcxx=-std=c++20
-
-  if flag(debug)
-    cc-options:
-        -DACCELERATE_DEBUG
-
-    cpp-options:
-        -DACCELERATE_DEBUG
 
   -- Export the tracy flag via a header
   -- so dependent libraries can use it

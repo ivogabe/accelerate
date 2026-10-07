@@ -38,9 +38,9 @@ import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Var
 import Data.Array.Accelerate.Analysis.Match
-import Data.Array.Accelerate.Debug.Internal.Flags                   as Debug
 import Data.Array.Accelerate.Debug.Internal.Trace                   as Debug
 import Data.Array.Accelerate.Error
+import qualified Data.Array.Accelerate.FFI.Flags                    as Flags
 import Data.Array.Accelerate.Representation.Array                   ( Array, ArraysR, ArrayR(..), formatArraysR )
 import Data.Array.Accelerate.Representation.Ground                  ( GFunctionR(..), LoweredAfun, lowerArraysR, loweredAfunIsBody )
 import Data.Array.Accelerate.Representation.Shape                   hiding ( zip )
@@ -569,7 +569,7 @@ convertSharingBoundary config alyt aenv shr = cvt
 convertFun :: (HasCallStack, Function f) => f -> AST.Fun () (EltFunctionR f)
 convertFun
   = convertFunWith
-  $ defaultOptions { options = options defaultOptions \\ [seq_sharing, acc_sharing] }
+  $ defaultOptions { options = options defaultOptions \\ [Flags.seq_sharing, Flags.acc_sharing] }
 
 convertFunWith :: (HasCallStack, Function f) => Config -> f -> AST.Fun () (EltFunctionR f)
 convertFunWith config = convertOpenFun config EmptyLayout
@@ -637,7 +637,7 @@ convertExp
     -> AST.Exp () (EltR e)
 convertExp
   = convertExpWith
-  $ defaultOptions { options = options defaultOptions \\ [seq_sharing, acc_sharing] }
+  $ defaultOptions { options = options defaultOptions \\ [Flags.seq_sharing, Flags.acc_sharing] }
 
 convertExpWith
       :: HasCallStack
@@ -1478,7 +1478,7 @@ makeOccMapSharingAcc config accOccMap = traverseAcc
                           -> IO (UnscopedAcc arrs, Int)
               reconstruct newAcc
                 = case heightIfRepeatedOccurrence of
-                    Just height | acc_sharing `member` options config
+                    Just height | Flags.acc_sharing `member` options config
                       -> return (UnscopedAcc [] (AvarSharing (StableNameHeight sn height) (Smart.arraysR pacc)), height)
                     _ -> do (acc, height) <- newAcc
                             return (UnscopedAcc [] (AccSharing (StableNameHeight sn height) acc), height)
@@ -1837,7 +1837,7 @@ makeOccMapSharingExp config accOccMap expOccMap = travE
                           -> IO (UnscopedExp a, Int)
               reconstruct newExp
                 = case heightIfRepeatedOccurrence of
-                    Just height | exp_sharing `member` options config
+                    Just height | Flags.exp_sharing `member` options config
                       -> return (UnscopedExp [] (VarSharing (StableNameHeight sn height) (typeR pexp)), height)
                     _ -> do (exp, height) <- newExp
                             return (UnscopedExp [] (ExpSharing (StableNameHeight sn height) exp), height)
@@ -2566,7 +2566,7 @@ determineScopesSharingAcc config accOccMap = scopesAcc
             (ScopedAcc [] (AvarSharing sn tp), thisCount)
         reconstruct newAcc subCount
               -- shared subtree => replace by a sharing variable (if 'recoverAccSharing' enabled)
-          | accOccCount > 1 && acc_sharing `member` options config
+          | accOccCount > 1 && Flags.acc_sharing `member` options config
           = let allCount = (StableSharingAcc sn sharingAcc `insertAccNode` newCount)
             in
             tracePure ("SHARED" <> completed) (fromString (show allCount))
@@ -2899,7 +2899,7 @@ determineScopesSharingExp config accOccMap expOccMap = scopesExp
             (ScopedExp [] (VarSharing sn tp), thisCount)
         reconstruct newExp subCount
               -- shared subtree => replace by a sharing variable (if 'recoverExpSharing' enabled)
-          | expOccCount > 1 && exp_sharing `member` options config
+          | expOccCount > 1 && Flags.exp_sharing `member` options config
           = let allCount = StableSharingExp sn sharingExp `insertExpNode` newCount
             in
             tracePure ("SHARED" <> completed) (fromString (show allCount))
@@ -3179,11 +3179,11 @@ recoverSharingSeq config seq
 -- ---------
 
 traceLine :: Builder -> Builder -> IO ()
-traceLine = Debug.traceM Debug.dump_sharing (builder % ": " % builder)
+traceLine = Debug.traceM Flags.dump_sharing (builder % ": " % builder)
 
 traceChunk :: Builder -> Builder -> IO ()
-traceChunk = Debug.traceM Debug.dump_sharing (builder % ":\n" % indented 4 builder)
+traceChunk = Debug.traceM Flags.dump_sharing (builder % ":\n" % indented 4 builder)
 
 tracePure :: Builder -> Builder -> a -> a
-tracePure header msg = Debug.trace Debug.dump_sharing (bformat (builder % ": " % builder) header msg)
+tracePure header msg = Debug.trace Flags.dump_sharing (bformat (builder % ": " % builder) header msg)
 
