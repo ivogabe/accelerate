@@ -200,74 +200,74 @@ flag debug
   default:              False
   description:
     Enable debug tracing messages.
-    .
+
     With debugging enabled, applications will read the following options from
     the environment variable @ACCELERATE_FLAGS@, and via the command-line as:
-    .
+
       > ./program +ACC ... -ACC
-    .
+
     Note that a backend may not implement (or be applicable to) all options.
-    .
+
     The following flags control phases of the compiler. The are enabled with
     @-f\<flag\>@ and can be reversed with @-fno-\<flag\>@:
-    .
+
       * @acc-sharing@: Enable sharing recovery of array expressions (True).
-    .
+
       * @exp-sharing@: Enable sharing recovery of scalar expressions (True).
-    .
+
       * @fusion@: Enable array fusion (True).
-    .
+
       * @inplace@: Enable in-place array updates (True).
-    .
+
       * @force-recomp@: Force recompilation of array programs (False).
-    .
+
       * @fast-math@: Allow algebraically equivalent transformations which may
         change floating point results (e.g., reassociate) (True).
-    .
+
       * @fast-permute-const@: Allow non-atomic `permute const` for product types
         (True).
-    .
+
     The following options control debug message output, and are enabled with
     @-d\<flag\>@.
-    .
+
       * @debug@: Include debug symbols in the generated and compiled kernels.
-    .
+
       * @verbose@: Be extra chatty.
-    .
+
       * @dump-phases@: Print timing information about each phase of the compiler.
         Enable GC stats (@+RTS -t@ or otherwise) for memory usage information.
-    .
+
       * @dump-sharing@: Print information related to sharing recovery.
-    .
+
       * @dump-simpl-stats@: Print statistics related to fusion & simplification.
-    .
+
       * @dump-simpl-iterations@: Print a summary after each simplifier iteration.
-    .
+
       * @dump-vectorisation@: Print information related to the vectoriser.
-    .
+
       * @dump-dot@: Generate a representation of the program graph in Graphviz
         DOT format.
-    .
+
       * @dump-simpl-dot@: Generate a more compact representation of the program
         graph in Graphviz DOT format. In particular, scalar expressions are
         elided.
-    .
+
       * @dump-gc@: Print information related to the Accelerate garbage
         collector.
-    .
+
       * @dump-gc-stats@: Print aggregate garbage collection information at the
         end of program execution.
-    .
+
       * @dump-cc@: Print information related to kernel code
         generation/compilation. Print the generated code if @verbose@.
-    .
+
       * @dump-ld@: Print information related to runtime linking.
-    .
+
       * @dump-asm@: Print information related to kernel assembly. Print the
         assembled code if @verbose@.
-    .
+
       * @dump-exec@: Print information related to program execution.
-    .
+
       * @dump-sched@: Print information related to execution scheduling.
 
 flag tracy
@@ -277,29 +277,29 @@ flag tracy
     Enable kernel profiling using Tracy. This flag requires @+debug@ to also be
     set. Note: currently only works with @accelerate-llvm-native@; for PTX
     profiling, use Nvidia Nsight directly instead.
-    .
+
     The executables 'tracy' (GUI) and 'tracy-capture' (command line) will be
     built to collect and view profiling data from supported backends. This
     requires several external dependencies:
-    .
+
       * cmake
-    .
+
       * pkg-config
-    .
+
       * freetype2
-    .
+
       * glfw3
-    .
+
       * gtk3 (linux only)
-    .
+
       * TBB (should be part of your compiler toolchain)
-    .
+
     For example on Debian/Ubuntu you can install all of these via:
-    .
+
       > sudo apt install cmake pkg-config libfreetype-dev libglfw3-dev libgtk-3-dev libtbb-dev
-    .
+
     Or on macOS via:
-    .
+
       > brew install cmake pkg-config freetype glfw
 
 flag bounds-checks
