@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Issues.Issue436
 -- Copyright   : [2009..2020] The Accelerate Team
@@ -18,6 +19,10 @@ module Data.Array.Accelerate.Test.NoFib.Issues.Issue436 (
 
 import Data.Array.Accelerate                              as A
 import Data.Array.Accelerate.Test.NoFib.Base
+
+#ifdef ACCELERATE_INTERNAL_CHECKS
+import Data.Typeable
+#endif
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -46,7 +51,11 @@ e2 = ( fromList (Z :. 15) [True,False,True,False,True,False,True,False,True,Fals
      , fromList (Z :. 5) [3,3,3,3,3]
      )
 
-test :: (Shape sh, Elt e)
+test :: (
+#ifdef ACCELERATE_INTERNAL_CHECKS
+          Typeable sh,
+#endif
+          Shape sh, Elt e)
      => Int
      -> Acc (Array (sh:.Int) e)
      -> Acc (Vector e, Array sh Int)
