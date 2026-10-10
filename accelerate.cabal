@@ -462,6 +462,7 @@ library
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
         Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage
         Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.DirectionDefaults
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Lower
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph

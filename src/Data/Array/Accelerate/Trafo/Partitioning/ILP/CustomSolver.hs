@@ -4,6 +4,7 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver
     solveFeasible,
     solveOptimal,
     solveOptimalWithBinaryDefaults,
+    solveOptimalUsing,
   )
 where
 
