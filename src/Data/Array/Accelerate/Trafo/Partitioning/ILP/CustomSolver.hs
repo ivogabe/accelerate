@@ -3,9 +3,11 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver
     CompletionError (..),
     solveFeasible,
     solveOptimal,
+    solveOptimalWithBinaryDefaults,
   )
 where
 
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.BinaryDefaults (applyBinaryDefaults)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Branching (greedyFusionLeaf)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (InplacePath)
@@ -363,14 +365,26 @@ fixedBoundAssignments bounds =
     _ -> []
 
 solveOptimal :: (Problem -> ILP) -> S.Set Var -> Problem -> Either CompletionError FeasibleSolution
-solveOptimal lowerProblem originalVariables initialProblem = do
+solveOptimal = solveOptimalUsing Just
+
+solveOptimalWithBinaryDefaults :: (Problem -> ILP) -> S.Set Var -> Problem -> Either CompletionError FeasibleSolution
+solveOptimalWithBinaryDefaults lowerProblem = solveOptimalUsing (applyBinaryDefaults lowerProblem) lowerProblem
+
+solveOptimalUsing :: (Problem -> Maybe Problem) -> (Problem -> ILP) -> S.Set Var -> Problem -> Either CompletionError FeasibleSolution
+solveOptimalUsing prepare lowerProblem originalVariables initialProblem = do
   let ILP _ _ _ bounds _ = lowerProblem initialProblem
   boundedProblem <-
     case assumeAll (fixedBoundAssignments bounds) initialProblem of
       Left _ -> Left NoFeasibleSolution
       Right problem -> Right problem
-  initialCandidate <- solveFeasible lowerProblem originalVariables boundedProblem
-  search initialCandidate boundedProblem
+
+  preparedProblem <- case prepare boundedProblem of
+    Nothing -> Left NoFeasibleSolution
+    Just problem -> Right problem
+
+  initialCandidate <- solveFeasible lowerProblem originalVariables preparedProblem
+
+  search initialCandidate preparedProblem
   where
     search :: FeasibleSolution -> Problem -> Either CompletionError FeasibleSolution
     search incumbent problem
