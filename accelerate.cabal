@@ -460,6 +460,7 @@ library
         Data.Array.Accelerate.Trafo.Partitioning.ILP.BinaryDefaults
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Branching
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.Components
         Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage
         Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver
         Data.Array.Accelerate.Trafo.Partitioning.ILP.DirectionDefaults
