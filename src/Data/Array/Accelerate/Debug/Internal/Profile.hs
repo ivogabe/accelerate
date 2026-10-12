@@ -29,9 +29,9 @@ module Data.Array.Accelerate.Debug.Internal.Profile (
 
 #ifdef ACCELERATE_TRACY
 import Control.Monad
-import qualified Data.Array.Accelerate.Debug.Internal.Tracy         as Tracy
 import qualified Data.Array.Accelerate.FFI.Atomic                   as Atomic
 import qualified Data.Array.Accelerate.FFI.Monitoring               as Mon
+import qualified Data.Array.Accelerate.FFI.Tracy                    as Tracy
 #endif
 
 import Data.Char

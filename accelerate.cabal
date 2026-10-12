@@ -134,53 +134,20 @@ extra-source-files:
     cbits/*.c
     cbits/*.cpp
     cbits/*.h
+    -- ParlayLib
+    cbits/parlaylib/include/**/*.h
+    -- Tracy
+    cbits/tracy/public/**/*.cpp
+    cbits/tracy/public/**/*.h
+    cbits/tracy/public/**/*.hpp
+    -- Tracy enable/disable
+    cbits/flag-no-tracy/flag_tracy.h
+    cbits/flag-tracy/flag_tracy.h
     -- XKCP
     cbits/xkcp/*.c
     cbits/xkcp/*.h
-    cbits/xkcp/*.macros
     cbits/xkcp/*.inc
-    -- TRACY
-    -- These are referenced directly using the FFI
-    -- cbits/tracy/public/*.cpp
-    -- cbits/tracy/public/tracy/*.h
-    -- cbits/tracy/public/tracy/*.hpp
-    -- cbits/tracy/public/common/*.h
-    -- cbits/tracy/public/common/*.hpp
-    -- cbits/tracy/public/common/*.cpp
-    -- cbits/tracy/public/client/*.h
-    -- cbits/tracy/public/client/*.hpp
-    -- cbits/tracy/public/client/*.cpp
-    -- These are used to build Tracy's client tools in Setup.hs
-    cbits/tracy/cmake/*.cmake
-    cbits/tracy/cmake/*.patch
-    cbits/tracy/capture/CMakeLists.txt
-    cbits/tracy/profiler/CMakeLists.txt
-    -- Used by Tracy's client tools
-    cbits/tracy/capture/src/*.cpp
-    cbits/tracy/dtl/*.hpp
-    cbits/tracy/getopt/*.c
-    cbits/tracy/getopt/*.h
-    cbits/tracy/profiler/src/*.cpp
-    cbits/tracy/profiler/src/*.c
-    cbits/tracy/profiler/src/*.h
-    cbits/tracy/profiler/src/*.hpp
-    cbits/tracy/profiler/src/font/*.hpp
-    cbits/tracy/profiler/src/profiler/*.cpp
-    cbits/tracy/profiler/src/profiler/*.h
-    cbits/tracy/profiler/src/profiler/*.hpp
-    cbits/tracy/public/libbacktrace/*.cpp
-    cbits/tracy/public/libbacktrace/*.h
-    cbits/tracy/public/libbacktrace/*.hpp
-    cbits/tracy/server/*.cpp
-    cbits/tracy/server/*.h
-    cbits/tracy/server/*.hpp
-    -- These are used to disable/enable Tracy
-    cbits/flag-no-tracy/flag_tracy.h
-    cbits/flag-tracy/flag_tracy.h
-    -- ParlayLib
-    cbits/parlaylib/include/parlay/*.h
-    cbits/parlaylib/include/parlay/internal/*.h
-    cbits/parlaylib/include/parlay/internal/concurrency/*.h
+    cbits/xkcp/*.macros
 
 extra-doc-files:
     images/*.png
@@ -384,6 +351,21 @@ common lang
     cpp-options:
       -DACCELERATE_MEMORY_COUNTER
 
+  if flag(tracy)
+    cpp-options:
+      -DACCELERATE_TRACY
+
+    -- Accelerate's backends may use dynamic linking to load compiled kernels
+    -- that directly call Tracy's functions. In that case these symbols need to
+    -- be available in the global namespace. @-rdynamic@ implies
+    -- @-Wl,--export-dynamic@, which adds every symbol to the dynamic symbol
+    -- table. There's also a @--export-dynamic-symbol=glob@ and a
+    -- @--export-dynamic-symbol-list=file@ but these seem to be less portable
+    -- between compilers.
+    if !os(windows)
+      ld-options:
+        -rdynamic
+
 -- Virtual package @system-cxx-std-lib@ is used to configure the system C++
 -- standard library.  In versions before GHC 10, @-Wunused-packages@ warns that
 -- the package is not used, but this warning should be ignored.
@@ -401,6 +383,7 @@ library ffi
     Data.Array.Accelerate.FFI.Flags
     Data.Array.Accelerate.FFI.Memory
     Data.Array.Accelerate.FFI.Monitoring
+    Data.Array.Accelerate.FFI.Tracy
 
   build-depends:
     , bytestring >= 0.11.5.3
@@ -432,6 +415,7 @@ library ffi
 
   cxx-sources:
     cbits/alloc.cpp
+    cbits/tracy/public/TracyClient.cpp
 
   if flag(debug)
     cc-options:
@@ -440,6 +424,29 @@ library ffi
   if flag(memory-counter)
     cc-options:
       -DACCELERATE_MEMORY_COUNTER
+
+  if flag(tracy)
+    if !flag(debug)
+      build-depends: accelerate-tracy-flag-depends-on-debug-flag < 0
+      -- buildable: False  -- this suppresses any other error output
+
+    cc-options:
+      -DACCELERATE_TRACY
+      -DTRACY_ENABLE
+      -DTRACY_NO_SAMPLING
+
+    cxx-options:
+      -DTRACY_ENABLE
+      -DTRACY_NO_SAMPLING
+
+  -- Export the tracy flag via a header so dependent libraries can use it
+  -- without having to redeclare the flag.
+  if flag(tracy)
+    include-dirs: cbits/flag-tracy
+    install-includes: flag_tracy.h
+  else
+    include-dirs: cbits/flag-no-tracy
+    install-includes: flag_tracy.h
 
 library
   import:               lang
@@ -631,7 +638,6 @@ library
         Data.Array.Accelerate.Debug.Internal.Stats
         Data.Array.Accelerate.Debug.Internal.Timed
         Data.Array.Accelerate.Debug.Internal.Trace
-        Data.Array.Accelerate.Debug.Internal.Tracy
         Data.Array.Accelerate.Language
         Data.Array.Accelerate.Lift
         Data.Array.Accelerate.Orphans
@@ -762,48 +768,6 @@ library
         -optcxx=-O3
         -optcxx=-Wall
         -optcxx=-std=c++20
-
-  -- Export the tracy flag via a header
-  -- so dependent libraries can use it
-  -- without having to redeclare the flag.
-  if flag(tracy)
-    include-dirs: cbits/flag-tracy
-    install-includes: flag_tracy.h
-  else
-    include-dirs: cbits/flag-no-tracy
-    install-includes: flag_tracy.h
-
-  if flag(tracy)
-    if !flag(debug)
-      build-depends: accelerate-tracy-flag-depends-on-debug-flag < 0
-      -- buildable: False  -- this suppresses any other error output
-
-    cc-options:
-        -DACCELERATE_TRACY
-
-    cpp-options:
-        -DACCELERATE_TRACY
-        -DTRACY_ENABLE
-        -DTRACY_NO_SAMPLING
-
-    cxx-options:
-        -DTRACY_ENABLE
-        -DTRACY_NO_SAMPLING
-
-    ghc-options:
-        -optcxx=-DTRACY_ENABLE
-        -optcxx=-DTRACY_NO_SAMPLING
-
-    -- Accelerate's backends may use dynamic linking to load compiled kernels
-    -- that directly call Tracy's functions. In that case these symbols need to
-    -- be available in the global namespace. @-rdynamic@ implies
-    -- @-Wl,--export-dynamic@, which adds every symbol to the dynamic symbol
-    -- table. There's also a @--export-dynamic-symbol=glob@ and a
-    -- @--export-dynamic-symbol-list=file@ but these seem to be less portable
-    -- between compilers.
-    if !os(windows)
-      ld-options:
-        -rdynamic
 
   if flag(bounds-checks)
     cpp-options:
