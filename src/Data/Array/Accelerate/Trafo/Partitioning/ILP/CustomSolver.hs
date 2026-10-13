@@ -403,9 +403,12 @@ solveOptimalUsing prepare lowerProblem originalVariables initialProblem = do
 
     searchChildren :: FeasibleSolution -> [Problem] -> Either CompletionError FeasibleSolution
     searchChildren incumbent [] = Right incumbent
-    searchChildren incumbent (child : children) = do
-      improvedIncumbent <- search incumbent child
-      searchChildren improvedIncumbent children
+    searchChildren incumbent (child : children) =
+      case prepare child of
+        Nothing -> searchChildren incumbent children
+        Just preparedChild -> do
+          improvedIncumbent <- search incumbent preparedChild
+          searchChildren improvedIncumbent children
 
     completeLeaf :: FeasibleSolution -> Problem -> Either CompletionError FeasibleSolution
     completeLeaf incumbent problem =
