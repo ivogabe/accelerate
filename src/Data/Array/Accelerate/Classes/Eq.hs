@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP             #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
@@ -13,7 +14,13 @@
 
 module Data.Array.Accelerate.Classes.Eq (
 
-  Bool(..), pattern True_, pattern False_,
+  Bool(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data True_, data False_,
+#else
+  pattern True_, pattern False_,
+#endif
+
   Eq(..),
   (&&), (&&!),
   (||), (||!),

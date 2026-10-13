@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP             #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns    #-}
@@ -13,7 +14,12 @@
 
 module Data.Array.Accelerate.Pattern.Either (
 
-  Either, pattern Left_, pattern Right_,
+  Either,
+#if __GLASGOW_HASKELL__ >= 914
+  data Left_, data Right_,
+#else
+  pattern Left_, pattern Right_,
+#endif
 
 ) where
 

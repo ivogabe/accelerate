@@ -15,6 +15,23 @@
 
 module Data.Array.Accelerate.Pattern (
 
+#if __GLASGOW_HASKELL__ >= 914
+
+  data Pattern,
+#ifndef __GHCIDE__
+  data T2,  data T3,  data T4,  data T5,  data T6,
+  data T7,  data T8,  data T9,  data T10, data T11,
+  data T12, data T13, data T14, data T15, data T16,
+
+  data Z_, data Ix, data (::.), data All_, data Any_,
+  data I0, data I1, data I2, data I3, data I4,
+  data I5, data I6, data I7, data I8, data I9,
+
+  data V2, data V3, data V4, data V8, data V16,
+#endif
+
+#else
+
   pattern Pattern,
 #ifndef __GHCIDE__
   pattern T2,  pattern T3,  pattern T4,  pattern T5,  pattern T6,
@@ -27,6 +44,9 @@ module Data.Array.Accelerate.Pattern (
 
   pattern V2, pattern V3, pattern V4, pattern V8, pattern V16,
 #endif
+
+#endif
+
 ) where
 
 import Data.Array.Accelerate.AST.Idx

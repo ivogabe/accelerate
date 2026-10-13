@@ -814,14 +814,15 @@ convertSharingExp config lyt alyt env aenv exp@(ScopedExp lams _) = cvt exp
       = AST.Let lhs s $ nested (expVars (value weakenId)) (over (mapped . _2) (weakenE (weakenWithLHS lhs)) es)
       where
         nested :: HasCallStack => AST.OpenExp env' aenv' a -> [(TagR a, AST.OpenExp env' aenv' b)] -> AST.OpenExp env' aenv' b
-        nested _ [(_,r)] = r
-        nested s rs      =
+        nested _ [(_,r)]  = r
+        nested s rs@((l,_):_) =
           let groups = NE.groupBy (eqT `on` fst) rs
               tags   = map (firstT . fst . NE.head) groups
-              e      = prjT (fst (head rs)) s
+              e      = prjT l s
               rhs    = map (nested s . map (over _1 ignore) . NE.toList) groups
           in
           AST.Case e (zip tags rhs) Nothing
+        nested _ []       = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
         -- Extract the variable representing this particular tag from the
         -- scrutinee. This is safe because we let-bind the argument first.

@@ -26,7 +26,8 @@ import Data.Array.Accelerate.Type
 
 import Control.Monad
 import Data.Char
-import Data.List                                                    ( (\\), foldl' )
+import Data.List                                                    ( (\\) )
+import qualified Data.List                                          as List
 import Language.Haskell.TH.Extra                                    hiding ( Exp, Match, match )
 import Numeric
 import Text.Printf
@@ -129,7 +130,7 @@ mkConP tn' tvs' con' = do
                 (map (`plainInvisTV` specifiedSpec) tvs)
                 (cxt (map (\t -> [t| Elt $(varT t) |]) tvs))
                 (foldr (\t ts -> [t| $t -> $ts |])
-                       [t| Exp $(foldl' appT (conT tn) (map varT tvs)) |]
+                       [t| Exp $(List.foldl' appT (conT tn) (map varT tvs)) |]
                        (map (\t -> [t| Exp $(return t) |]) fs))
 
     mkRecC :: Name -> Name -> [Name] -> [Name] -> [Type] -> Q (Name, [Dec])
@@ -147,7 +148,7 @@ mkConP tn' tvs' con' = do
                 (map (`plainInvisTV` specifiedSpec) tvs)
                 (cxt (map (\t -> [t| Elt $(varT t) |]) tvs))
                 (foldr (\t ts -> [t| $t -> $ts |])
-                       [t| Exp $(foldl' appT (conT tn) (map varT tvs)) |]
+                       [t| Exp $(List.foldl' appT (conT tn) (map varT tvs)) |]
                        (map (\t -> [t| Exp $(return t) |]) fs))
 
     mkInfixC :: Name -> Name -> [Name] -> [Type] -> Q (Name, [Dec])
@@ -177,7 +178,7 @@ mkConP tn' tvs' con' = do
                 (map (`plainInvisTV` specifiedSpec) tvs)
                 (cxt (map (\t -> [t| Elt $(varT t) |]) tvs))
                 (foldr (\t ts -> [t| $t -> $ts |])
-                       [t| Exp $(foldl' appT (conT tn) (map varT tvs)) |]
+                       [t| Exp $(List.foldl' appT (conT tn) (map varT tvs)) |]
                        (map (\t -> [t| Exp $(return t) |]) fs))
 
 mkConS :: Name -> [TyVarBndr a] -> [[Type]] -> [[Type]] -> Word8 -> Con -> Q (Name, [Dec])
@@ -228,7 +229,7 @@ mkConS tn' tvs' prev' next' tag' con' = do
                 (map (`plainInvisTV` specifiedSpec) tvs)
                 (cxt ([t| HasCallStack |] : map (\t -> [t| Elt $(varT t) |]) tvs))
                 (foldr (\t ts -> [t| $t -> $ts |])
-                       [t| Exp $(foldl' appT (conT tn) (map varT tvs)) |]
+                       [t| Exp $(List.foldl' appT (conT tn) (map varT tvs)) |]
                        (map (\t -> [t| Exp $(return t) |]) fs))
 
     mkRecC_pattern :: Name -> Name -> [Name] -> [Name] -> [Type] -> Name -> Name -> Q [Dec]
@@ -245,7 +246,7 @@ mkConS tn' tvs' prev' next' tag' con' = do
                 (map (`plainInvisTV` specifiedSpec) tvs)
                 (cxt ([t| HasCallStack |] : map (\t -> [t| Elt $(varT t) |]) tvs))
                 (foldr (\t ts -> [t| $t -> $ts |])
-                       [t| Exp $(foldl' appT (conT tn) (map varT tvs)) |]
+                       [t| Exp $(List.foldl' appT (conT tn) (map varT tvs)) |]
                        (map (\t -> [t| Exp $(return t) |]) fs))
 
     mkInfixC_pattern :: Name -> Name -> Name -> [Name] -> [Type] -> Name -> Name -> Q [Dec]
@@ -274,7 +275,7 @@ mkConS tn' tvs' prev' next' tag' con' = do
                 (map (`plainInvisTV` specifiedSpec) tvs)
                 (cxt ([t| HasCallStack |] : map (\t -> [t| Elt $(varT t) |]) tvs))
                 (foldr (\t ts -> [t| $t -> $ts |])
-                       [t| Exp $(foldl' appT (conT tn) (map varT tvs)) |]
+                       [t| Exp $(List.foldl' appT (conT tn) (map varT tvs)) |]
                        (map (\t -> [t| Exp $(return t) |]) fs))
 
     mkBuild :: Name -> String -> [Name] -> Word8 -> [[Type]] -> [Type] -> [[Type]] -> Q (Name, [Dec])
@@ -282,7 +283,7 @@ mkConS tn' tvs' prev' next' tag' con' = do
       fun <- newName ("_build" ++ cn)
       xs  <- replicateM (length fs) (newName "_x")
       let
-        vs    = foldl' (\es e -> [| SmartExp ($es `Pair` $e) |]) [| SmartExp Nil |]
+        vs    = List.foldl' (\es e -> [| SmartExp ($es `Pair` $e) |]) [| SmartExp Nil |]
               $  map (\t -> [| unExp $(varE 'undef `appTypeE` return t) |] ) (concat (reverse fs0))
               ++ map varE xs
               ++ map (\t -> [| unExp $(varE 'undef `appTypeE` return t) |] ) (concat fs1)
@@ -299,7 +300,7 @@ mkConS tn' tvs' prev' next' tag' con' = do
                 (map (`plainInvisTV` specifiedSpec) tvs)
                 (cxt (map (\t -> [t| Elt $(varT t) |]) tvs))
                 (foldr (\t ts -> [t| $t -> $ts |])
-                       [t| Exp $(foldl' appT (conT tn) (map varT tvs)) |]
+                       [t| Exp $(List.foldl' appT (conT tn) (map varT tvs)) |]
                        (map (\t -> [t| Exp $(return t) |]) fs))
 
 
@@ -327,7 +328,7 @@ mkConS tn' tvs' prev' next' tag' con' = do
         sig = forallT
                 (map (`plainInvisTV` specifiedSpec) tvs)
                 (cxt ([t| HasCallStack |] : map (\t -> [t| Elt $(varT t) |]) tvs))
-                [t| Exp $(foldl' appT (conT tn) (map varT tvs)) -> Maybe $(tupT (map (\t -> [t| Exp $(return t) |]) fs)) |]
+                [t| Exp $(List.foldl' appT (conT tn) (map varT tvs)) -> Maybe $(tupT (map (\t -> [t| Exp $(return t) |]) fs)) |]
 
         matchP us = [p| TagRtag $(litP (IntegerL (toInteger tag))) $pat |]
           where
@@ -440,10 +441,6 @@ encode_ch '%'  = "zv"
 encode_ch c    = encode_as_unicode_char c
 
 encode_as_unicode_char :: Char -> EncodedString
-encode_as_unicode_char c
-  = 'z'
-  : if isDigit (head hex_str) then hex_str
-                              else '0':hex_str
-  where
-    hex_str = showHex (ord c) "U"
-
+encode_as_unicode_char c = 'z' : case showHex (ord c) "U" of
+  hexStr@(l:_) | isDigit l -> hexStr
+  hexStr                   -> '0' : hexStr

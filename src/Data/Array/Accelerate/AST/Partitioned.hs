@@ -46,7 +46,8 @@ import Data.Array.Accelerate.Trafo.Var
 import Data.Array.Accelerate.Trafo.Exp.Substitution
 import Data.Array.Accelerate.Trafo.Substitution
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (LabelledArgs, LabelledArg (..), Node(..), ArgLabel (..), EnvLabel, Comp, GVal, EnvLabels, EnvVals, valsNodes)
-import Data.List (sortOn, partition, groupBy, nubBy)
+import Data.List (sortOn, partition, nubBy)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Functor.Const as C
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (LabelledArgOp (..), BackendClusterArg, MakesILP (..), LabelledArgsOp, BackendCluster)
 import Data.Array.Accelerate.Trafo.Operation.LiveVars
@@ -577,7 +578,7 @@ sortAndExpandArgs args = argsFromList $ singles ++ unitArraysDedup ++ dedup
     (arrays, singles) = partition isNonUnitInOut $ argsToList args
     expanded = arrays >>= \(Exists arg) -> expandArg arg
     sorted = sortOn fst expanded
-    dedup = map (snd . head) $ groupBy (\a b -> fst a == fst b) sorted
+    dedup = map (snd . NE.head) $ NE.groupBy (\a b -> fst a == fst b) sorted
     unitArraysDedup = nubBy compareUnitArrays (arrays >>= \(Exists arg) -> expandUnitArg arg)
 
     isNonUnitInOut :: Exists (LabelledArgOp op env) -> Bool

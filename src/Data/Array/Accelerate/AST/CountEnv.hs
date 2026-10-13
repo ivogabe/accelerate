@@ -16,7 +16,7 @@ module Data.Array.Accelerate.AST.CountEnv (
 import Data.Array.Accelerate.AST.IdxSet (IdxSet)
 import qualified Data.Array.Accelerate.AST.IdxSet as IdxSet
 import Data.Array.Accelerate.AST.Environment hiding ( push )
-import Data.List (foldl')
+import qualified Data.List as List
 
 newtype CountEnv env = CountEnv (PartialEnv Count env)
 
@@ -38,7 +38,7 @@ instance Monoid (CountEnv env) where
   mempty = CountEnv PEnd
 
 maxCount :: CountEnv env -> Int
-maxCount (CountEnv env) = foldl' (\x (EnvBinding _ (Count y)) -> max x y) 0 $ partialEnvToList env
+maxCount (CountEnv env) = List.foldl' (\x (EnvBinding _ (Count y)) -> max x y) 0 $ partialEnvToList env
 
 findWithCount :: CountEnv env -> Int -> IdxSet env
 findWithCount (CountEnv env) count = case env of

@@ -25,9 +25,12 @@ import qualified Data.Array.Accelerate.Representation.Array         as R
 
 import Control.DeepSeq
 import Data.Kind
-import Data.Typeable
 import Language.Haskell.TH.Extra                                    hiding ( Type )
 import System.IO.Unsafe
+
+#if __GLASGOW_HASKELL__ < 912
+import Data.Typeable
+#endif
 
 import GHC.Exts                                                     ( IsList, IsString )
 import GHC.Generics
@@ -89,7 +92,9 @@ type Segments = Vector
 -- the 'Array' type.
 --
 newtype Array sh e = Array (R.Array (EltR sh) (EltR e))
+#if __GLASGOW_HASKELL__ < 912
   deriving Typeable
+#endif
 
 instance (Shape sh, Elt e, Eq sh, Eq e) => Eq (Array sh e) where
   arr1 == arr2 = shape arr1 == shape arr2 && toList arr1 == toList arr2

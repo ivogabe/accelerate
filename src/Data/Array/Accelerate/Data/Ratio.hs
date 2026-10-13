@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                  #-}
 {-# LANGUAGE PatternSynonyms      #-}
 {-# LANGUAGE RebindableSyntax     #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -19,7 +20,13 @@
 module Data.Array.Accelerate.Data.Ratio (
 
   Ratio, (%),
-  pattern (:%), numerator, denominator,
+#if __GLASGOW_HASKELL__ >= 914
+  data (:%),
+#else
+  pattern (:%),
+#endif
+
+  numerator, denominator,
 
 ) where
 

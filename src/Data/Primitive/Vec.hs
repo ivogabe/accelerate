@@ -17,12 +17,8 @@
 module Data.Primitive.Vec (
 
   -- * SIMD vector types
-  Vec(..),
-  Vec2, pattern Vec2,
-  Vec3, pattern Vec3,
-  Vec4, pattern Vec4,
-  Vec8, pattern Vec8,
-  Vec16, pattern Vec16,
+  Vec(.., Vec2, Vec3, Vec4, Vec8, Vec16),
+  Vec2, Vec3, Vec4, Vec8, Vec16,
 
   listOfVec,
   liftVec,

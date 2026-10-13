@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP             #-}
 {-# LANGUAGE PatternSynonyms #-}
 -- |
 -- Module      : Data.Array.Accelerate
@@ -318,7 +319,12 @@ module Data.Array.Accelerate (
   -- ** Type classes
   -- *** Basic type classes
   Eq(..),
-  Ord(..), Ordering(..), pattern LT_, pattern EQ_, pattern GT_,
+  Ord(..), Ordering(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data LT_, data EQ_, data GT_,
+#else
+  pattern LT_, pattern EQ_, pattern GT_,
+#endif
   Enum, succ, pred,
   Bounded, minBound, maxBound,
   -- Functor(..), (<$>), ($>), void,
@@ -347,6 +353,22 @@ module Data.Array.Accelerate (
   -- ** Pattern synonyms
   -- $pattern_synonyms
   --
+#if __GLASGOW_HASKELL__ >= 914
+  data Pattern,
+  data T2,  data T3,  data T4,  data T5,  data T6,
+  data T7,  data T8,  data T9,  data T10, data T11,
+  data T12, data T13, data T14, data T15, data T16,
+
+  data Z_, data Ix, data (::.), data All_, data Any_,
+  data I0, data I1, data I2, data I3, data I4,
+  data I5, data I6, data I7, data I8, data I9,
+
+  data Vec2, data V2,
+  data Vec3, data V3,
+  data Vec4, data V4,
+  data Vec8, data V8,
+  data Vec16, data V16,
+#else
   pattern Pattern,
   pattern T2,  pattern T3,  pattern T4,  pattern T5,  pattern T6,
   pattern T7,  pattern T8,  pattern T9,  pattern T10, pattern T11,
@@ -361,6 +383,7 @@ module Data.Array.Accelerate (
   pattern Vec4, pattern V4,
   pattern Vec8, pattern V8,
   pattern Vec16, pattern V16,
+#endif
 
   mkPattern, mkPatterns,
 
@@ -427,9 +450,28 @@ module Data.Array.Accelerate (
   Int, Int8, Int16, Int32, Int64,
   Word, Word8, Word16, Word32, Word64,
   Half(..), Float, Double,
-  Bool(..),   pattern True_,    pattern False_,
-  Maybe(..),  pattern Nothing_, pattern Just_,
-  Either(..), pattern Left_,    pattern Right_,
+
+  Bool(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data True_, data False_,
+#else
+  pattern True_, pattern False_,
+#endif
+
+  Maybe(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data Nothing_, data Just_,
+#else
+  pattern Nothing_, pattern Just_,
+#endif
+
+  Either(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data Left_, data Right_,
+#else
+  pattern Left_, pattern Right_,
+#endif
+
   Char,
 
   CFloat, CDouble,
