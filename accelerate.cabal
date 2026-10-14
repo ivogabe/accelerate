@@ -394,7 +394,6 @@ library ffi
 
   cxx-sources:
     cbits/alloc.cpp
-    cbits/tracy/public/TracyClient.cpp
 
   if flag(debug)
     cc-options:
@@ -417,6 +416,9 @@ library ffi
     cxx-options:
       -DTRACY_ENABLE
       -DTRACY_NO_SAMPLING
+
+    cxx-sources:
+      cbits/tracy/public/TracyClient.cpp
 
   -- Export the tracy flag via a header so dependent libraries can use it
   -- without having to redeclare the flag.
