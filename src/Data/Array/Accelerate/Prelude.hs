@@ -243,11 +243,7 @@ import Data.Typeable
 -- stored in separate arrays, storing values of product type requires
 -- multiple store instructions.
 --
--- Accelerate prior to version 1.3.0.0 performs this operation atomically,
--- to ensure that the stored values are always consistent (each component
--- of the product type is written by the same thread). Later versions relax
--- this restriction, but this behaviour can be disabled with
--- @-fno-fast-permute-const@.
+-- When all destination indices are unique, it is advised to use 'permuteUnique'.
 --
 permute
     :: forall sh sh' a. (Shape sh, Shape sh', Elt a)

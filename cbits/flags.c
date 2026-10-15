@@ -31,14 +31,14 @@
 
 
 /* SEE: [layout of command line options bitfield]
- * There are 7 default-enabled options, followed by 1 default-disabled option,
+ * There are 6 default-enabled options, followed by 1 default-disabled option,
  * followed by 17 debug options.
  * Note the bit trick: ((1 << n) - 1) is a number with the lowest n bits set. */
-static const uint32_t def_enabled_opts_bitfield = { (1<<7) - 1 };
+static const uint32_t def_enabled_opts_bitfield = { (1<<6) - 1 };
 #ifndef ACCELERATE_DEBUG
-static const uint32_t debug_opts_bitfield = { ((1<<17) - 1) << (7+1) };
+static const uint32_t debug_opts_bitfield = { ((1<<17) - 1) << (6+1) };
 #endif
-static const int disable_opts_offset = (7+1+17);
+static const int disable_opts_offset = (6+1+17);
 
 /* This global is accessed from the Haskell side. */
 __flags_t __cmd_line_flags            = { def_enabled_opts_bitfield };
@@ -72,7 +72,6 @@ static const struct option longopts[] =
   , { "ffusion",                        no_argument,       NULL, OPT_ENABLE                    }
   , { "finplace",                       no_argument,       NULL, OPT_ENABLE                    }
   , { "ffast-math",                     no_argument,       NULL, OPT_ENABLE                    }
-  , { "ffast-permute-const",            no_argument,       NULL, OPT_ENABLE                    }
   , { "fforce-recomp",                  no_argument,       NULL, OPT_ENABLE                    }
 
   , { "ddebug",                         no_argument,       NULL, OPT_ENABLE                    }
@@ -99,7 +98,6 @@ static const struct option longopts[] =
   , { "fno-fusion",                     no_argument,       NULL, OPT_DISABLE                   }
   , { "fno-inplace",                    no_argument,       NULL, OPT_DISABLE                   }
   , { "fno-fast-math",                  no_argument,       NULL, OPT_DISABLE                   }
-  , { "fno-fast-permute-const",         no_argument,       NULL, OPT_DISABLE                   }
   , { "fno-force-recomp",               no_argument,       NULL, OPT_DISABLE                   }
 
   /* There were options that took arguments here before; see the git blame of
