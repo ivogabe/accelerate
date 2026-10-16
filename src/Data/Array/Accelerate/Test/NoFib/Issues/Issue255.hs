@@ -30,6 +30,7 @@ import Prelude                                                      as P
 
 test_issue255 :: RunN -> TestTree
 test_issue255 runN =
+  at @TestDouble $
   askOption $ \(Interpreter slow) ->
     if slow
       then testGroup "255 (skipped due to interpreter backend)" []

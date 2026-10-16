@@ -22,6 +22,7 @@ import Prelude                                                      as P
 import Data.Array.Accelerate                                        as A
 import Data.Array.Accelerate.Sugar.Elt                              as S
 import Data.Array.Accelerate.Test.NoFib.Base
+import Data.Array.Accelerate.Test.NoFib.Config
 
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -30,8 +31,8 @@ import Test.Tasty.HUnit
 test_issue409 :: RunN -> TestTree
 test_issue409 runN =
   testGroup "409"
-    [ testElt @Float
-    , testElt @Double
+    [ at @TestFloat  $ testElt @Float
+    , at @TestDouble $ testElt @Double
     ]
   where
     testElt
