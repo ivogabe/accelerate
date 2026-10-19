@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP             #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
@@ -27,12 +26,10 @@ module Data.Array.Accelerate.Debug.Internal.Profile (
 
 ) where
 
-#ifdef ACCELERATE_TRACY
 import Control.Monad
 import qualified Data.Array.Accelerate.FFI.Atomic                   as Atomic
 import qualified Data.Array.Accelerate.FFI.Monitoring               as Mon
-import qualified Data.Array.Accelerate.FFI.Tracy                    as Tracy
-#endif
+import qualified Data.Array.Accelerate.Tracy                        as Tracy
 
 import Data.Char
 import Foreign.C.String
@@ -53,85 +50,87 @@ runQ $ sequence
   , valD (varP (mkName "___nursery")) (normalB (conE 'Ptr `appE` litE (stringPrimL (map (fromIntegral . ord) "nursery\0")))) []
   ]
 
--- Allocations in the local memory space
---
+{-------------------------------------------------------------------------------
+  Allocations in the local memory space
+-------------------------------------------------------------------------------}
+
 {-# INLINE local_memory_alloc #-}
-{-# INLINE local_memory_free  #-}
 local_memory_alloc :: Ptr a -> Int -> IO ()
-local_memory_free  :: Ptr a -> IO ()
-#ifndef ACCELERATE_TRACY
-local_memory_alloc _ _ = return ()
-local_memory_free _    = return ()
-#else
+local_memory_alloc ptr n
+  | Tracy.tracyIsEnabled = do
+      Tracy.emitMemoryAlloc ptr (fromIntegral n) 0
+      void $ Atomic.add Mon.__total_bytes_allocated_local (fromIntegral n)
+  | otherwise            = return ()
 
-local_memory_alloc _p n = do
-  Tracy.emit_memory_alloc _p (fromIntegral n) 0
-  void $ Atomic.add Mon.__total_bytes_allocated_local (fromIntegral n)
+{-# INLINE local_memory_free  #-}
+local_memory_free :: Ptr a -> IO ()
+local_memory_free ptr
+  | Tracy.tracyIsEnabled = Tracy.emitMemoryFree ptr 0
+  | otherwise            = return ()
 
-local_memory_free _p =
-  Tracy.emit_memory_free _p 0
-#endif
+{-------------------------------------------------------------------------------
+  Allocations in the remote memory space
+-------------------------------------------------------------------------------}
 
-
--- Allocations in the remote memory space
---
 {-# INLINE remote_memory_alloc #-}
-{-# INLINE remote_memory_free  #-}
-{-# INLINE remote_memory_evict #-}
 remote_memory_alloc :: CString -> Ptr a -> Int -> IO ()
-remote_memory_free  :: CString -> Ptr a -> IO ()
+remote_memory_alloc name ptr bytes
+  | Tracy.tracyIsEnabled = do
+      Tracy.emitMemoryAllocNamed ptr (fromIntegral bytes) 0 name
+      void $ Atomic.add Mon.__total_bytes_allocated_remote (fromIntegral bytes)
+  | otherwise            = return ()
+
+{-# INLINE remote_memory_free  #-}
+remote_memory_free :: CString -> Ptr a -> IO ()
+remote_memory_free name ptr
+  | Tracy.tracyIsEnabled = Tracy.emitMemoryFreeNamed ptr 0 name
+  | otherwise            = return ()
+
+{-# INLINE remote_memory_evict #-}
 remote_memory_evict :: CString -> Ptr a -> Int -> IO ()
-#ifndef ACCELERATE_TRACY
-remote_memory_alloc _ _ _ = return ()
-remote_memory_free _ _    = return ()
-remote_memory_evict _ _ _ = return ()
-#else
-remote_memory_alloc _name _ptr bytes = do
-  Tracy.emit_memory_alloc_named _ptr (fromIntegral bytes) 0 _name
-  void $ Atomic.add Mon.__total_bytes_allocated_remote (fromIntegral bytes)
-
-remote_memory_free _name _ptr = do
-  Tracy.emit_memory_free_named _ptr 0 _name
-
-remote_memory_evict name ptr bytes = do
-  void $ Atomic.add Mon.__num_evictions 1
-  void $ Atomic.add Mon.__total_bytes_evicted_from_remote (fromIntegral bytes)
-  remote_memory_free name ptr
-  memcpy_from_remote bytes
-#endif
+remote_memory_evict name ptr bytes
+  | Tracy.tracyIsEnabled = do
+      void $ Atomic.add Mon.__num_evictions 1
+      void $ Atomic.add Mon.__total_bytes_evicted_from_remote (fromIntegral bytes)
+      remote_memory_free name ptr
+      memcpy_from_remote bytes
+  | otherwise            = return ()
 
 remote_memory_alloc_nursery :: Ptr a -> Int -> IO ()
-remote_memory_free_nursery  :: Ptr a -> IO ()
-#ifndef ACCELERATE_TRACY
-remote_memory_alloc_nursery _ _ = return ()
-remote_memory_free_nursery _    = return ()
-#else
-remote_memory_alloc_nursery p n = Tracy.emit_memory_alloc_named p (fromIntegral n) 0 ___nursery
-remote_memory_free_nursery p    = Tracy.emit_memory_free_named p 0 ___nursery
-#endif
+remote_memory_alloc_nursery p n
+  | Tracy.tracyIsEnabled =
+      Tracy.emitMemoryAllocNamed p (fromIntegral n) 0 ___nursery
+  | otherwise            = return ()
 
+remote_memory_free_nursery :: Ptr a -> IO ()
+remote_memory_free_nursery p
+  | Tracy.tracyIsEnabled = Tracy.emitMemoryFreeNamed p 0 ___nursery
+  | otherwise            = return ()
 
--- Data transfer between memory spaces
---
-{-# INLINE memcpy_to_remote   #-}
+{-------------------------------------------------------------------------------
+  Data transfer between memory spaces
+-------------------------------------------------------------------------------}
+
+{-# INLINE memcpy_to_remote #-}
+memcpy_to_remote :: Int -> IO ()
+memcpy_to_remote n
+  | Tracy.tracyIsEnabled =
+      void $ Atomic.add Mon.__total_bytes_copied_to_remote (fromIntegral n)
+  | otherwise            = return ()
+
 {-# INLINE memcpy_from_remote #-}
-memcpy_to_remote   :: Int -> IO ()
 memcpy_from_remote :: Int -> IO ()
-#ifndef ACCELERATE_TRACY
-memcpy_to_remote   _ = return ()
-memcpy_from_remote _ = return ()
-#else
-memcpy_to_remote   n = void $ Atomic.add Mon.__total_bytes_copied_to_remote (fromIntegral n)
-memcpy_from_remote n = void $ Atomic.add Mon.__total_bytes_copied_from_remote (fromIntegral n)
-#endif
+memcpy_from_remote n
+  | Tracy.tracyIsEnabled =
+      void $ Atomic.add Mon.__total_bytes_copied_from_remote (fromIntegral n)
+  | otherwise            = return ()
 
+{-------------------------------------------------------------------------------
+  Performed a major GC of the remote memory space
+-------------------------------------------------------------------------------}
 
--- Performed a major GC of the remote memory space
---
 {-# INLINE emit_remote_gc #-}
 emit_remote_gc :: IO ()
-#ifndef ACCELERATE_TRACY
-emit_remote_gc = return ()
-#else
-emit_remote_gc = void $ Atomic.add Mon.__num_remote_gcs 1
-#endif
+emit_remote_gc
+  | Tracy.tracyIsEnabled = void $ Atomic.add Mon.__num_remote_gcs 1
+  | otherwise            = return ()

@@ -136,13 +136,6 @@ extra-source-files:
     cbits/*.h
     -- ParlayLib
     cbits/parlaylib/include/**/*.h
-    -- Tracy
-    cbits/tracy/public/**/*.cpp
-    cbits/tracy/public/**/*.h
-    cbits/tracy/public/**/*.hpp
-    -- Tracy enable/disable
-    cbits/flag-no-tracy/flag_tracy.h
-    cbits/flag-tracy/flag_tracy.h
     -- XKCP
     cbits/xkcp/*.c
     cbits/xkcp/*.h
@@ -225,17 +218,6 @@ flag debug
       * @dump-exec@: Print information related to program execution.
 
       * @dump-sched@: Print information related to execution scheduling.
-
-flag tracy
-  manual:               True
-  default:              False
-  description:
-    Enable kernel profiling using Tracy. This flag requires @+debug@ to also be
-    set. Note: currently only works with @accelerate-llvm-native@; for PTX
-    profiling, use Nvidia Nsight directly instead.
-
-    Script @tools/build-tracy.sh@ can be used to build Tracy executables to
-    collect and view profiling data from supported backends.
 
 flag bounds-checks
   manual:               True
@@ -320,20 +302,8 @@ common lang
     cpp-options:
       -DACCELERATE_MEMORY_COUNTER
 
-  if flag(tracy)
-    cpp-options:
-      -DACCELERATE_TRACY
-
-    -- Accelerate's backends may use dynamic linking to load compiled kernels
-    -- that directly call Tracy's functions. In that case these symbols need to
-    -- be available in the global namespace. @-rdynamic@ implies
-    -- @-Wl,--export-dynamic@, which adds every symbol to the dynamic symbol
-    -- table. There's also a @--export-dynamic-symbol=glob@ and a
-    -- @--export-dynamic-symbol-list=file@ but these seem to be less portable
-    -- between compilers.
-    if !os(windows)
-      ld-options:
-        -rdynamic
+common acc-tracy
+  build-depends:        accelerate-tracy == 0.1.0.0
 
 -- Virtual package @system-cxx-std-lib@ is used to configure the system C++
 -- standard library.  In versions before GHC 10, @-Wunused-packages@ warns that
@@ -342,7 +312,7 @@ common cxx-stdlib
   build-depends:        system-cxx-std-lib == 1.0
 
 library ffi
-  import:               lang, cxx-stdlib
+  import:               lang, acc-tracy, cxx-stdlib
   hs-source-dirs:       src-ffi
 
   exposed-modules:
@@ -352,7 +322,6 @@ library ffi
     Data.Array.Accelerate.FFI.Flags
     Data.Array.Accelerate.FFI.Memory
     Data.Array.Accelerate.FFI.Monitoring
-    Data.Array.Accelerate.FFI.Tracy
 
   build-depends:
     , bytestring >= 0.11.5.3
@@ -393,34 +362,8 @@ library ffi
     cc-options:
       -DACCELERATE_MEMORY_COUNTER
 
-  if flag(tracy)
-    if !flag(debug)
-      build-depends: accelerate-tracy-flag-depends-on-debug-flag < 0
-      -- buildable: False  -- this suppresses any other error output
-
-    cc-options:
-      -DACCELERATE_TRACY
-      -DTRACY_ENABLE
-      -DTRACY_NO_SAMPLING
-
-    cxx-options:
-      -DTRACY_ENABLE
-      -DTRACY_NO_SAMPLING
-
-    cxx-sources:
-      cbits/tracy/public/TracyClient.cpp
-
-  -- Export the tracy flag via a header so dependent libraries can use it
-  -- without having to redeclare the flag.
-  if flag(tracy)
-    include-dirs: cbits/flag-tracy
-    install-includes: flag_tracy.h
-  else
-    include-dirs: cbits/flag-no-tracy
-    install-includes: flag_tracy.h
-
 library
-  import:               lang
+  import:               lang, acc-tracy
 
   -- Internal dependencies
   build-depends:

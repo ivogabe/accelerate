@@ -17,7 +17,6 @@
 module Data.Array.Accelerate.Debug.Internal (
 
   debuggingIsEnabled,
-  tracyIsEnabled,
   boundsChecksAreEnabled,
   -- unsafeChecksAreEnabled,
   internalChecksAreEnabled,
@@ -34,7 +33,7 @@ import Data.Array.Accelerate.Debug.Internal.Stats                   as Debug
 import Data.Array.Accelerate.Debug.Internal.Timed                   as Debug
 import Data.Array.Accelerate.Debug.Internal.Trace                   as Debug
 import Data.Array.Accelerate.FFI.Flags                              as Debug
-import Data.Array.Accelerate.FFI.Tracy                              as Debug
+import Data.Array.Accelerate.Tracy                                  as Debug
 
 
 {-# INLINE debuggingIsEnabled #-}
@@ -43,14 +42,6 @@ debuggingIsEnabled :: Bool
 debuggingIsEnabled = True
 #else
 debuggingIsEnabled = False
-#endif
-
-{-# INLINE tracyIsEnabled #-}
-tracyIsEnabled :: Bool
-#ifdef ACCELERATE_TRACY
-tracyIsEnabled = True
-#else
-tracyIsEnabled = False
 #endif
 
 {-# INLINE boundsChecksAreEnabled #-}
