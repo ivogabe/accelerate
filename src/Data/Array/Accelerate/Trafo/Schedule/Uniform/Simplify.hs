@@ -803,6 +803,7 @@ rebuild = \case
       ( analysisJoin analysis1 analysis2
       , buildSpawn term1' term2'
       )
+  Release SubsetEnd s -> rebuild s
 
 rebuildLet
   :: BLeftHandSide t env env'

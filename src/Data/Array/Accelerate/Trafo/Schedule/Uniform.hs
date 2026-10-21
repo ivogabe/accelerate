@@ -1110,6 +1110,7 @@ rnfSchedule' (Acond c true false next)     = rnfExpVar c `seq` rnfSchedule' true
 rnfSchedule' (Awhile io body initial next) = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar initial `seq` rnfSchedule' next
 rnfSchedule' (AwhileSeq io body ini  next) = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar ini     `seq` rnfSchedule' next
 rnfSchedule' (Spawn a b)                   = rnfSchedule' a `seq` rnfSchedule' b
+rnfSchedule' (Release SubsetEnd s)         = rnfSchedule' s
 
 rnfBinding :: Binding env t -> ()
 rnfBinding (Compute e)       = rnfOpenExp e
@@ -1198,6 +1199,8 @@ makeSpawnClosed' k awaitEnd = \case
             (a' (skipWeakenIdx skip .> k) weakenId (toList resolvers))
             (makeSpawnClosed' (skipWeakenIdx skip .> k)
               (unionPartialEnv const signals $ skipWeakenPartialEnv skip awaitEnd) b)
+  Release SubsetEnd s ->
+    Release SubsetEnd $ makeSpawnClosed' k awaitEnd s
   where
     bindSignals
       :: Int
@@ -1304,6 +1307,7 @@ makeSpawnClosed' k awaitEnd = \case
       where
         (aCount, a') = addSync a
         (bCount, b') = addSync b
+    addSync (Release SubsetEnd s) = addSync s
 
     toList :: TypedIdxSet t env -> [Idx env t]
     toList = map (\(EnvBinding idx Refl) -> idx) . partialEnvToList

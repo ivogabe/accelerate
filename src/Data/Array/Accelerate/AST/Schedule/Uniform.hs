@@ -30,6 +30,7 @@ module Data.Array.Accelerate.AST.Schedule.Uniform (
   freeVars, funFreeVars, effectFreeVars, bindingFreeVars,
 ) where
 
+import Data.Array.Accelerate.AST.Environment ( Subset(SubsetEnd) )
 import Data.Array.Accelerate.AST.Exp
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet ( IdxSet )
@@ -151,6 +152,11 @@ data UniformSchedule' (rc :: Bool) kernel env where
   -- subterm is not executed directly, but handed over to a different core or queued.
   Spawn   :: UniformSchedule' rc kernel env
           -> UniformSchedule' rc kernel env
+          -> UniformSchedule' rc kernel env
+
+  -- Execute a subterm in the specified subset of the environment.
+  Release :: Subset rc env env'
+          -> UniformSchedule' rc kernel env'
           -> UniformSchedule' rc kernel env
 
 -- Schedule without reference counting
@@ -379,6 +385,7 @@ freeVars (AwhileSeq _ step ini continuation)
   $ IdxSet.union (IdxSet.fromVarList $ flattenTupR ini)
   $ freeVars continuation
 freeVars (Spawn s1 s2) = freeVars s1 `IdxSet.union` freeVars s2
+freeVars (Release SubsetEnd s) = freeVars s
 
 funFreeVars :: UniformScheduleFun kernel env t -> IdxSet env
 funFreeVars (Sbody s)    = freeVars s

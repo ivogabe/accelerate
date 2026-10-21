@@ -15,6 +15,7 @@ module Data.Array.Accelerate.Analysis.Hash.Schedule.Uniform (
   hashUniformScheduleFun
 ) where
 
+import Data.Array.Accelerate.AST.Environment (Subset(SubsetEnd))
 import Data.Array.Accelerate.AST.Var
 import Data.Array.Accelerate.AST.Kernel
 import Data.Array.Accelerate.AST.Schedule.Uniform
@@ -67,6 +68,9 @@ encodeUniformSchedule (Spawn a b)
   = intHost $(hashQ ("Spawn" :: String))
   <> encodeUniformSchedule a
   <> encodeUniformSchedule b
+encodeUniformSchedule (Release SubsetEnd s)
+  = intHost $(hashQ ("Release" :: String))
+  <> encodeUniformSchedule s
 
 encodeBLeftHandSide :: BLeftHandSide t env env' -> Builder
 encodeBLeftHandSide = encodeLeftHandSide encodeBaseR

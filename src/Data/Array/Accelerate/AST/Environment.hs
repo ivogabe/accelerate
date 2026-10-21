@@ -30,7 +30,9 @@ module Data.Array.Accelerate.AST.Environment (
   sink, (.>), sinkWithLHS, weakenWithLHS, substituteLHS,
   varsGet, varsGetVal, stripWithLhs,
   
-  Append
+  Append,
+
+  Subset(..), subsetKeepAll,
 ) where
 
 import Data.Array.Accelerate.AST.Idx
@@ -487,3 +489,17 @@ stripWithLhs (LeftHandSidePair lhs1 lhs2) env = stripWithLhs lhs1 $ stripWithLhs
 type family Append env1 env2 where
   Append env1 () = env1
   Append env1 (env2, t) = (Append env1 env2, t)
+
+-- | Bindings in @envSub@ are an arbitrary subset of bindings in @env@
+--
+-- This type is used in the implementation of reference counting.  The @rc@ type
+-- parameter indicates if reference counting is enabled or disabled.  When
+-- disabled, only the trivial subset (when @envSub@ is @env@) is allowed.
+data Subset (rc :: Bool) env envSub where
+  SubsetKeep :: Subset True env envSub -> Subset True (env, t) (envSub, t)
+  SubsetDrop :: Subset True env envSub -> Subset True (env, t)  envSub
+  SubsetEnd  ::                           Subset rc    env      env
+
+-- | A 'Subset' that keeps all bindings
+subsetKeepAll :: Subset rc env env
+subsetKeepAll = SubsetEnd

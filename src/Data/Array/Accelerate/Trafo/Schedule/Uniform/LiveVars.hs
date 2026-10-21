@@ -135,6 +135,7 @@ stronglyLiveVariables' liveness = \case
         $ \re -> Spawn
           (a' re)
           (b' re)
+  Release SubsetEnd s -> stronglyLiveVariables' liveness s
 
 analyseBinding :: env :> env' -> IdxSet env' -> Binding env t -> LivenessEnv env' -> LivenessEnv env'
 analyseBinding k lhs binding liveness = case binding of

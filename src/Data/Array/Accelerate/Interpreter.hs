@@ -441,6 +441,8 @@ executeSchedule !env = \case
   S.Spawn a b -> do
     _ <- forkIO (executeSchedule env a)
     executeSchedule env b
+  S.Release SubsetEnd s ->
+    executeSchedule env s
 
 executeBinding :: Val env -> S.Binding env t -> IO t
 executeBinding env = \case

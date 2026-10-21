@@ -17,6 +17,7 @@ import Data.Array.Accelerate.Pretty.Exp
 import Data.Array.Accelerate.Pretty.Type
 import Data.Array.Accelerate.Pretty.Schedule
 import Data.Array.Accelerate.Pretty.Operation (prettyGroundR, prettyBuffer, prettyExp, prettyModifier)
+import Data.Array.Accelerate.AST.Environment (Subset(SubsetEnd))
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.Kernel
 import Data.Array.Accelerate.AST.LeftHandSide
@@ -157,6 +158,10 @@ prettyUniformSchedule env = \case
         <> hardline <> indent 2 (prettyUniformSchedule env body)
         <> hardline <> "}"
         <> prettyNext next
+  Release SubsetEnd s
+    -> annotate Statement "release" <+> "{"
+        <> hardline <> indent 2 (prettyUniformSchedule env s)
+        <> hardline <> "}"
   where
     prettyNext' :: Val' env' -> UniformSchedule kernel env' -> Adoc
     prettyNext' _    Return = emptyDoc
