@@ -33,8 +33,10 @@ module Data.Array.Accelerate.AST.Environment (
   Append,
 
   Subset(..), subsetKeepAll,
+  weakenWithSubset, weakenSubset, WeakenSubset(..),
 
   Split(..), splitBothAll,
+  weakenWithSplit, weakenSplit, WeakenSplit(..),
 ) where
 
 import Data.Array.Accelerate.AST.Idx
@@ -42,6 +44,7 @@ import Data.Array.Accelerate.AST.Var
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Type
+import Data.Bifunctor (Bifunctor(bimap))
 import Data.Typeable                                ((:~:)(..))
 import Data.Either
 import Data.List ( sortOn )
@@ -506,6 +509,29 @@ data Subset (rc :: Bool) env envSub where
 subsetKeepAll :: Subset rc env env
 subsetKeepAll = SubsetEnd
 
+-- | Construct a weakening relation given a 'Subset'
+weakenWithSubset
+  :: Subset rc env envSub
+  -> envSub :> env
+weakenWithSubset = \case
+  SubsetKeep subset -> sink        (weakenWithSubset subset)
+  SubsetDrop subset -> weakenSucc' (weakenWithSubset subset)
+  SubsetEnd         -> weakenId
+
+-- | Weaken a 'Subset'
+--
+-- Since weakenings are opaque, this implementation uses 'SubsetEnd'.
+weakenSubset
+  :: env :> env'
+  -> Subset rc env envSub
+  -> WeakenSubset rc env' envSub
+weakenSubset k subset = WeakenSubset SubsetEnd (k .> weakenWithSubset subset)
+
+data WeakenSubset rc env' envSub where
+  WeakenSubset :: Subset rc env' envSub'
+               -> envSub :> envSub'
+               -> WeakenSubset rc env' envSub
+
 -- | Every binding in @env@ is in either @envL@, @envR@, or both
 --
 -- This type is used in the implementation of reference counting.  The @rc@ type
@@ -521,3 +547,30 @@ data Split (rc :: Bool) env envL envR where
 -- | A 'Split' that keeps all bindings in both environments
 splitBothAll :: Split rc env env env
 splitBothAll = SplitEnd
+
+-- | Construct left and right weakening relations given a 'Split'
+weakenWithSplit
+  :: Split rc env envL envR
+  -> (envL :> env, envR :> env)
+weakenWithSplit = \case
+  SplitLeft  split -> bimap sink        weakenSucc' (weakenWithSplit split)
+  SplitRight split -> bimap weakenSucc' sink        (weakenWithSplit split)
+  SplitBoth  split -> bimap sink        sink        (weakenWithSplit split)
+  SplitEnd         -> (weakenId, weakenId)
+
+-- | Weaken a 'Split'
+--
+-- Since weakenings are opaque, this implementation uses 'SplitEnd'.
+weakenSplit
+  :: env :> env'
+  -> Split rc env envL envR
+  -> WeakenSplit rc env' envL envR
+weakenSplit k split =
+  let (kL, kR) = weakenWithSplit split
+  in  WeakenSplit SplitEnd (k .> kL) (k .> kR)
+
+data WeakenSplit rc env' envL envR where
+  WeakenSplit :: Split rc env' envL' envR'
+              -> envL :> envL'
+              -> envR :> envR'
+              -> WeakenSplit rc env' envL envR

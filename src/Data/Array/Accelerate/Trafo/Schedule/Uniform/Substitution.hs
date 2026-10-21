@@ -29,7 +29,7 @@ import Control.Category
 import Data.Functor.Identity
 
 
-instance Sink' (UniformSchedule kernel) where
+instance Sink' (UniformSchedule' rc kernel) where
   weaken' _ Return                        = Return
   weaken' k (Alet lhs b s)                
     | Exists lhs' <- rebuildLHS lhs   = Alet lhs' (weaken k b) (weaken' (sinkWithLHS lhs lhs' k) s)
@@ -37,8 +37,12 @@ instance Sink' (UniformSchedule kernel) where
   weaken' k (Acond cond true false s) = Acond (weaken k cond) (weaken' k true) (weaken' k false) (weaken' k s)
   weaken' k (Awhile io f input s)     = Awhile io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
   weaken' k (AwhileSeq io f input s)  = AwhileSeq io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
-  weaken' k (Spawn SplitEnd s1 s2)    = Spawn SplitEnd (weaken' k s1) (weaken' k s2)
-  weaken' k (Release SubsetEnd s)     = Release SubsetEnd (weaken' k s)
+  weaken' k (Spawn split s1 s2)
+    | WeakenSplit split' kL kR <- weakenSplit k split =
+      Spawn split' (weaken' kL s1) (weaken' kR s2)
+  weaken' k (Release subset s)
+    | WeakenSubset subset' k' <- weakenSubset k subset =
+      Release subset' (weaken' k' s)
 
 instance Sink (UniformScheduleFun kernel) where
   weaken k (Slam lhs f)

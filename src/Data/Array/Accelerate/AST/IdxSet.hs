@@ -14,6 +14,7 @@ module Data.Array.Accelerate.AST.IdxSet (
   member, varMember, overlaps, isSubsetOf, intersect, union, unions, (\\), (>>=),
   insert, insertVar, insertVars, skip, skip',
   push, push', empty, isEmpty, drop, drop', remove, partialEnvRemoveSet, partialEnvFilterSet,
+  subsetDropped, splitLeft, splitRight,
   fromList, fromList', fromVarList, fromVars, map,
   singleton, singletonVar, first, null,
   toList, rnfIdxSet
@@ -134,6 +135,26 @@ drop' :: LeftHandSide s t env env' -> IdxSet env' -> IdxSet env
 drop' (LeftHandSidePair lhs1 lhs2) = drop' lhs1 . drop' lhs2
 drop' (LeftHandSideWildcard _)     = id
 drop' (LeftHandSideSingle _)       = drop
+
+subsetDropped :: Subset rc env envSub -> IdxSet env
+subsetDropped = \case
+  SubsetKeep subset -> skip (subsetDropped subset)
+  SubsetDrop subset -> push (subsetDropped subset)
+  SubsetEnd         -> empty
+
+splitLeft :: Split rc env envL envR -> IdxSet env
+splitLeft = \case
+  SplitLeft  split -> push (splitLeft split)
+  SplitRight split -> skip (splitLeft split)
+  SplitBoth  split -> push (splitLeft split)
+  SplitEnd         -> empty
+
+splitRight :: Split rc env envL envR -> IdxSet env
+splitRight = \case
+  SplitLeft  split -> skip (splitLeft split)
+  SplitRight split -> push (splitLeft split)
+  SplitBoth  split -> push (splitLeft split)
+  SplitEnd         -> empty
 
 toList :: IdxSet env -> [Exists (Idx env)]
 toList = fmap (\(EnvBinding idx _) -> Exists idx) . partialEnvToList . unIdxSet
