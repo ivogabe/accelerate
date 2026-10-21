@@ -11,7 +11,8 @@
 --
 
 module Data.Array.Accelerate.AST.Schedule.Uniform (
-  UniformSchedule(..), UniformScheduleFun(..),
+  UniformSchedule'(..), UniformSchedule, UniformScheduleRC,
+  UniformScheduleFun(..),
   SArg(..), SArgs, sargVars, sargOutputVars, sargBufferVars,
   Input, Output, inputSingle, outputSingle, inputR, outputR,
   InputOutputR(..), inputOutputInputR, inputOutputOutputR,
@@ -56,6 +57,8 @@ import Data.Text                                                    ( Text )
 
 -- The schedule consists of bindings, effects and (parallel) control flow
 --
+-- Type paramter @rc@ determines if reference counting is enabled or not.
+--
 -- Some schedules/terms may be 'spawn-closed'. These terms guarantee that when
 -- the execution of the term finishes, all spawned tasks have also finished.
 -- For instance, this program is spawn-closed:
@@ -92,23 +95,23 @@ import Data.Text                                                    ( Text )
 -- its execution may finish before the execution of the inner spawned term ends.
 -- The entire term is self-closed, as it waits on the completions of both
 -- spawned subterms.
-data UniformSchedule kernel env where
-  Return  :: UniformSchedule kernel env
+data UniformSchedule' (rc :: Bool) kernel env where
+  Return  :: UniformSchedule' rc kernel env
 
   Alet    :: BLeftHandSide t env env'
           -> Binding env t
-          -> UniformSchedule kernel env'
-          -> UniformSchedule kernel env
+          -> UniformSchedule' rc kernel env'
+          -> UniformSchedule' rc kernel env
 
   Effect  :: Effect kernel env
-          -> UniformSchedule kernel env
-          -> UniformSchedule kernel env
+          -> UniformSchedule' rc kernel env
+          -> UniformSchedule' rc kernel env
 
   Acond   :: ExpVar env PrimBool
-          -> UniformSchedule kernel env -- True branch
-          -> UniformSchedule kernel env -- False branch
-          -> UniformSchedule kernel env -- Operations after the if-then-else
-          -> UniformSchedule kernel env
+          -> UniformSchedule' rc kernel env -- True branch
+          -> UniformSchedule' rc kernel env -- False branch
+          -> UniformSchedule' rc kernel env -- Operations after the if-then-else
+          -> UniformSchedule' rc kernel env
 
   -- The step function of the loop outputs a bool to denote whether the loop should
   -- proceed. If true, then the other output values should also be filled, possibly at
@@ -124,8 +127,8 @@ data UniformSchedule kernel env where
           -- Should be spawn-closed.
           -> UniformScheduleFun kernel env (input -> Output PrimBool -> output -> ())
           -> BaseVars env input
-          -> UniformSchedule kernel env -- Operations after the while loop
-          -> UniformSchedule kernel env
+          -> UniformSchedule' rc kernel env -- Operations after the while loop
+          -> UniformSchedule' rc kernel env
 
   -- Variant of Awhile, that can be executed sequentially. This only applies to
   -- parallelism between iterations of the loop. Within an iteration, parallelism
@@ -140,15 +143,21 @@ data UniformSchedule kernel env where
           -- Should be spawn-closed.
           -> UniformScheduleFun kernel env (input -> OutputRef PrimBool -> output -> ())
           -> BaseVars env input
-          -> UniformSchedule kernel env -- Operations after the while loop
-          -> UniformSchedule kernel env
+          -> UniformSchedule' rc kernel env -- Operations after the while loop
+          -> UniformSchedule' rc kernel env
 
   -- Spawns a task/thread for the first subterm, and continues with the second subterm.
   -- Note that we use the name 'spawn' instead of 'fork', to imply that the first
   -- subterm is not executed directly, but handed over to a different core or queued.
-  Spawn   :: UniformSchedule kernel env
-          -> UniformSchedule kernel env
-          -> UniformSchedule kernel env
+  Spawn   :: UniformSchedule' rc kernel env
+          -> UniformSchedule' rc kernel env
+          -> UniformSchedule' rc kernel env
+
+-- Schedule without reference counting
+type UniformSchedule = UniformSchedule' False
+
+-- Schedule with reference counting
+type UniformScheduleRC = UniformSchedule' True
 
 data UniformScheduleFun kernel env t where
   Slam  :: BLeftHandSide s env env'
