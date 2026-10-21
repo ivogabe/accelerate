@@ -17,7 +17,7 @@ import Data.Array.Accelerate.Pretty.Exp
 import Data.Array.Accelerate.Pretty.Type
 import Data.Array.Accelerate.Pretty.Schedule
 import Data.Array.Accelerate.Pretty.Operation (prettyGroundR, prettyBuffer, prettyExp, prettyModifier)
-import Data.Array.Accelerate.AST.Environment (Subset(SubsetEnd))
+import Data.Array.Accelerate.AST.Environment (Split(SplitEnd), Subset(SubsetEnd))
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.Kernel
 import Data.Array.Accelerate.AST.LeftHandSide
@@ -148,12 +148,12 @@ prettyUniformSchedule env = \case
         <> hardline <> hang 4 ("  (" <+> prettyUniformScheduleFun env body)
         <> hardline <> "  )"
         <> prettyNext next
-  Spawn (Effect (SignalAwait signals) body) next
+  Spawn SplitEnd (Effect (SignalAwait signals) body) next
     -> annotate Statement "spawn await" <+> list (map (prettyIdx env) signals) <+> "{"
         <> hardline <> indent 2 (prettyUniformSchedule env body)
         <> hardline <> "}"
         <> prettyNext next
-  Spawn body next
+  Spawn SplitEnd body next
     -> annotate Statement "spawn" <+> "{"
         <> hardline <> indent 2 (prettyUniformSchedule env body)
         <> hardline <> "}"

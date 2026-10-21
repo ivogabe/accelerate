@@ -33,6 +33,8 @@ module Data.Array.Accelerate.AST.Environment (
   Append,
 
   Subset(..), subsetKeepAll,
+
+  Split(..), splitBothAll,
 ) where
 
 import Data.Array.Accelerate.AST.Idx
@@ -503,3 +505,19 @@ data Subset (rc :: Bool) env envSub where
 -- | A 'Subset' that keeps all bindings
 subsetKeepAll :: Subset rc env env
 subsetKeepAll = SubsetEnd
+
+-- | Every binding in @env@ is in either @envL@, @envR@, or both
+--
+-- This type is used in the implementation of reference counting.  The @rc@ type
+-- parameter indicates if reference counting is enabled or disabled.  When
+-- disabled, only the trivial split (when @envL@ and @envR@ are @env@) is
+-- allowed.
+data Split (rc :: Bool) env envL envR where
+  SplitLeft  :: Split True env envL envR -> Split True (env, t) (envL, t)  envR
+  SplitRight :: Split True env envL envR -> Split True (env, t)  envL     (envR, t)
+  SplitBoth  :: Split True env envL envR -> Split True (env, t) (envL, t) (envR, t)
+  SplitEnd   ::                             Split rc    env      env       env
+
+-- | A 'Split' that keeps all bindings in both environments
+splitBothAll :: Split rc env env env
+splitBothAll = SplitEnd

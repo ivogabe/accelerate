@@ -37,7 +37,7 @@ instance Sink' (UniformSchedule kernel) where
   weaken' k (Acond cond true false s) = Acond (weaken k cond) (weaken' k true) (weaken' k false) (weaken' k s)
   weaken' k (Awhile io f input s)     = Awhile io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
   weaken' k (AwhileSeq io f input s)  = AwhileSeq io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
-  weaken' k (Spawn s1 s2)             = Spawn (weaken' k s1) (weaken' k s2)
+  weaken' k (Spawn SplitEnd s1 s2)    = Spawn SplitEnd (weaken' k s1) (weaken' k s2)
   weaken' k (Release SubsetEnd s)     = Release SubsetEnd (weaken' k s)
 
 instance Sink (UniformScheduleFun kernel) where
@@ -105,7 +105,7 @@ reindexSchedule' k = \case
   Acond cond t f continue -> Acond <$> reindexVarUnsafe k cond <*> reindexSchedule' k t <*> reindexSchedule' k f <*> reindexSchedule' k continue
   Awhile io f initial continue -> Awhile io <$> reindexScheduleFun' k f <*> traverseTupR (reindexVarUnsafe k) initial <*> reindexSchedule' k continue
   AwhileSeq io f initial continue -> AwhileSeq io <$> reindexScheduleFun' k f <*> traverseTupR (reindexVarUnsafe k) initial <*> reindexSchedule' k continue
-  Spawn s1 s2 -> Spawn <$> reindexSchedule' k s1 <*> reindexSchedule' k s2
+  Spawn SplitEnd s1 s2 -> Spawn SplitEnd <$> reindexSchedule' k s1 <*> reindexSchedule' k s2
   Release SubsetEnd s -> Release SubsetEnd <$> reindexSchedule' k s
 
 reindexVarUnsafe :: Applicative f => SunkReindexPartialN f env env' -> Var s env t -> f (Var s env' t)

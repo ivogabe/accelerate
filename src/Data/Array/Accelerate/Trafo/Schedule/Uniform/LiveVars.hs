@@ -125,16 +125,14 @@ stronglyLiveVariables' liveness = \case
           (step' re)
           (expectJust $ reEnvVars re initial)
           (next' re)
-  Spawn a b ->
+  Spawn SplitEnd a b ->
     let
       LVAnalysis' liveness1 a' = stronglyLiveVariables' liveness  a
       LVAnalysis' liveness2 b' = stronglyLiveVariables' liveness1 b
     in
       LVAnalysis'
         liveness2
-        $ \re -> Spawn
-          (a' re)
-          (b' re)
+        $ \re -> Spawn SplitEnd (a' re) (b' re)
   Release SubsetEnd s -> stronglyLiveVariables' liveness s
 
 analyseBinding :: env :> env' -> IdxSet env' -> Binding env t -> LivenessEnv env' -> LivenessEnv env'

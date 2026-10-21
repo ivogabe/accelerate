@@ -30,7 +30,7 @@ module Data.Array.Accelerate.AST.Schedule.Uniform (
   freeVars, funFreeVars, effectFreeVars, bindingFreeVars,
 ) where
 
-import Data.Array.Accelerate.AST.Environment ( Subset(SubsetEnd) )
+import Data.Array.Accelerate.AST.Environment ( Split(SplitEnd), Subset(SubsetEnd) )
 import Data.Array.Accelerate.AST.Exp
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet ( IdxSet )
@@ -150,8 +150,9 @@ data UniformSchedule' (rc :: Bool) kernel env where
   -- Spawns a task/thread for the first subterm, and continues with the second subterm.
   -- Note that we use the name 'spawn' instead of 'fork', to imply that the first
   -- subterm is not executed directly, but handed over to a different core or queued.
-  Spawn   :: UniformSchedule' rc kernel env
-          -> UniformSchedule' rc kernel env
+  Spawn   :: Split rc env env1 env2
+          -> UniformSchedule' rc kernel env1
+          -> UniformSchedule' rc kernel env2
           -> UniformSchedule' rc kernel env
 
   -- Execute a subterm in the specified subset of the environment.
@@ -384,7 +385,7 @@ freeVars (AwhileSeq _ step ini continuation)
   = IdxSet.union (funFreeVars step)
   $ IdxSet.union (IdxSet.fromVarList $ flattenTupR ini)
   $ freeVars continuation
-freeVars (Spawn s1 s2) = freeVars s1 `IdxSet.union` freeVars s2
+freeVars (Spawn SplitEnd s1 s2) = freeVars s1 `IdxSet.union` freeVars s2
 freeVars (Release SubsetEnd s) = freeVars s
 
 funFreeVars :: UniformScheduleFun kernel env t -> IdxSet env

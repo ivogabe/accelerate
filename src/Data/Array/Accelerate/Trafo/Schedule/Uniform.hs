@@ -1109,7 +1109,7 @@ rnfSchedule' (Effect eff next)             = rnfEffect eff `seq` rnfSchedule' ne
 rnfSchedule' (Acond c true false next)     = rnfExpVar c `seq` rnfSchedule' true `seq` rnfSchedule' false `seq` rnfSchedule' next
 rnfSchedule' (Awhile io body initial next) = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar initial `seq` rnfSchedule' next
 rnfSchedule' (AwhileSeq io body ini  next) = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar ini     `seq` rnfSchedule' next
-rnfSchedule' (Spawn a b)                   = rnfSchedule' a `seq` rnfSchedule' b
+rnfSchedule' (Spawn SplitEnd a b)          = rnfSchedule' a `seq` rnfSchedule' b
 rnfSchedule' (Release SubsetEnd s)         = rnfSchedule' s
 
 rnfBinding :: Binding env t -> ()
@@ -1190,12 +1190,13 @@ makeSpawnClosed' k awaitEnd = \case
     Awhile io (makeFunSpawnClosed' k step) (mapTupR (weaken k) initial) $ makeSpawnClosed' k awaitEnd next
   AwhileSeq io step initial next ->
     AwhileSeq io (makeFunSpawnClosed' k step) (mapTupR (weaken k) initial) $ makeSpawnClosed' k awaitEnd next
-  Spawn a b
+  Spawn SplitEnd a b
     | (count, a') <- addSync a ->
       -- Bind signals for all spawns in 'a', and this current spawn.
       bindSignals (count + 1) $
         \skip signals resolvers ->
           Spawn
+            SplitEnd
             (a' (skipWeakenIdx skip .> k) weakenId (toList resolvers))
             (makeSpawnClosed' (skipWeakenIdx skip .> k)
               (unionPartialEnv const signals $ skipWeakenPartialEnv skip awaitEnd) b)
@@ -1293,11 +1294,12 @@ makeSpawnClosed' k awaitEnd = \case
       )
       where
         (count, next') = addSync next
-    addSync (Spawn a b) =
+    addSync (Spawn SplitEnd a b) =
       -- +1 for this Spawn
       ( aCount + bCount + 1
       , \k1 k2 resolvers ->
         Spawn
+          SplitEnd
           -- Give the first (aCount + 1) resolvers to term 'a', the others to 'b'.
           -- Note that 'b' gets either bCount or (bCount + 1) resolvers,
           -- see the comment at the start of 'addSync'.
