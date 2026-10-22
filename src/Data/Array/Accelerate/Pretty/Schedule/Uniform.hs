@@ -113,16 +113,36 @@ bindingHasTrivialType _             = False
 empty' :: Val' ()
 empty' = Val' Empty 0 0 0 0
 
-valSplitLeft :: Split rc env env1 env2 -> Val' env -> Val' env1
-valSplitLeft SplitDefault v = v
-valSplitLeft _ _ = error "TODO"
+valSplitLeft :: Split rc env envL envR -> Val' env -> Val' envL
+valSplitLeft split (Val' env b e s r) = Val' (go split env) b e s r
+  where
+    go :: Split rc env envL envR -> Val env -> Val envL
+    go = \case
+      SplitLeft  split' -> \(Push env' d) -> Push (go split' env') d
+      SplitRight split' -> \(Push env' _) -> go split' env'
+      SplitBoth  split' -> \(Push env' d) -> Push (go split' env') d
+      SplitEnd          -> id
+      SplitDefault      -> id
 
-valSplitRight :: Split rc env env1 env2 -> Val' env -> Val' env2
-valSplitRight SplitDefault v = v
-valSplitRight _ _ = error "TODO"
+valSplitRight :: Split rc env envL envR -> Val' env -> Val' envR
+valSplitRight split (Val' env b e s r) = Val' (go split env) b e s r
+  where
+    go :: Split rc env envL envR -> Val env -> Val envR
+    go = \case
+      SplitLeft  split' -> \(Push env' _) -> go split' env'
+      SplitRight split' -> \(Push env' d) -> Push (go split' env') d
+      SplitBoth  split' -> \(Push env' d) -> Push (go split' env') d
+      SplitEnd          -> id
+      SplitDefault      -> id
 
-valSubset :: Subset env1 env2 -> Val' env1 -> Val' env2
-valSubset _ _ = error "TODO"
+valSubset :: Subset env envSub -> Val' env -> Val' envSub
+valSubset subset (Val' env b e s r) = Val' (go subset env) b e s r
+  where
+    go :: Subset env envSub -> Val env -> Val envSub
+    go = \case
+      SubsetKeep subset' -> \(Push env' d) -> Push (go subset' env') d
+      SubsetDrop subset' -> \(Push env' _) -> go subset' env'
+      SubsetEnd          -> id
 
 prettyUniformScheduleFun :: PrettyKernel kernel => Val' env -> UniformScheduleFun kernel env t -> Adoc
 prettyUniformScheduleFun env (Slam lhs f)
