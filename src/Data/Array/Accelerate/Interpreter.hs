@@ -438,11 +438,9 @@ executeSchedule !env = \case
     executeSchedule env next
     -- TODO: S.AwhileSeq
   S.AwhileSeq{} -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
-  S.Spawn SplitEnd a b -> do
+  S.Spawn SplitDefault a b -> do
     _ <- forkIO (executeSchedule env a)
     executeSchedule env b
-  S.Release SubsetEnd s ->
-    executeSchedule env s
 
 executeBinding :: Val env -> S.Binding env t -> IO t
 executeBinding env = \case

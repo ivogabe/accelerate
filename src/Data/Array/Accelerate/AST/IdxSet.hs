@@ -136,20 +136,23 @@ drop' (LeftHandSidePair lhs1 lhs2) = drop' lhs1 . drop' lhs2
 drop' (LeftHandSideWildcard _)     = id
 drop' (LeftHandSideSingle _)       = drop
 
-subsetDropped :: Subset rc env envSub -> IdxSet env
+subsetDropped :: Subset env envSub -> IdxSet env
 subsetDropped = \case
   SubsetKeep subset -> skip (subsetDropped subset)
   SubsetDrop subset -> push (subsetDropped subset)
   SubsetEnd         -> empty
 
-splitLeft :: Split rc env envL envR -> IdxSet env
+splitLeft :: Split True env envL envR -> IdxSet env
 splitLeft = \case
   SplitLeft  split -> push (splitLeft split)
   SplitRight split -> skip (splitLeft split)
   SplitBoth  split -> push (splitLeft split)
   SplitEnd         -> empty
+  -- We cannot implement splitLeft for SplitDefault, as we cannot construct a
+  -- set of all indices in an environment only available via type variable
+  -- 'env'. Hence we restrict splitLeft to 'Split True' instead of 'Split rc'.
 
-splitRight :: Split rc env envL envR -> IdxSet env
+splitRight :: Split True env envL envR -> IdxSet env
 splitRight = \case
   SplitLeft  split -> skip (splitLeft split)
   SplitRight split -> push (splitLeft split)

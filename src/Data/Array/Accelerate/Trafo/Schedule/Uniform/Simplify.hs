@@ -168,10 +168,10 @@ placePostponed (Postponed spawns resolvers) env next =
       | otherwise = Effect (SignalResolve resolvers) next
 
 spawnAndRotate :: UniformSchedule kernel env -> UniformSchedule kernel env -> UniformSchedule kernel env
-spawnAndRotate (Spawn SplitEnd a b) c = Spawn SplitEnd a $ spawnAndRotate b c
+spawnAndRotate (Spawn SplitDefault a b) c = Spawn SplitDefault a $ spawnAndRotate b c
 spawnAndRotate a Return = a
 spawnAndRotate a (Effect eff@(SignalResolve _) Return) = Effect eff $ a
-spawnAndRotate a b = Spawn SplitEnd a b
+spawnAndRotate a b = Spawn SplitDefault a b
 
 resolveSignalsInPostponed :: [Idx env Signal] -> [Idx env SignalResolver] -> Postponed kernel env -> Postponed kernel env
 resolveSignalsInPostponed signals newResolvers (Postponed spawns resolvers) = Postponed
@@ -797,13 +797,12 @@ rebuild = \case
       ( analysis
       , buildAwhileSeq io (rebuildFun f) input next'
       )
-  Spawn SplitEnd term1 term2
+  Spawn SplitDefault term1 term2
     | (analysis1, term1') <- rebuild term1
     , (analysis2, term2') <- rebuild term2 ->
       ( analysisJoin analysis1 analysis2
       , buildSpawn term1' term2'
       )
-  Release SubsetEnd s -> rebuild s
 
 rebuildLet
   :: BLeftHandSide t env env'

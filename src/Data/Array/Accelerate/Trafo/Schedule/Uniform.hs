@@ -1102,6 +1102,7 @@ appendMaybe = maybe id (:)
 variableMissing :: HasCallStack => a
 variableMissing = internalError "Variable missing in FutureEnv (and possibly in SyncEnv)"
 
+-- TODO: This should work for UniformSchedule' instead of UniformSchedule
 rnfSchedule' :: IsKernel kernel => UniformSchedule kernel env -> ()
 rnfSchedule' Return                        = ()
 rnfSchedule' (Alet lhs bnd body)           = rnfLeftHandSide rnfBaseR lhs `seq` rnfBinding bnd `seq` rnfSchedule' body
@@ -1109,8 +1110,7 @@ rnfSchedule' (Effect eff next)             = rnfEffect eff `seq` rnfSchedule' ne
 rnfSchedule' (Acond c true false next)     = rnfExpVar c `seq` rnfSchedule' true `seq` rnfSchedule' false `seq` rnfSchedule' next
 rnfSchedule' (Awhile io body initial next) = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar initial `seq` rnfSchedule' next
 rnfSchedule' (AwhileSeq io body ini  next) = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar ini     `seq` rnfSchedule' next
-rnfSchedule' (Spawn SplitEnd a b)          = rnfSchedule' a `seq` rnfSchedule' b
-rnfSchedule' (Release SubsetEnd s)         = rnfSchedule' s
+rnfSchedule' (Spawn SplitDefault a b)      = rnfSchedule' a `seq` rnfSchedule' b
 
 rnfBinding :: Binding env t -> ()
 rnfBinding (Compute e)       = rnfOpenExp e
@@ -1190,18 +1190,16 @@ makeSpawnClosed' k awaitEnd = \case
     Awhile io (makeFunSpawnClosed' k step) (mapTupR (weaken k) initial) $ makeSpawnClosed' k awaitEnd next
   AwhileSeq io step initial next ->
     AwhileSeq io (makeFunSpawnClosed' k step) (mapTupR (weaken k) initial) $ makeSpawnClosed' k awaitEnd next
-  Spawn SplitEnd a b
+  Spawn SplitDefault a b
     | (count, a') <- addSync a ->
       -- Bind signals for all spawns in 'a', and this current spawn.
       bindSignals (count + 1) $
         \skip signals resolvers ->
           Spawn
-            SplitEnd
+            SplitDefault
             (a' (skipWeakenIdx skip .> k) weakenId (toList resolvers))
             (makeSpawnClosed' (skipWeakenIdx skip .> k)
               (unionPartialEnv const signals $ skipWeakenPartialEnv skip awaitEnd) b)
-  Release SubsetEnd s ->
-    Release SubsetEnd $ makeSpawnClosed' k awaitEnd s
   where
     bindSignals
       :: Int
@@ -1294,12 +1292,12 @@ makeSpawnClosed' k awaitEnd = \case
       )
       where
         (count, next') = addSync next
-    addSync (Spawn SplitEnd a b) =
+    addSync (Spawn SplitDefault a b) =
       -- +1 for this Spawn
       ( aCount + bCount + 1
       , \k1 k2 resolvers ->
         Spawn
-          SplitEnd
+          SplitDefault
           -- Give the first (aCount + 1) resolvers to term 'a', the others to 'b'.
           -- Note that 'b' gets either bCount or (bCount + 1) resolvers,
           -- see the comment at the start of 'addSync'.
@@ -1309,7 +1307,6 @@ makeSpawnClosed' k awaitEnd = \case
       where
         (aCount, a') = addSync a
         (bCount, b') = addSync b
-    addSync (Release SubsetEnd s) = addSync s
 
     toList :: TypedIdxSet t env -> [Idx env t]
     toList = map (\(EnvBinding idx Refl) -> idx) . partialEnvToList

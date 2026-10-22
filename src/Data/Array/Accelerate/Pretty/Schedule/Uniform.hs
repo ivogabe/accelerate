@@ -17,7 +17,7 @@ import Data.Array.Accelerate.Pretty.Exp
 import Data.Array.Accelerate.Pretty.Type
 import Data.Array.Accelerate.Pretty.Schedule
 import Data.Array.Accelerate.Pretty.Operation (prettyGroundR, prettyBuffer, prettyExp, prettyModifier)
-import Data.Array.Accelerate.AST.Environment ((>:>), weakenWithSplit, weakenWithSubset)
+import Data.Array.Accelerate.AST.Environment (Split(..), Subset(..))
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet (IdxSet)
 import qualified Data.Array.Accelerate.AST.IdxSet as IdxSet
@@ -27,7 +27,6 @@ import Data.Array.Accelerate.AST.Schedule.Uniform
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Trafo.Schedule.Uniform.Substitution ()
-import Data.Array.Accelerate.Trafo.Substitution (Sink'(weaken'))
 import Data.Array.Accelerate.Type
 import Data.String
 
@@ -114,6 +113,17 @@ bindingHasTrivialType _             = False
 empty' :: Val' ()
 empty' = Val' Empty 0 0 0 0
 
+valSplitLeft :: Split rc env env1 env2 -> Val' env -> Val' env1
+valSplitLeft SplitDefault v = v
+valSplitLeft _ _ = error "TODO"
+
+valSplitRight :: Split rc env env1 env2 -> Val' env -> Val' env2
+valSplitRight SplitDefault v = v
+valSplitRight _ _ = error "TODO"
+
+valSubset :: Subset env1 env2 -> Val' env1 -> Val' env2
+valSubset _ _ = error "TODO"
+
 prettyUniformScheduleFun :: PrettyKernel kernel => Val' env -> UniformScheduleFun kernel env t -> Adoc
 prettyUniformScheduleFun env (Slam lhs f)
   | (env', lhs') <- prettyBLhsWithTypes env lhs
@@ -153,31 +163,27 @@ prettyUniformSchedule env = \case
         <> hardline <> "  )"
         <> prettyNext next
   Spawn split (Effect (SignalAwait signals) body) next
-    -> let (kL, kR) = weakenWithSplit split
-       in  annotate Statement "spawn await"
-            <+> prettyIdxSet env (IdxSet.splitLeft  split)
-            <+> prettyIdxSet env (IdxSet.splitRight split)
-            <+> list (map (prettyIdx env . (kL >:>)) signals)
-            <+> "{"
-            <> hardline <> indent 2 (prettyUniformSchedule env (weaken' kL body))
-            <> hardline <> "}"
-            <> prettyNext (weaken' kR next)
+    | envL <- valSplitLeft split env
+    , envR <- valSplitRight split env
+    -> prettySplit env split
+        <> annotate Statement "spawn await"
+        <+> list (map (prettyIdx envL) signals)
+        <+> "{"
+        <> hardline <> indent 2 (prettyUniformSchedule envL body)
+        <> hardline <> "}"
+        <> prettyNext' envR next
   Spawn split body next
-    -> let (kL, kR) = weakenWithSplit split
-       in  annotate Statement "spawn"
-            <+> prettyIdxSet env (IdxSet.splitLeft  split)
-            <+> prettyIdxSet env (IdxSet.splitRight split)
-            <+> "{"
-            <> hardline <> indent 2 (prettyUniformSchedule env (weaken' kL body))
-            <> hardline <> "}"
-            <> prettyNext (weaken' kR next)
+    | envL <- valSplitLeft split env
+    , envR <- valSplitRight split env
+    -> prettySplit env split
+        <> annotate Statement "spawn"
+        <+> "{"
+        <> hardline <> indent 2 (prettyUniformSchedule envL body)
+        <> hardline <> "}"
+        <> prettyNext' envR next
   Release subset s
-    -> let s' = weaken' (weakenWithSubset subset) s
-       in  annotate Statement "release"
-            <+> prettyIdxSet env (IdxSet.subsetDropped subset)
-            <+> "{"
-            <> hardline <> indent 2 (prettyUniformSchedule env s')
-            <> hardline <> "}"
+    -> hang 2 $ group $ vsep [annotate Statement "release", prettyIdxSet env $ IdxSet.subsetDropped subset]
+        <> prettyNext' (valSubset subset env) s
   where
     prettyNext' :: Val' env' -> UniformSchedule' rc kernel env' -> Adoc
     prettyNext' _    Return = emptyDoc
@@ -223,6 +229,21 @@ prettyKernelFun env fun args = case prettyKernel of
       go Empty fun args
   PrettyKernelFun prettyKernelAsFun ->
     hang 2 $ group $ vsep [annotate Execute "execute", prettyKernelAsFun fun, prettySArgs env args]
+
+prettySplit :: forall rc env envL envR. Val' env -> Split rc env envL envR -> Adoc
+prettySplit env s = case s of
+  SplitDefault -> mempty -- rc ~ False
+  SplitEnd -> go
+  SplitLeft{} -> go
+  SplitRight{} -> go
+  SplitBoth{} -> go
+  where
+    go :: rc ~ True => Adoc
+    go
+      | IdxSet.null retain = mempty
+      | otherwise = hang 2 (group $ vsep [annotate Statement "retain", prettyIdxSet env retain]) <> hardline
+      where
+        retain = IdxSet.splitLeft s `IdxSet.intersect` IdxSet.splitRight s
 
 prettySArgs :: Val' benv -> SArgs benv f -> Adoc
 prettySArgs env args = tupled $ map (\(Exists a) -> prettySArg env a) $ argsToList args

@@ -15,7 +15,6 @@ module Data.Array.Accelerate.Analysis.Hash.Schedule.Uniform (
   hashUniformScheduleFun
 ) where
 
-import qualified Data.Array.Accelerate.AST.IdxSet                   as IdxSet
 import Data.Array.Accelerate.AST.Var
 import Data.Array.Accelerate.AST.Kernel
 import Data.Array.Accelerate.AST.Schedule.Uniform
@@ -66,13 +65,12 @@ encodeUniformSchedule (AwhileSeq io fn initial next)
   <> encodeUniformSchedule next
 encodeUniformSchedule (Spawn split a b)
   = intHost $(hashQ ("Spawn" :: String))
-  <> encodeIdxSet (IdxSet.splitLeft  split)
-  <> encodeIdxSet (IdxSet.splitRight split)
+  <> encodeSplit split
   <> encodeUniformSchedule a
   <> encodeUniformSchedule b
 encodeUniformSchedule (Release subset s)
   = intHost $(hashQ ("Release" :: String))
-  <> encodeIdxSet (IdxSet.subsetDropped subset)
+  <> encodeSubset subset
   <> encodeUniformSchedule s
 
 encodeBLeftHandSide :: BLeftHandSide t env env' -> Builder

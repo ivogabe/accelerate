@@ -30,7 +30,7 @@ module Data.Array.Accelerate.AST.Schedule.Uniform (
   freeVars, funFreeVars, effectFreeVars, bindingFreeVars,
 ) where
 
-import Data.Array.Accelerate.AST.Environment ( Split(SplitEnd), Subset(SubsetEnd) )
+import Data.Array.Accelerate.AST.Environment ( Split(SplitDefault), Subset )
 import Data.Array.Accelerate.AST.Exp
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet ( IdxSet )
@@ -150,15 +150,20 @@ data UniformSchedule' (rc :: Bool) kernel env where
   -- Spawns a task/thread for the first subterm, and continues with the second subterm.
   -- Note that we use the name 'spawn' instead of 'fork', to imply that the first
   -- subterm is not executed directly, but handed over to a different core or queued.
+  --
+  -- The environment is divided in two, for the two subterms.
+  -- When reference counting is disabled, all bindings are available in both
+  -- subterms, i.e. when rc ~ False then env ~ env1 and env ~ env2.
   Spawn   :: Split rc env env1 env2
           -> UniformSchedule' rc kernel env1
           -> UniformSchedule' rc kernel env2
           -> UniformSchedule' rc kernel env
 
   -- Execute a subterm in the specified subset of the environment.
-  Release :: Subset rc env env'
-          -> UniformSchedule' rc kernel env'
-          -> UniformSchedule' rc kernel env
+  -- Only available when reference counting is enabled (rc ~ True).
+  Release :: Subset env env'
+          -> UniformSchedule' True kernel env'
+          -> UniformSchedule' True kernel env
 
 -- Schedule without reference counting
 type UniformSchedule = UniformSchedule' False
@@ -385,8 +390,7 @@ freeVars (AwhileSeq _ step ini continuation)
   = IdxSet.union (funFreeVars step)
   $ IdxSet.union (IdxSet.fromVarList $ flattenTupR ini)
   $ freeVars continuation
-freeVars (Spawn SplitEnd s1 s2) = freeVars s1 `IdxSet.union` freeVars s2
-freeVars (Release SubsetEnd s) = freeVars s
+freeVars (Spawn SplitDefault s1 s2) = freeVars s1 `IdxSet.union` freeVars s2
 
 funFreeVars :: UniformScheduleFun kernel env t -> IdxSet env
 funFreeVars (Sbody s)    = freeVars s
