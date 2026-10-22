@@ -1102,15 +1102,15 @@ appendMaybe = maybe id (:)
 variableMissing :: HasCallStack => a
 variableMissing = internalError "Variable missing in FutureEnv (and possibly in SyncEnv)"
 
--- TODO: This should work for UniformSchedule' instead of UniformSchedule
-rnfSchedule' :: IsKernel kernel => UniformSchedule kernel env -> ()
+rnfSchedule' :: IsKernel kernel => UniformSchedule' ts kernel env -> ()
 rnfSchedule' Return                        = ()
 rnfSchedule' (Alet lhs bnd body)           = rnfLeftHandSide rnfBaseR lhs `seq` rnfBinding bnd `seq` rnfSchedule' body
 rnfSchedule' (Effect eff next)             = rnfEffect eff `seq` rnfSchedule' next
 rnfSchedule' (Acond c true false next)     = rnfExpVar c `seq` rnfSchedule' true `seq` rnfSchedule' false `seq` rnfSchedule' next
 rnfSchedule' (Awhile io body initial next) = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar initial `seq` rnfSchedule' next
 rnfSchedule' (AwhileSeq io body ini  next) = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar ini     `seq` rnfSchedule' next
-rnfSchedule' (Spawn SplitDefault a b)      = rnfSchedule' a `seq` rnfSchedule' b
+rnfSchedule' (Spawn split a b)             = rnfSplit split `seq` rnfSchedule' a `seq` rnfSchedule' b
+rnfSchedule' (Release subset s)            = rnfSubset subset `seq` rnfSchedule' s
 
 rnfBinding :: Binding env t -> ()
 rnfBinding (Compute e)       = rnfOpenExp e

@@ -32,10 +32,10 @@ module Data.Array.Accelerate.AST.Environment (
   
   Append,
 
-  Subset(..), subsetKeepAll,
+  Subset(..), subsetKeepAll, rnfSubset,
   weakenWithSubset, weakenSubset, WeakenSubset(..),
 
-  Split(..), splitBothAll,
+  Split(..), splitBothAll, rnfSplit,
   weakenWithSplit, weakenSplit, WeakenSplit(..),
 ) where
 
@@ -507,6 +507,12 @@ data Subset env envSub where
 subsetKeepAll :: Subset env env
 subsetKeepAll = SubsetEnd
 
+rnfSubset :: Subset env envSub -> ()
+rnfSubset = \case
+  SubsetKeep subset -> rnfSubset subset
+  SubsetDrop subset -> rnfSubset subset
+  SubsetEnd         -> ()
+
 -- | Construct a weakening relation given a 'Subset'
 weakenWithSubset
   :: Subset env envSub
@@ -546,6 +552,14 @@ data Split (rc :: Bool) env envL envR where
 -- | A 'Split' that keeps all bindings in both environments
 splitBothAll :: Split False env env env
 splitBothAll = SplitDefault
+
+rnfSplit :: Split rc env envL envR -> ()
+rnfSplit = \case
+  SplitLeft  split -> rnfSplit split
+  SplitRight split -> rnfSplit split
+  SplitBoth  split -> rnfSplit split
+  SplitEnd         -> ()
+  SplitDefault     -> ()
 
 -- | Construct left and right weakening relations given a 'Split'
 weakenWithSplit
