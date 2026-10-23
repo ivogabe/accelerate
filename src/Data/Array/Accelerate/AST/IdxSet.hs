@@ -154,9 +154,9 @@ splitLeft = \case
 
 splitRight :: Split True env envL envR -> IdxSet env
 splitRight = \case
-  SplitLeft  split -> skip (splitLeft split)
-  SplitRight split -> push (splitLeft split)
-  SplitBoth  split -> push (splitLeft split)
+  SplitLeft  split -> skip (splitRight split)
+  SplitRight split -> push (splitRight split)
+  SplitBoth  split -> push (splitRight split)
   SplitEnd         -> empty
 
 toList :: IdxSet env -> [Exists (Idx env)]
