@@ -51,6 +51,7 @@ import Data.Either
 import Data.IORef
 import Data.Typeable                                                ( (:~:)(..) )
 import Data.Text                                                    ( Text )
+import Data.Kind
 
 -- Generic schedule for a uniform memory space and uniform scheduling.
 -- E.g., we don't have host and device memory or scheduling.
@@ -97,7 +98,8 @@ import Data.Text                                                    ( Text )
 -- The entire term is self-closed, as it waits on the completions of both
 -- spawned subterms.
 data UniformSchedule' (rc :: Bool) kernel env where
-  Return  :: UniformSchedule' rc kernel env
+  Return  :: EmptyEnvIfRC rc env
+          => UniformSchedule' rc kernel env
 
   Alet    :: BLeftHandSide t env env'
           -> Binding env t
@@ -178,6 +180,10 @@ data UniformScheduleFun kernel env t where
 
   Sbody :: UniformSchedule    kernel env
         -> UniformScheduleFun kernel env ()
+
+type family EmptyEnvIfRC (rc :: Bool) env :: Constraint where
+  EmptyEnvIfRC False _ = ()
+  EmptyEnvIfRC True env = env ~ ()
 
 type family Input t where
   Input ()         = ()
