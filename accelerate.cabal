@@ -441,7 +441,6 @@ library
         , half                          >= 0.3
         , hashable                      >= 1.1
         , hashtables                    >= 1.2.3
-        , hedgehog                      >= 0.5
         , microlens                     >= 0.4
         , microlens-mtl                 >= 0.2
         , MIP                           >= 0.2
@@ -450,7 +449,6 @@ library
         , prettyprinter-ansi-terminal   >= 1.1.2
         , primitive                     >= 0.6.4
         , scientific                    >= 0.3.6.2
-        , tasty                         >= 0.11
         , template-haskell              >= 2.19.0.0 && < 2.25
         , terminal-size                 >= 0.3
         , text                          >= 2.0.2
@@ -717,27 +715,38 @@ test-suite doctest
         -fexternal-interpreter
 
 library nofib
-  import:           lang
-  hs-source-dirs:   src-nofib
+  import:               lang
+  hs-source-dirs:       src-nofib
+  visibility:           public
+
+  -- Internal dependencies
+  build-depends:
+        , accelerate
+        , accelerate:ffi
+
+  -- Inherited dependencies
+  build-depends:
+        , containers
+        , deepseq
+        , microlens
+        , primitive
+
+  -- External dependencies
+  build-depends:
+        , hedgehog                      >= 0.5
+        , tasty                         >= 0.11
+        , tasty-expected-failure        >= 0.11
+        , tasty-hedgehog                >= 0.1
+        , tasty-hunit                   >= 0.9
+        , tasty-rerun                   >= 1.1
 
   exposed-modules:
         Data.Array.Accelerate.Test.NoFib
         Data.Array.Accelerate.Test.Similar
-  build-depends:
-        accelerate
-      , accelerate:ffi
-      , hedgehog                      >= 0.5
-      , tasty
-      , primitive
-      , deepseq
-      , tasty-hunit
-      , tasty-expected-failure
-      , tasty-hedgehog
-      , tasty-rerun
-      , microlens
-      , containers
 
   other-modules:
+        Data.Array.Accelerate.Test.NoFib.Base
+        Data.Array.Accelerate.Test.NoFib.Config
         Data.Array.Accelerate.Test.NoFib.Sharing
         Data.Array.Accelerate.Test.NoFib.Prelude
         Data.Array.Accelerate.Test.NoFib.Prelude.Map
@@ -787,9 +796,6 @@ library nofib
         Data.Array.Accelerate.Test.NoFib.Misc
         Data.Array.Accelerate.Test.NoFib.Misc.Cache
         Data.Array.Accelerate.Test.NoFib.Misc.Scanl1
-
-        Data.Array.Accelerate.Test.NoFib.Base
-        Data.Array.Accelerate.Test.NoFib.Config
 
 
 test-suite nofib-interpreter
