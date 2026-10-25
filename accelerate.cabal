@@ -582,8 +582,6 @@ library
         Data.Array.Accelerate.Type
 
         -- For testing
-        Data.Array.Accelerate.Test.NoFib
-        Data.Array.Accelerate.Test.Similar
         Data.Array.Accelerate.Pretty.Operation
         Data.Array.Accelerate.Pretty.Exp
 
@@ -641,8 +639,6 @@ library
         -- Data.Array.Accelerate.Array.Lifted
 
         -- nofib test suite
-        Data.Array.Accelerate.Test.NoFib.Base
-        Data.Array.Accelerate.Test.NoFib.Config
 
         Language.Haskell.TH.Extra
 
@@ -656,57 +652,6 @@ library
         , tasty-hunit                   >= 0.9
         , tasty-rerun                   >= 1.1
     --     , pipes                         >= 4.1.6   -- #286
-
-    other-modules:
-        Data.Array.Accelerate.Test.NoFib.Sharing
-        Data.Array.Accelerate.Test.NoFib.Prelude
-        Data.Array.Accelerate.Test.NoFib.Prelude.Map
-        Data.Array.Accelerate.Test.NoFib.Prelude.ZipWith
-        Data.Array.Accelerate.Test.NoFib.Prelude.SIMD
-        Data.Array.Accelerate.Test.NoFib.Prelude.Fold
-        Data.Array.Accelerate.Test.NoFib.Prelude.Scan
-        Data.Array.Accelerate.Test.NoFib.Prelude.Backpermute
-        Data.Array.Accelerate.Test.NoFib.Prelude.Permute
-        Data.Array.Accelerate.Test.NoFib.Prelude.Filter
-        Data.Array.Accelerate.Test.NoFib.Prelude.Stencil
-        Data.Array.Accelerate.Test.NoFib.Imaginary
-        Data.Array.Accelerate.Test.NoFib.Imaginary.DotP
-        Data.Array.Accelerate.Test.NoFib.Imaginary.SASUM
-        Data.Array.Accelerate.Test.NoFib.Imaginary.SAXPY
-        Data.Array.Accelerate.Test.NoFib.Spectral
-        Data.Array.Accelerate.Test.NoFib.Spectral.SMVM
-        Data.Array.Accelerate.Test.NoFib.Spectral.RadixSort
-        Data.Array.Accelerate.Test.NoFib.Spectral.BlackScholes
-        Data.Array.Accelerate.Test.NoFib.Issues
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue93
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue102
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue114
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue119
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue123
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue137
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue168
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue184
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue185
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue187
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue228
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue255
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue264
-        -- Data.Array.Accelerate.Test.NoFib.Issues.Issue286
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue287
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue288
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue362
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue364
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue407
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue409
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue427
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue436
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue437
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue439
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue517
-        Data.Array.Accelerate.Test.NoFib.Issues.Issue551
-        Data.Array.Accelerate.Test.NoFib.Misc
-        Data.Array.Accelerate.Test.NoFib.Misc.Cache
-        Data.Array.Accelerate.Test.NoFib.Misc.Scanl1
 
   other-extensions:
         AllowAmbiguousTypes
@@ -791,6 +736,84 @@ test-suite doctest
     ghc-options:
         -fexternal-interpreter
 
+library nofib
+  import:           lang
+  hs-source-dirs:   src-nofib
+  if flag(nofib)
+    cpp-options:
+        -DACCELERATE_NOFIB
+
+  exposed-modules:
+        Data.Array.Accelerate.Test.NoFib
+        Data.Array.Accelerate.Test.Similar
+  build-depends:
+        accelerate
+      , accelerate:ffi
+      , hedgehog                      >= 0.5
+      , tasty
+      , primitive
+      , deepseq
+      , tasty-hunit
+      , tasty-expected-failure
+      , tasty-hedgehog
+      , tasty-rerun
+      , microlens
+      , containers
+
+  other-modules:
+        Data.Array.Accelerate.Test.NoFib.Sharing
+        Data.Array.Accelerate.Test.NoFib.Prelude
+        Data.Array.Accelerate.Test.NoFib.Prelude.Map
+        Data.Array.Accelerate.Test.NoFib.Prelude.ZipWith
+        Data.Array.Accelerate.Test.NoFib.Prelude.SIMD
+        Data.Array.Accelerate.Test.NoFib.Prelude.Fold
+        Data.Array.Accelerate.Test.NoFib.Prelude.Scan
+        Data.Array.Accelerate.Test.NoFib.Prelude.Backpermute
+        Data.Array.Accelerate.Test.NoFib.Prelude.Permute
+        Data.Array.Accelerate.Test.NoFib.Prelude.Filter
+        Data.Array.Accelerate.Test.NoFib.Prelude.Stencil
+        Data.Array.Accelerate.Test.NoFib.Imaginary
+        Data.Array.Accelerate.Test.NoFib.Imaginary.DotP
+        Data.Array.Accelerate.Test.NoFib.Imaginary.SASUM
+        Data.Array.Accelerate.Test.NoFib.Imaginary.SAXPY
+        Data.Array.Accelerate.Test.NoFib.Spectral
+        Data.Array.Accelerate.Test.NoFib.Spectral.SMVM
+        Data.Array.Accelerate.Test.NoFib.Spectral.RadixSort
+        Data.Array.Accelerate.Test.NoFib.Spectral.BlackScholes
+        Data.Array.Accelerate.Test.NoFib.Issues
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue93
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue102
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue114
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue119
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue123
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue137
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue168
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue184
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue185
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue187
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue228
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue255
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue264
+        -- Data.Array.Accelerate.Test.NoFib.Issues.Issue286
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue287
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue288
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue362
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue364
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue407
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue409
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue427
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue436
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue437
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue439
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue517
+        Data.Array.Accelerate.Test.NoFib.Issues.Issue551
+        Data.Array.Accelerate.Test.NoFib.Misc
+        Data.Array.Accelerate.Test.NoFib.Misc.Cache
+        Data.Array.Accelerate.Test.NoFib.Misc.Scanl1
+
+        Data.Array.Accelerate.Test.NoFib.Base
+        Data.Array.Accelerate.Test.NoFib.Config
+
 
 test-suite nofib-interpreter
   type:                 exitcode-stdio-1.0
@@ -803,6 +826,7 @@ test-suite nofib-interpreter
 
   build-depends:
         , accelerate
+        , accelerate:nofib
         , base                          >= 4.17.2.1
         , tasty
 
