@@ -1103,14 +1103,14 @@ variableMissing :: HasCallStack => a
 variableMissing = internalError "Variable missing in FutureEnv (and possibly in SyncEnv)"
 
 rnfSchedule' :: IsKernel kernel => UniformSchedule' ts kernel env -> ()
-rnfSchedule' Return                        = ()
-rnfSchedule' (Alet lhs bnd body)           = rnfLeftHandSide rnfBaseR lhs `seq` rnfBinding bnd `seq` rnfSchedule' body
-rnfSchedule' (Effect eff next)             = rnfEffect eff `seq` rnfSchedule' next
-rnfSchedule' (Acond c true false next)     = rnfExpVar c `seq` rnfSchedule' true `seq` rnfSchedule' false `seq` rnfSchedule' next
-rnfSchedule' (Awhile io body initial next) = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar initial `seq` rnfSchedule' next
-rnfSchedule' (AwhileSeq io body ini  next) = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar ini     `seq` rnfSchedule' next
-rnfSchedule' (Spawn split a b)             = rnfSplit split `seq` rnfSchedule' a `seq` rnfSchedule' b
-rnfSchedule' (Release subset s)            = rnfSubset subset `seq` rnfSchedule' s
+rnfSchedule' Return                          = ()
+rnfSchedule' (Alet lhs bnd body)             = rnfLeftHandSide rnfBaseR lhs `seq` rnfBinding bnd `seq` rnfSchedule' body
+rnfSchedule' (Effect eff next)               = rnfEffect eff `seq` rnfSchedule' next
+rnfSchedule' (Acond c split true false next) = rnfExpVar c `seq` rnfSplit split `seq` rnfSchedule' true `seq` rnfSchedule' false `seq` rnfSchedule' next
+rnfSchedule' (Awhile io body initial next)   = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar initial `seq` rnfSchedule' next
+rnfSchedule' (AwhileSeq io body ini  next)   = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar ini     `seq` rnfSchedule' next
+rnfSchedule' (Spawn split a b)               = rnfSplit split `seq` rnfSchedule' a `seq` rnfSchedule' b
+rnfSchedule' (Release subset s)              = rnfSubset subset `seq` rnfSchedule' s
 
 rnfBinding :: Binding env t -> ()
 rnfBinding (Compute e)       = rnfOpenExp e
@@ -1168,7 +1168,7 @@ makeSpawnClosed' k awaitEnd = \case
       Alet lhs' (weaken k bnd) $ makeSpawnClosed' k' (partialEnvSkipLHS lhs' awaitEnd ) next
   Effect effect next ->
     Effect (weaken' k effect) $ makeSpawnClosed' k awaitEnd next
-  Acond var true false next
+  Acond var SplitDefault true false next
     | (trueCount, true') <- addSync true
     , (falseCount, false') <- addSync false ->
       bindSignals (trueCount `max` falseCount) $
@@ -1179,6 +1179,7 @@ makeSpawnClosed' k awaitEnd = \case
           in
             Acond
               (weaken k2 var)
+              SplitDefault
               (resolve (drop trueCount resolvers')
                 $ true' k2 weakenId (take trueCount resolvers'))
               (resolve (drop falseCount resolvers')
@@ -1245,7 +1246,7 @@ makeSpawnClosed' k awaitEnd = \case
       )
       where
         (count, next') = addSync next
-    addSync (Acond var true false next) =
+    addSync (Acond var SplitDefault true false next) =
       -- Since only 'true' or 'false' is executed, not both,
       -- we take the maximum of both counts
       ( (trueCount `max` falseCount) + nextCount
@@ -1253,7 +1254,7 @@ makeSpawnClosed' k awaitEnd = \case
         let
           (branchResolvers, nextResolvers) = splitAt (trueCount `max` falseCount) resolvers
         in
-          Acond (weaken k1 var)
+          Acond (weaken k1 var) SplitDefault
             -- If the true branch requires fewer signals than the false branch,
             -- resolve all the extra signals here.
             ( resolve (map (weaken k2) $ drop trueCount branchResolvers)

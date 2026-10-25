@@ -428,7 +428,7 @@ executeSchedule !env = \case
   S.Effect effect next -> do
     executeEffect env effect
     executeSchedule env next
-  S.Acond var true false next -> do
+  S.Acond var SplitDefault true false next -> do
     let value = prj (varIdx var) env
     let branch = if value == 1 then true else false
     executeSchedule env branch

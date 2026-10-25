@@ -160,18 +160,21 @@ prettyUniformSchedule env = \case
     -> group (vsep [lhs' <+> "=", prettyBinding env bnd]) <> prettyNext' env' body
   Effect effect next
     -> prettyEffect env effect <> prettyNext next
-  Acond c true false next
-    -> group (vsep
-        [ hang 2 $ group $ vsep
-          [ if_ <+> prettyVar env c <+> then_
-          , prettyUniformSchedule env true
-          ]
-        , hang 2 $ group $ vsep
-          [ else_
-          , prettyUniformSchedule env false
-          ]
-        ])
-        <> prettyNext next
+  Acond c split true false next
+    | envC <- valSplitLeft  split env
+    , envK <- valSplitRight split env
+    -> prettySplit env split
+        <> group (vsep
+            [ hang 2 $ group $ vsep
+              [ if_ <+> prettyVar env c <+> then_
+              , prettyUniformSchedule envC true
+              ]
+            , hang 2 $ group $ vsep
+              [ else_
+              , prettyUniformSchedule envC false
+              ]
+            ])
+        <> prettyNext' envK next
   Awhile _ body initial next
     -> hang 2 (group (vsep [annotate Statement "awhile", prettyVars env 10 initial]))
         <> hardline <> hang 4 ("  (" <+> prettyUniformScheduleFun env body)

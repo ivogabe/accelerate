@@ -112,9 +112,10 @@ data UniformSchedule' (rc :: Bool) kernel env where
           -> UniformSchedule' rc kernel env
 
   Acond   :: ExpVar env PrimBool
-          -> UniformSchedule' rc kernel env -- True branch
-          -> UniformSchedule' rc kernel env -- False branch
-          -> UniformSchedule' rc kernel env -- Operations after the if-then-else
+          -> Split rc env envC envK
+          -> UniformSchedule' rc kernel envC -- True branch
+          -> UniformSchedule' rc kernel envC -- False branch
+          -> UniformSchedule' rc kernel envK -- Operations after the if-then-else
           -> UniformSchedule' rc kernel env
 
   -- The step function of the loop outputs a bool to denote whether the loop should
@@ -384,7 +385,7 @@ freeVars :: UniformSchedule kernel env -> IdxSet env
 freeVars Return = IdxSet.empty
 freeVars (Alet lhs bnd s) = bindingFreeVars bnd `IdxSet.union` IdxSet.drop' lhs (freeVars s)
 freeVars (Effect effect s) = effectFreeVars effect `IdxSet.union` freeVars s
-freeVars (Acond c t f s)
+freeVars (Acond c SplitDefault t f s)
   = IdxSet.insertVar c
   $ IdxSet.union (freeVars t)
   $ IdxSet.union (freeVars f)
@@ -514,11 +515,11 @@ trivialBinding (Compute e)         = expIsTrivial (const True) e
 -- If a schedule does not do blocking or slow operations, we say it's trivial
 -- and don't need to spawn it as we do not gain much task parallelism from it.
 trivialSchedule :: UniformSchedule kernel env -> Bool
-trivialSchedule (Effect effect next)      = trivialEffect effect && trivialSchedule next
-trivialSchedule (Alet _ bnd next)         = trivialBinding bnd && trivialSchedule next
-trivialSchedule Return                    = True
-trivialSchedule (Acond _ true false next) = trivialSchedule true && trivialSchedule false && trivialSchedule next
-trivialSchedule _                         = False
+trivialSchedule (Effect effect next)        = trivialEffect effect && trivialSchedule next
+trivialSchedule (Alet _ bnd next)           = trivialBinding bnd && trivialSchedule next
+trivialSchedule Return                      = True
+trivialSchedule (Acond _ _ true false next) = trivialSchedule true && trivialSchedule false && trivialSchedule next
+trivialSchedule _                           = False
 
 trivialEffect :: Effect kernel env -> Bool
 trivialEffect SignalResolve{}   = True

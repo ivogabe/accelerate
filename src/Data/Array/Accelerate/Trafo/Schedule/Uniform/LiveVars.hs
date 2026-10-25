@@ -85,7 +85,7 @@ stronglyLiveVariables' liveness = \case
       LVAnalysis'
         liveness2
         $ \re -> reEnvEffect re effect $ next' re
-  Acond condition true false next ->
+  Acond condition SplitDefault true false next ->
     let
       liveness1 = setLive (varIdx condition) liveness
       LVAnalysis' liveness2 true'  = stronglyLiveVariables' liveness1 true
@@ -96,6 +96,7 @@ stronglyLiveVariables' liveness = \case
         liveness4
         $ \re -> Acond
           (expectJust $ reEnvVar re condition)
+          SplitDefault
           (true' re)
           (false' re)
           (next' re)

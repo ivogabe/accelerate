@@ -600,6 +600,7 @@ buildAcond var true false next =
       placePostponed postponed env
         $ Acond
           (weaken k var)
+          SplitDefault
           (constructFull  true{directlyAwaits = directlyAwaits true `sortedMinus` directlyAwaits false} k env nothingPostponed ContinuationEnd)
           (constructFull false{directlyAwaits = directlyAwaits false `sortedMinus` directlyAwaits true} k env nothingPostponed ContinuationEnd)
           (constructFull next k env nothingPostponed cont)
@@ -780,7 +781,7 @@ rebuild = \case
       ( analyseEffect eff `analysisJoin` analysis
       , buildEffect eff next'
       )
-  Acond var true false next
+  Acond var SplitDefault true false next
     | (aTrue, true') <- rebuild true
     , (aFalse, false') <- rebuild false
     , (aNext, next') <- rebuild next ->

@@ -45,9 +45,10 @@ encodeUniformSchedule (Effect effect next)
   = intHost $(hashQ ("Effect" :: String))
   <> encodeEffect effect
   <> encodeUniformSchedule next
-encodeUniformSchedule (Acond (Var _ idx) true false next)
+encodeUniformSchedule (Acond (Var _ idx) split true false next)
   = intHost $(hashQ ("Acond" :: String))
   <> encodeIdx idx
+  <> encodeSplit split
   <> encodeUniformSchedule true
   <> encodeUniformSchedule false
   <> encodeUniformSchedule next
