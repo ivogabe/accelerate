@@ -14,6 +14,7 @@ module Data.Array.Accelerate.AST.Schedule.Uniform (
   UniformSchedule'(..), UniformSchedule, UniformScheduleRC,
   UniformScheduleFun(..),
   SArg(..), SArgs, sargVars, sargOutputVars, sargBufferVars,
+  EmptyEnvIfRC,
   Input, Output, inputSingle, outputSingle, inputR, outputR,
   InputOutputR(..), inputOutputInputR, inputOutputOutputR,
   Binding(..), Effect(..),
