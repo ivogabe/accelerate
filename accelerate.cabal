@@ -563,6 +563,7 @@ library
         Data.Array.Accelerate.Trafo.Schedule.Uniform
         Data.Array.Accelerate.Trafo.Schedule.Uniform.Future
         Data.Array.Accelerate.Trafo.Schedule.Uniform.LiveVars
+        Data.Array.Accelerate.Trafo.Schedule.Uniform.RC
         Data.Array.Accelerate.Trafo.Schedule.Uniform.Simplify
         Data.Array.Accelerate.Trafo.Schedule.Uniform.Substitution
         Data.Array.Accelerate.Trafo.Sharing
