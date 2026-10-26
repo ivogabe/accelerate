@@ -1103,14 +1103,22 @@ variableMissing :: HasCallStack => a
 variableMissing = internalError "Variable missing in FutureEnv (and possibly in SyncEnv)"
 
 rnfSchedule' :: IsKernel kernel => UniformSchedule' ts kernel env -> ()
-rnfSchedule' Return                          = ()
-rnfSchedule' (Alet lhs bnd body)             = rnfLeftHandSide rnfBaseR lhs `seq` rnfBinding bnd `seq` rnfSchedule' body
-rnfSchedule' (Effect eff next)               = rnfEffect eff `seq` rnfSchedule' next
-rnfSchedule' (Acond c split true false next) = rnfExpVar c `seq` rnfSplit split `seq` rnfSchedule' true `seq` rnfSchedule' false `seq` rnfSchedule' next
-rnfSchedule' (Awhile io body initial next)   = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar initial `seq` rnfSchedule' next
-rnfSchedule' (AwhileSeq io body ini  next)   = rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar ini     `seq` rnfSchedule' next
-rnfSchedule' (Spawn split a b)               = rnfSplit split `seq` rnfSchedule' a `seq` rnfSchedule' b
-rnfSchedule' (Release subset s)              = rnfSubset subset `seq` rnfSchedule' s
+rnfSchedule' Return =
+  ()
+rnfSchedule' (Alet lhs bnd body) =
+  rnfLeftHandSide rnfBaseR lhs `seq` rnfBinding bnd `seq` rnfSchedule' body
+rnfSchedule' (Effect eff next) =
+  rnfEffect eff `seq` rnfSchedule' next
+rnfSchedule' (Acond c split true false next) =
+  rnfExpVar c `seq` rnfSplit split `seq` rnfSchedule' true `seq` rnfSchedule' false `seq` rnfSchedule' next
+rnfSchedule' (Awhile split1 split2 io body initial next) =
+  rnfSplit split1 `seq` rnfSplit split2 `seq` rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar initial `seq` rnfSchedule' next
+rnfSchedule' (AwhileSeq split1 split2 io body ini  next) =
+  rnfSplit split1 `seq` rnfSplit split2 `seq` rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar ini     `seq` rnfSchedule' next
+rnfSchedule' (Spawn split a b) =
+  rnfSplit split `seq` rnfSchedule' a `seq` rnfSchedule' b
+rnfSchedule' (Release subset s) =
+  rnfSubset subset `seq` rnfSchedule' s
 
 rnfBinding :: Binding env t -> ()
 rnfBinding (Compute e)       = rnfOpenExp e
@@ -1187,10 +1195,10 @@ makeSpawnClosed' k awaitEnd = \case
               (makeSpawnClosed' k2
                 (unionPartialEnv const signals $ skipWeakenPartialEnv skip awaitEnd) next)
     -- Acond (weaken k var) (makeSpawnClosed' k PEnd true) (makeSpawnClosed' k PEnd false) (makeSpawnClosed' k awaitEnd next)
-  Awhile io step initial next ->
-    Awhile io (makeFunSpawnClosed' k step) (mapTupR (weaken k) initial) $ makeSpawnClosed' k awaitEnd next
-  AwhileSeq io step initial next ->
-    AwhileSeq io (makeFunSpawnClosed' k step) (mapTupR (weaken k) initial) $ makeSpawnClosed' k awaitEnd next
+  Awhile SplitDefault SplitDefault io step initial next ->
+    Awhile SplitDefault SplitDefault io (makeFunSpawnClosed' k step) (mapTupR (weaken k) initial) $ makeSpawnClosed' k awaitEnd next
+  AwhileSeq SplitDefault SplitDefault io step initial next ->
+    AwhileSeq SplitDefault SplitDefault io (makeFunSpawnClosed' k step) (mapTupR (weaken k) initial) $ makeSpawnClosed' k awaitEnd next
   Spawn SplitDefault a b
     | (count, a') <- addSync a ->
       -- Bind signals for all spawns in 'a', and this current spawn.
@@ -1271,10 +1279,12 @@ makeSpawnClosed' k awaitEnd = \case
         (trueCount, true') = addSync true
         (falseCount, false') = addSync false
         (nextCount, next') = addSync next
-    addSync (Awhile io f initial next) =
+    addSync (Awhile SplitDefault SplitDefault io f initial next) =
       ( count
       , \k1 k2 resolvers ->
           Awhile
+            SplitDefault
+            SplitDefault
             io
             (makeFunSpawnClosed' k1 f)
             (mapTupR (weaken k1) initial)
@@ -1282,10 +1292,12 @@ makeSpawnClosed' k awaitEnd = \case
       )
       where
         (count, next') = addSync next
-    addSync (AwhileSeq io f initial next) =
+    addSync (AwhileSeq SplitDefault SplitDefault io f initial next) =
       ( count
       , \k1 k2 resolvers ->
           AwhileSeq
+            SplitDefault
+            SplitDefault
             io
             (makeFunSpawnClosed' k1 f)
             (mapTupR (weaken k1) initial)

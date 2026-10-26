@@ -68,34 +68,36 @@ analyse env schedule
                     (buildT ownedC')
                     (buildF ownedC')
                     (buildK ownedK')
-      Awhile io step initial next
+      Awhile SplitDefault SplitDefault io step initial next
         | Analysis used build <- go next
-        -> let used' = IdxSet.unions
-                [ funFreeVars step
-                , IdxSet.fromVars initial
-                , used
-                ]
+        -> let usedStep  = funFreeVars step
+               usedStep' = usedStep `IdxSet.union` used
+               usedInit  = IdxSet.fromVars initial
+               used'     = usedInit `IdxSet.union` usedStep'
            in  analysis used' $ \owned ->
-                let k = ownedWeaken owned
-                in  Awhile
-                      io
-                      (weaken k step)
-                      (mapTupR (weaken k) initial)
-                      (build owned)
-      AwhileSeq io step initial next
+                case ownedSplit usedInit usedStep' owned of
+                  OwnedSplit split1 ownedInit owned' ->
+                    case ownedSplit usedStep used owned' of
+                      OwnedSplit split2 ownedStep ownedNext ->
+                        Awhile split1 split2 io
+                          (weaken (ownedWeaken ownedStep) step)
+                          (mapTupR (weaken (ownedWeaken ownedInit)) initial)
+                          (build ownedNext)
+      AwhileSeq SplitDefault SplitDefault io step initial next
         | Analysis used build <- go next
-        -> let used' = IdxSet.unions
-                [ funFreeVars step
-                , IdxSet.fromVars initial
-                , used
-                ]
+        -> let usedStep  = funFreeVars step
+               usedStep' = usedStep `IdxSet.union` used
+               usedInit  = IdxSet.fromVars initial
+               used'     = usedInit `IdxSet.union` usedStep'
            in  analysis used' $ \owned ->
-                let k = ownedWeaken owned
-                in  AwhileSeq
-                      io
-                      (weaken k step)
-                      (mapTupR (weaken k) initial)
-                      (build owned)
+                case ownedSplit usedInit usedStep' owned of
+                  OwnedSplit split1 ownedInit owned' ->
+                    case ownedSplit usedStep used owned' of
+                      OwnedSplit split2 ownedStep ownedNext ->
+                        AwhileSeq split1 split2 io
+                          (weaken (ownedWeaken ownedStep) step)
+                          (mapTupR (weaken (ownedWeaken ownedInit)) initial)
+                          (build ownedNext)
       Spawn SplitDefault a b
         | Analysis usedA buildA <- go a
         , Analysis usedB buildB <- go b

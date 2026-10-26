@@ -175,16 +175,28 @@ prettyUniformSchedule env = \case
               ]
             ])
         <> prettyNext' envK next
-  Awhile _ body initial next
-    -> hang 2 (group (vsep [annotate Statement "awhile", prettyVars env 10 initial]))
-        <> hardline <> hang 4 ("  (" <+> prettyUniformScheduleFun env body)
+  Awhile split1 split2 _ body initial next
+    | envInit <- valSplitLeft  split1 env
+    , env'    <- valSplitRight split1 env
+    , envStep <- valSplitLeft  split2 env'
+    , envNext <- valSplitRight split2 env'
+    -> prettySplit env split1
+        <> prettySplit env' split2
+        <> hang 2 (group (vsep [annotate Statement "awhile", prettyVars envInit 10 initial]))
+        <> hardline <> hang 4 ("  (" <+> prettyUniformScheduleFun envStep body)
         <> hardline <> "  )"
-        <> prettyNext next
-  AwhileSeq _ body initial next
-    -> hang 2 (group (vsep [annotate Statement "awhile sequential", prettyVars env 10 initial]))
-        <> hardline <> hang 4 ("  (" <+> prettyUniformScheduleFun env body)
+        <> prettyNext' envNext next
+  AwhileSeq split1 split2 _ body initial next
+    | envInit <- valSplitLeft  split1 env
+    , env'    <- valSplitRight split1 env
+    , envStep <- valSplitLeft  split2 env'
+    , envNext <- valSplitRight split2 env'
+    -> prettySplit env split1
+        <> prettySplit env' split2
+        <> hang 2 (group (vsep [annotate Statement "awhile sequential", prettyVars envInit 10 initial]))
+        <> hardline <> hang 4 ("  (" <+> prettyUniformScheduleFun envStep body)
         <> hardline <> "  )"
-        <> prettyNext next
+        <> prettyNext' envNext next
   Spawn split (Effect (SignalAwait signals) body) next
     | envL <- valSplitLeft split env
     , envR <- valSplitRight split env

@@ -100,7 +100,7 @@ stronglyLiveVariables' liveness = \case
           (true' re)
           (false' re)
           (next' re)
-  Awhile io step initial next ->
+  Awhile SplitDefault SplitDefault io step initial next ->
     let
       -- TODO: We could track which parts of the state are used
       liveness1 = setVarsLive initial liveness
@@ -109,11 +109,11 @@ stronglyLiveVariables' liveness = \case
     in
       LVAnalysis'
         liveness3
-        $ \re -> Awhile io
+        $ \re -> Awhile SplitDefault SplitDefault io
           (step' re)
           (expectJust $ reEnvVars re initial)
           (next' re)
-  AwhileSeq io step initial next ->
+  AwhileSeq SplitDefault SplitDefault io step initial next ->
     let
       -- TODO: We could track which parts of the state are used
       liveness1 = setVarsLive initial liveness
@@ -122,7 +122,7 @@ stronglyLiveVariables' liveness = \case
     in
       LVAnalysis'
         liveness3
-        $ \re -> AwhileSeq io
+        $ \re -> AwhileSeq SplitDefault SplitDefault io
           (step' re)
           (expectJust $ reEnvVars re initial)
           (next' re)

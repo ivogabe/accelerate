@@ -127,12 +127,14 @@ data UniformSchedule' (rc :: Bool) kernel env where
   -- of the loop consists of multiple variables. Synchronisations are handled via
   -- Signal(Resolver)s in 'input' and 'output'.
   -- A sequential variant is available in AwhileSeq.
-  Awhile  :: InputOutputR input output
+  Awhile  :: Split rc env envInit env'
+          -> Split rc env' envStep envNext
+          -> InputOutputR input output
           -- The body of the while loop.
           -- Should be spawn-closed.
-          -> UniformScheduleFun kernel env (input -> Output PrimBool -> output -> ())
-          -> BaseVars env input
-          -> UniformSchedule' rc kernel env -- Operations after the while loop
+          -> UniformScheduleFun kernel envStep (input -> Output PrimBool -> output -> ())
+          -> BaseVars envInit input
+          -> UniformSchedule' rc kernel envNext -- Operations after the while loop
           -> UniformSchedule' rc kernel env
 
   -- Variant of Awhile, that can be executed sequentially. This only applies to
@@ -142,13 +144,15 @@ data UniformSchedule' (rc :: Bool) kernel env where
   -- step function is spawn-closed, this guarantees proper synchronisations.
   -- Hence we don't need Signal(Resolver)s in 'input' or 'output'.
   AwhileSeq
+          :: Split rc env envInit env'
+          -> Split rc env' envStep envNext
           -- Should not contain InputOutputRsignal
-          :: InputOutputR input output
+          -> InputOutputR input output
           -- The body of the while loop
           -- Should be spawn-closed.
-          -> UniformScheduleFun kernel env (input -> OutputRef PrimBool -> output -> ())
-          -> BaseVars env input
-          -> UniformSchedule' rc kernel env -- Operations after the while loop
+          -> UniformScheduleFun kernel envStep (input -> OutputRef PrimBool -> output -> ())
+          -> BaseVars envInit input
+          -> UniformSchedule' rc kernel envNext -- Operations after the while loop
           -> UniformSchedule' rc kernel env
 
   -- Spawns a task/thread for the first subterm, and continues with the second subterm.
@@ -390,11 +394,11 @@ freeVars (Acond c SplitDefault t f s)
   $ IdxSet.union (freeVars t)
   $ IdxSet.union (freeVars f)
   $ freeVars s
-freeVars (Awhile _ step ini continuation)
+freeVars (Awhile SplitDefault SplitDefault _ step ini continuation)
   = IdxSet.union (funFreeVars step)
   $ IdxSet.union (IdxSet.fromVarList $ flattenTupR ini)
   $ freeVars continuation
-freeVars (AwhileSeq _ step ini continuation)
+freeVars (AwhileSeq SplitDefault SplitDefault _ step ini continuation)
   = IdxSet.union (funFreeVars step)
   $ IdxSet.union (IdxSet.fromVarList $ flattenTupR ini)
   $ freeVars continuation

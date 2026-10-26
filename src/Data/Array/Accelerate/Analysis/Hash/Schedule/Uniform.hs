@@ -52,14 +52,18 @@ encodeUniformSchedule (Acond (Var _ idx) split true false next)
   <> encodeUniformSchedule true
   <> encodeUniformSchedule false
   <> encodeUniformSchedule next
-encodeUniformSchedule (Awhile io fn initial next)
+encodeUniformSchedule (Awhile split1 split2 io fn initial next)
   = intHost $(hashQ ("Awhile" :: String))
+  <> encodeSplit split1
+  <> encodeSplit split2
   <> encodeIO io
   <> encodeUniformScheduleFun fn
   <> encodeTupR (\(Var _ idx) -> encodeIdx idx) initial
   <> encodeUniformSchedule next
-encodeUniformSchedule (AwhileSeq io fn initial next)
+encodeUniformSchedule (AwhileSeq split1 split2 io fn initial next)
   = intHost $(hashQ ("AwhileSeq" :: String))
+  <> encodeSplit split1
+  <> encodeSplit split2
   <> encodeIO io
   <> encodeUniformScheduleFun fn
   <> encodeTupR (\(Var _ idx) -> encodeIdx idx) initial

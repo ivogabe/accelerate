@@ -433,7 +433,7 @@ executeSchedule !env = \case
     let branch = if value == 1 then true else false
     executeSchedule env branch
     executeSchedule env next
-  S.Awhile io step input next -> do
+  S.Awhile SplitDefault SplitDefault io step input next -> do
     executeAwhile env io step (prjVars input env)
     executeSchedule env next
     -- TODO: S.AwhileSeq

@@ -30,14 +30,21 @@ import Data.Functor.Identity
 
 
 instance rc ~ False => Sink' (UniformSchedule' rc kernel) where
-  weaken' _ Return                                 = Return
+  weaken' _ Return =
+    Return
   weaken' k (Alet lhs b s)
-    | Exists lhs' <- rebuildLHS lhs                = Alet lhs' (weaken k b) (weaken' (sinkWithLHS lhs lhs' k) s)
-  weaken' k (Effect effect s)                      = Effect (weaken' k effect) (weaken' k s)
-  weaken' k (Acond cond SplitDefault true false s) = Acond (weaken k cond) SplitDefault (weaken' k true) (weaken' k false) (weaken' k s)
-  weaken' k (Awhile io f input s)                  = Awhile io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
-  weaken' k (AwhileSeq io f input s)               = AwhileSeq io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
-  weaken' k (Spawn SplitDefault s1 s2)             = Spawn SplitDefault (weaken' k s1) (weaken' k s2)
+    | Exists lhs' <- rebuildLHS lhs =
+      Alet lhs' (weaken k b) (weaken' (sinkWithLHS lhs lhs' k) s)
+  weaken' k (Effect effect s) =
+    Effect (weaken' k effect) (weaken' k s)
+  weaken' k (Acond cond SplitDefault true false s) =
+    Acond (weaken k cond) SplitDefault (weaken' k true) (weaken' k false) (weaken' k s)
+  weaken' k (Awhile SplitDefault SplitDefault io f input s) =
+    Awhile SplitDefault SplitDefault io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
+  weaken' k (AwhileSeq SplitDefault SplitDefault io f input s) =
+    AwhileSeq SplitDefault SplitDefault io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
+  weaken' k (Spawn SplitDefault s1 s2) =
+    Spawn SplitDefault (weaken' k s1) (weaken' k s2)
 
 instance Sink (UniformScheduleFun kernel) where
   weaken k (Slam lhs f)
@@ -97,14 +104,21 @@ reindex' (Sink k) = \case
 
 reindexSchedule' :: (Applicative f) => SunkReindexPartialN f env env' -> UniformSchedule kernel env -> f (UniformSchedule kernel env')
 reindexSchedule' k = \case
-  Return -> pure Return
+  Return ->
+    pure Return
   Alet lhs bnd s
-    | Exists lhs' <- rebuildLHS lhs -> Alet lhs' <$> reindexBinding' k bnd <*> reindexSchedule' (sinkReindexWithLHS lhs lhs' k) s
-  Effect effect s -> Effect <$> reindexEffect' k effect <*> reindexSchedule' k s
-  Acond cond SplitDefault t f continue -> Acond <$> reindexVarUnsafe k cond <*> pure SplitDefault <*> reindexSchedule' k t <*> reindexSchedule' k f <*> reindexSchedule' k continue
-  Awhile io f initial continue -> Awhile io <$> reindexScheduleFun' k f <*> traverseTupR (reindexVarUnsafe k) initial <*> reindexSchedule' k continue
-  AwhileSeq io f initial continue -> AwhileSeq io <$> reindexScheduleFun' k f <*> traverseTupR (reindexVarUnsafe k) initial <*> reindexSchedule' k continue
-  Spawn SplitDefault s1 s2 -> Spawn SplitDefault <$> reindexSchedule' k s1 <*> reindexSchedule' k s2
+    | Exists lhs' <- rebuildLHS lhs ->
+      Alet lhs' <$> reindexBinding' k bnd <*> reindexSchedule' (sinkReindexWithLHS lhs lhs' k) s
+  Effect effect s ->
+    Effect <$> reindexEffect' k effect <*> reindexSchedule' k s
+  Acond cond SplitDefault t f continue ->
+    Acond <$> reindexVarUnsafe k cond <*> pure SplitDefault <*> reindexSchedule' k t <*> reindexSchedule' k f <*> reindexSchedule' k continue
+  Awhile SplitDefault SplitDefault io f initial continue ->
+    Awhile SplitDefault SplitDefault io <$> reindexScheduleFun' k f <*> traverseTupR (reindexVarUnsafe k) initial <*> reindexSchedule' k continue
+  AwhileSeq SplitDefault SplitDefault io f initial continue ->
+    AwhileSeq SplitDefault SplitDefault io <$> reindexScheduleFun' k f <*> traverseTupR (reindexVarUnsafe k) initial <*> reindexSchedule' k continue
+  Spawn SplitDefault s1 s2 ->
+    Spawn SplitDefault <$> reindexSchedule' k s1 <*> reindexSchedule' k s2
 
 reindexVarUnsafe :: Applicative f => SunkReindexPartialN f env env' -> Var s env t -> f (Var s env' t)
 reindexVarUnsafe k (Var tp idx) = Var tp . fromNewIdxUnsafe <$> reindex' k idx

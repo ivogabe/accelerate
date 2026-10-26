@@ -634,12 +634,16 @@ buildAwhile io step initial next =
                 $ Alet lhsSignal (NewSignal "Signal for awhile to awhile-seq downgrade")
                 $ Effect (SignalResolve [ZeroIdx])
                 $ AwhileSeq
+                  SplitDefault
+                  SplitDefault
                   (ioRemoveSignal io)
                   (funConstruct step' weakenId env')
                   (mapTupR (weaken k') $ varsRemoveSignal initial)
                   (constructFull next k' env' nothingPostponed $ weaken' (weakenSucc $ weakenSucc weakenId) cont)
           else
             Awhile
+              SplitDefault
+              SplitDefault
               io
               (funConstruct step k env)
               (mapTupR (weaken k) initial)
@@ -662,6 +666,8 @@ buildAwhileSeq io step initial next =
     construct = \k env postponed cont ->
       placePostponed postponed env
         $ AwhileSeq
+          SplitDefault
+          SplitDefault
           io
           (funConstruct step k env)
           (mapTupR (weaken k) initial)
@@ -788,12 +794,12 @@ rebuild = \case
       ( analysisMeet aTrue aFalse `analysisJoin` aNext
       , buildAcond var true' false' next'
       )
-  Awhile io f input next
+  Awhile SplitDefault SplitDefault io f input next
     | (analysis, next') <- rebuild next ->
       ( analysis
       , buildAwhile io (rebuildFun f) input next'
       )
-  AwhileSeq io f input next
+  AwhileSeq SplitDefault SplitDefault io f input next
     | (analysis, next') <- rebuild next ->
       ( analysis
       , buildAwhileSeq io (rebuildFun f) input next'
