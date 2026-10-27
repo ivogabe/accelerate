@@ -804,10 +804,14 @@ test-suite nofib-interpreter
   hs-source-dirs:       test/nofib
   main-is:              Main.hs
 
+  -- Internal dependencies
   build-depends:
         , accelerate
         , accelerate:nofib
-        , base                          >= 4.17.2.1
+
+  -- Inherited dependencies
+  build-depends:
+        , base
         , tasty
 
   ghc-options:
