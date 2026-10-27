@@ -1,10 +1,10 @@
-{-# LANGUAGE CPP                   #-}
-{-# LANGUAGE PatternSynonyms       #-}
-{-# LANGUAGE RebindableSyntax      #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE UndecidableInstances  #-}
-{-# LANGUAGE ViewPatterns          #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE CPP                  #-}
+{-# LANGUAGE PatternSynonyms      #-}
+{-# LANGUAGE RebindableSyntax     #-}
+{-# LANGUAGE TypeFamilies         #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns         #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.Data.Complex
 -- Copyright   : [2015..2020] The Accelerate Team
@@ -20,7 +20,13 @@
 module Data.Array.Accelerate.Data.Complex (
 
   -- * Rectangular from
-  Complex(..), pattern (::+),
+  Complex(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data (::+),
+#else
+  pattern (::+),
+#endif
+
   real,
   imag,
 
@@ -56,12 +62,10 @@ import Data.Array.Accelerate.Type
 import Data.Primitive.Vec
 
 import Data.Complex                                                 ( Complex(..) )
-import Prelude                                                      ( ($) )
 import qualified Data.Complex                                       as C
-import qualified Prelude                                            as P
-#if __GLASGOW_HASKELL__ >= 904
 import Data.Type.Equality
-#endif
+import Prelude                                                      ( ($) )
+import qualified Prelude                                            as P
 
 
 infix 6 ::+

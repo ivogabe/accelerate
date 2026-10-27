@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -fno-warn-unused-binds   #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+{-# OPTIONS_GHC -Wno-unused-binds   #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 -- |
 -- Module      : Data.Array.Accelerate.Debug.Internal.Stats
 -- Copyright   : [2008..2020] The Accelerate Team
@@ -21,7 +21,7 @@ module Data.Array.Accelerate.Debug.Internal.Stats (
 
 ) where
 
-import Data.Array.Accelerate.Debug.Internal.Flags
+import qualified Data.Array.Accelerate.FFI.Flags          as Flags
 import Data.Array.Accelerate.Debug.Internal.Trace
 
 import Data.Function                                      ( on )
@@ -102,7 +102,7 @@ statistics = unsafePerformIO $ newIORef =<< initSimplCount
 initSimplCount :: IO SimplStats
 #ifdef ACCELERATE_DEBUG
 initSimplCount = do
-  d <- getFlag dump_simpl_stats
+  d <- Flags.getFlag Flags.dump_simpl_stats
   return $! if d then Detail { ticks = 0, details = Map.empty }
                  else Simple 0
 #else
@@ -126,7 +126,7 @@ resetSimplCount = return ()
 dumpSimplStats :: IO ()
 #ifdef ACCELERATE_DEBUG
 dumpSimplStats = do
-  when dump_simpl_stats $ do
+  Flags.when Flags.dump_simpl_stats $ do
     stats <- simplCount
     putTraceMsg builder (render (layoutPretty defaultLayoutOptions stats))
     resetSimplCount

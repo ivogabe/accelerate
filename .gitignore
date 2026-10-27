@@ -18,3 +18,4 @@
 *.o
 /gurobi.log
 /.vscode
+/build-tracy/

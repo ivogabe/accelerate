@@ -1,7 +1,8 @@
+{-# LANGUAGE CPP                  #-}
 {-# LANGUAGE PatternSynonyms      #-}
 {-# LANGUAGE RebindableSyntax     #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.Data.Ratio
 -- Copyright   : [2019..2020] The Accelerate Team
@@ -19,7 +20,13 @@
 module Data.Array.Accelerate.Data.Ratio (
 
   Ratio, (%),
-  pattern (:%), numerator, denominator,
+#if __GLASGOW_HASKELL__ >= 914
+  data (:%),
+#else
+  pattern (:%),
+#endif
+
+  numerator, denominator,
 
 ) where
 

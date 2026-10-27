@@ -21,33 +21,27 @@ module Data.Array.Accelerate.Debug.Internal.Timed (
 
 ) where
 
-import Data.Array.Accelerate.Debug.Internal.Flags
 import Data.Array.Accelerate.Debug.Internal.Trace
+import Data.Array.Accelerate.FFI.Flags                  ( Flag )
 
 import Control.Monad.Trans                              ( MonadIO )
 import Data.Text.Lazy.Builder
 import Formatting
 
 #if ACCELERATE_DEBUG
-import Data.Array.Accelerate.Debug.Internal.Clock
+import Data.Array.Accelerate.FFI.Clock
+import qualified Data.Array.Accelerate.FFI.Flags        as Flags
 
 import Control.Applicative
 import Control.Monad.Trans                              ( liftIO )
 import System.CPUTime
 import Prelude
 
-import GHC.Int
-import GHC.Prim
-import GHC.Stats
-import GHC.Types
-import GHC.Word
-#if   MIN_VERSION_base(4,16,0)
+import GHC.Exts
 import GHC.Float
-#elif MIN_VERSION_base(4,15,0)
-import GHC.Integer
-#else
-import GHC.Num
-#endif
+import GHC.Int
+import GHC.Stats
+import GHC.Word
 #endif
 
 
@@ -59,10 +53,10 @@ import GHC.Num
 timed :: MonadIO m => Flag -> Format Builder (Double -> Double -> Builder) -> m a -> m a
 #ifdef ACCELERATE_DEBUG
 timed f fmt action = do
-  enabled <- liftIO $ getFlag f
+  enabled <- liftIO $ Flags.getFlag f
   if enabled
     then do
-      with_gc <- liftIO $ (&&) <$> getRTSStatsEnabled <*> getFlag verbose
+      with_gc <- liftIO $ (&&) <$> getRTSStatsEnabled <*> Flags.getFlag Flags.verbose
       if with_gc
         then timed_gc    fmt action
         else timed_simpl fmt action
@@ -83,11 +77,7 @@ timed_simpl fmt action = do
   cpu1  <- liftIO getCPUTime
   --
   let wallTime = wall1 - wall0
-#if MIN_VERSION_base(4,16,0)
       cpuTime  = D# (integerToDouble# (cpu1 - cpu0) *## 1E-12##)
-#else
-      cpuTime  = D# (doubleFromInteger (cpu1 - cpu0) *## 1E-12##)
-#endif
   --
   liftIO $ putTraceMsg builder (bformat fmt wallTime cpuTime) -- XXX
   return res
@@ -127,13 +117,6 @@ timed_gc fmt action = do
 
   return res
 
-#if __GLASGOW_HASKELL__ < 904
-word64ToWord# :: Word# -> Word#
-word64ToWord# x = x
-
-int64ToInt# :: Int# -> Int#
-int64ToInt# x = x
-#endif
 #endif
 
 {-# INLINE elapsed #-}

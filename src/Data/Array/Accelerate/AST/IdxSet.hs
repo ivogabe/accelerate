@@ -14,6 +14,7 @@ module Data.Array.Accelerate.AST.IdxSet (
   member, varMember, overlaps, isSubsetOf, intersect, union, unions, (\\), (>>=),
   insert, insertVar, insertVars, skip, skip',
   push, push', empty, isEmpty, drop, drop', remove, partialEnvRemoveSet, partialEnvFilterSet,
+  subsetDropped, splitLeft, splitRight,
   fromList, fromList', fromVarList, fromVars, map,
   singleton, singletonVar, first, null,
   toList, rnfIdxSet
@@ -134,6 +135,29 @@ drop' :: LeftHandSide s t env env' -> IdxSet env' -> IdxSet env
 drop' (LeftHandSidePair lhs1 lhs2) = drop' lhs1 . drop' lhs2
 drop' (LeftHandSideWildcard _)     = id
 drop' (LeftHandSideSingle _)       = drop
+
+subsetDropped :: Subset env envSub -> IdxSet env
+subsetDropped = \case
+  SubsetKeep subset -> skip (subsetDropped subset)
+  SubsetDrop subset -> push (subsetDropped subset)
+  SubsetEnd         -> empty
+
+splitLeft :: Split True env envL envR -> IdxSet env
+splitLeft = \case
+  SplitLeft  split -> push (splitLeft split)
+  SplitRight split -> skip (splitLeft split)
+  SplitBoth  split -> push (splitLeft split)
+  SplitEnd         -> empty
+  -- We cannot implement splitLeft for SplitDefault, as we cannot construct a
+  -- set of all indices in an environment only available via type variable
+  -- 'env'. Hence we restrict splitLeft to 'Split True' instead of 'Split rc'.
+
+splitRight :: Split True env envL envR -> IdxSet env
+splitRight = \case
+  SplitLeft  split -> skip (splitRight split)
+  SplitRight split -> push (splitRight split)
+  SplitBoth  split -> push (splitRight split)
+  SplitEnd         -> empty
 
 toList :: IdxSet env -> [Exists (Idx env)]
 toList = fmap (\(EnvBinding idx _) -> Exists idx) . partialEnvToList . unIdxSet

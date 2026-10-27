@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Trafo.Schedule.Uniform
@@ -29,15 +29,15 @@ import Control.Category
 import Data.Functor.Identity
 
 
-instance Sink' (UniformSchedule kernel) where
+instance rc ~ False => Sink' (UniformSchedule' rc kernel) where
   weaken' _ Return                        = Return
   weaken' k (Alet lhs b s)                
-    | Exists lhs' <- rebuildLHS lhs   = Alet lhs' (weaken k b) (weaken' (sinkWithLHS lhs lhs' k) s)
-  weaken' k (Effect effect s)         = Effect (weaken' k effect) (weaken' k s)
-  weaken' k (Acond cond true false s) = Acond (weaken k cond) (weaken' k true) (weaken' k false) (weaken' k s)
-  weaken' k (Awhile io f input s)     = Awhile io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
-  weaken' k (AwhileSeq io f input s)  = AwhileSeq io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
-  weaken' k (Spawn s1 s2)             = Spawn (weaken' k s1) (weaken' k s2)
+    | Exists lhs' <- rebuildLHS lhs    = Alet lhs' (weaken k b) (weaken' (sinkWithLHS lhs lhs' k) s)
+  weaken' k (Effect effect s)          = Effect (weaken' k effect) (weaken' k s)
+  weaken' k (Acond cond true false s)  = Acond (weaken k cond) (weaken' k true) (weaken' k false) (weaken' k s)
+  weaken' k (Awhile io f input s)      = Awhile io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
+  weaken' k (AwhileSeq io f input s)   = AwhileSeq io (weaken k f) (mapTupR (weaken k) input) (weaken' k s)
+  weaken' k (Spawn SplitDefault s1 s2) = Spawn SplitDefault (weaken' k s1) (weaken' k s2)
 
 instance Sink (UniformScheduleFun kernel) where
   weaken k (Slam lhs f)
@@ -104,7 +104,7 @@ reindexSchedule' k = \case
   Acond cond t f continue -> Acond <$> reindexVarUnsafe k cond <*> reindexSchedule' k t <*> reindexSchedule' k f <*> reindexSchedule' k continue
   Awhile io f initial continue -> Awhile io <$> reindexScheduleFun' k f <*> traverseTupR (reindexVarUnsafe k) initial <*> reindexSchedule' k continue
   AwhileSeq io f initial continue -> AwhileSeq io <$> reindexScheduleFun' k f <*> traverseTupR (reindexVarUnsafe k) initial <*> reindexSchedule' k continue
-  Spawn s1 s2 -> Spawn <$> reindexSchedule' k s1 <*> reindexSchedule' k s2
+  Spawn SplitDefault s1 s2 -> Spawn SplitDefault <$> reindexSchedule' k s1 <*> reindexSchedule' k s2
 
 reindexVarUnsafe :: Applicative f => SunkReindexPartialN f env env' -> Var s env t -> f (Var s env' t)
 reindexVarUnsafe k (Var tp idx) = Var tp . fromNewIdxUnsafe <$> reindex' k idx

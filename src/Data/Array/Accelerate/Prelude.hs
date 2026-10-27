@@ -2,7 +2,6 @@
 {-# LANGUAGE CPP              #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE TypeFamilies     #-}
-{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}   -- pattern synonyms
 -- |
 -- Module      : Data.Array.Accelerate.Prelude
 -- Copyright   : [2009..2020] The Accelerate Team
@@ -139,10 +138,8 @@ import Data.Array.Accelerate.Data.Bits
 import Lens.Micro                                                   ( Lens', (&), (^.), (.~), (+~), (-~), lens, over )
 import Prelude                                                      ( (.), ($), Maybe(..), const, id, flip )
 import Data.String                                                  ( fromString )
-import GHC.Stack
-#if __GLASGOW_HASKELL__ >= 904
 import Data.Type.Equality
-#endif
+import GHC.Stack
 
 #ifdef ACCELERATE_INTERNAL_CHECKS
 import Data.Typeable
@@ -246,11 +243,7 @@ import Data.Typeable
 -- stored in separate arrays, storing values of product type requires
 -- multiple store instructions.
 --
--- Accelerate prior to version 1.3.0.0 performs this operation atomically,
--- to ensure that the stored values are always consistent (each component
--- of the product type is written by the same thread). Later versions relax
--- this restriction, but this behaviour can be disabled with
--- @-fno-fast-permute-const@.
+-- When all destination indices are unique, it is advised to use 'permuteUnique'.
 --
 permute
     :: forall sh sh' a. (Shape sh, Shape sh', Elt a)
@@ -874,58 +867,90 @@ unzip arr = (map fst arr, map snd arr)
 
 -- | Take an array of triples and return three arrays, analogous to 'unzip'.
 --
-unzip3 :: (Shape sh, Elt a, Elt b, Elt c)
+unzip3 :: forall sh a b c. (Shape sh, Elt a, Elt b, Elt c)
        => Acc (Array sh (a, b, c))
        -> (Acc (Array sh a), Acc (Array sh b), Acc (Array sh c))
 unzip3 xs = (map get1 xs, map get2 xs, map get3 xs)
   where
+    get1 :: Exp (a, b, c) -> Exp a
     get1 (T3 a _ _) = a
+
+    get2 :: Exp (a, b, c) -> Exp b
     get2 (T3 _ b _) = b
+
+    get3 :: Exp (a, b, c) -> Exp c
     get3 (T3 _ _ c) = c
 
 -- | Take an array of quadruples and return four arrays, analogous to 'unzip'.
 --
-unzip4 :: (Shape sh, Elt a, Elt b, Elt c, Elt d)
+unzip4 :: forall sh a b c d. (Shape sh, Elt a, Elt b, Elt c, Elt d)
        => Acc (Array sh (a, b, c, d))
        -> (Acc (Array sh a), Acc (Array sh b), Acc (Array sh c), Acc (Array sh d))
 unzip4 xs = (map get1 xs, map get2 xs, map get3 xs, map get4 xs)
   where
+    get1 :: Exp (a, b, c, d) -> Exp a
     get1 (T4 a _ _ _) = a
+
+    get2 :: Exp (a, b, c, d) -> Exp b
     get2 (T4 _ b _ _) = b
+
+    get3 :: Exp (a, b, c, d) -> Exp c
     get3 (T4 _ _ c _) = c
+
+    get4 :: Exp (a, b, c, d) -> Exp d
     get4 (T4 _ _ _ d) = d
 
 -- | Take an array of 5-tuples and return five arrays, analogous to 'unzip'.
 --
-unzip5 :: (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e)
+unzip5 :: forall sh a b c d e. (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e)
        => Acc (Array sh (a, b, c, d, e))
        -> (Acc (Array sh a), Acc (Array sh b), Acc (Array sh c), Acc (Array sh d), Acc (Array sh e))
 unzip5 xs = (map get1 xs, map get2 xs, map get3 xs, map get4 xs, map get5 xs)
   where
+    get1 :: Exp (a, b, c, d, e) -> Exp a
     get1 (T5 a _ _ _ _) = a
+
+    get2 :: Exp (a, b, c, d, e) -> Exp b
     get2 (T5 _ b _ _ _) = b
+
+    get3 :: Exp (a, b, c, d, e) -> Exp c
     get3 (T5 _ _ c _ _) = c
+
+    get4 :: Exp (a, b, c, d, e) -> Exp d
     get4 (T5 _ _ _ d _) = d
+
+    get5 :: Exp (a, b, c, d, e) -> Exp e
     get5 (T5 _ _ _ _ e) = e
 
 -- | Take an array of 6-tuples and return six arrays, analogous to 'unzip'.
 --
-unzip6 :: (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f)
+unzip6 :: forall sh a b c d e f. (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f)
        => Acc (Array sh (a, b, c, d, e, f))
        -> ( Acc (Array sh a), Acc (Array sh b), Acc (Array sh c)
           , Acc (Array sh d), Acc (Array sh e), Acc (Array sh f))
 unzip6 xs = (map get1 xs, map get2 xs, map get3 xs, map get4 xs, map get5 xs, map get6 xs)
   where
+    get1 :: Exp (a, b, c, d, e, f) -> Exp a
     get1 (T6 a _ _ _ _ _) = a
+
+    get2 :: Exp (a, b, c, d, e, f) -> Exp b
     get2 (T6 _ b _ _ _ _) = b
+
+    get3 :: Exp (a, b, c, d, e, f) -> Exp c
     get3 (T6 _ _ c _ _ _) = c
+
+    get4 :: Exp (a, b, c, d, e, f) -> Exp d
     get4 (T6 _ _ _ d _ _) = d
+
+    get5 :: Exp (a, b, c, d, e, f) -> Exp e
     get5 (T6 _ _ _ _ e _) = e
+
+    get6 :: Exp (a, b, c, d, e, f) -> Exp f
     get6 (T6 _ _ _ _ _ f) = f
 
 -- | Take an array of 7-tuples and return seven arrays, analogous to 'unzip'.
 --
-unzip7 :: (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g)
+unzip7 :: forall sh a b c d e f g. (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g)
        => Acc (Array sh (a, b, c, d, e, f, g))
        -> ( Acc (Array sh a), Acc (Array sh b), Acc (Array sh c)
           , Acc (Array sh d), Acc (Array sh e), Acc (Array sh f)
@@ -934,17 +959,30 @@ unzip7 xs = ( map get1 xs, map get2 xs, map get3 xs
             , map get4 xs, map get5 xs, map get6 xs
             , map get7 xs )
   where
+    get1 :: Exp (a, b, c, d, e, f, g) -> Exp a
     get1 (T7 a _ _ _ _ _ _) = a
+
+    get2 :: Exp (a, b, c, d, e, f, g) -> Exp b
     get2 (T7 _ b _ _ _ _ _) = b
+
+    get3 :: Exp (a, b, c, d, e, f, g) -> Exp c
     get3 (T7 _ _ c _ _ _ _) = c
+
+    get4 :: Exp (a, b, c, d, e, f, g) -> Exp d
     get4 (T7 _ _ _ d _ _ _) = d
+
+    get5 :: Exp (a, b, c, d, e, f, g) -> Exp e
     get5 (T7 _ _ _ _ e _ _) = e
+
+    get6 :: Exp (a, b, c, d, e, f, g) -> Exp f
     get6 (T7 _ _ _ _ _ f _) = f
+
+    get7 :: Exp (a, b, c, d, e, f, g) -> Exp g
     get7 (T7 _ _ _ _ _ _ g) = g
 
 -- | Take an array of 8-tuples and return eight arrays, analogous to 'unzip'.
 --
-unzip8 :: (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g, Elt h)
+unzip8 :: forall sh a b c d e f g h. (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g, Elt h)
        => Acc (Array sh (a, b, c, d, e, f, g, h))
        -> ( Acc (Array sh a), Acc (Array sh b), Acc (Array sh c)
           , Acc (Array sh d), Acc (Array sh e), Acc (Array sh f)
@@ -953,18 +991,33 @@ unzip8 xs = ( map get1 xs, map get2 xs, map get3 xs
             , map get4 xs, map get5 xs, map get6 xs
             , map get7 xs, map get8 xs )
   where
+    get1 :: Exp (a, b, c, d, e, f, g, h) -> Exp a
     get1 (T8 a _ _ _ _ _ _ _) = a
+
+    get2 :: Exp (a, b, c, d, e, f, g, h) -> Exp b
     get2 (T8 _ b _ _ _ _ _ _) = b
+
+    get3 :: Exp (a, b, c, d, e, f, g, h) -> Exp c
     get3 (T8 _ _ c _ _ _ _ _) = c
+
+    get4 :: Exp (a, b, c, d, e, f, g, h) -> Exp d
     get4 (T8 _ _ _ d _ _ _ _) = d
+
+    get5 :: Exp (a, b, c, d, e, f, g, h) -> Exp e
     get5 (T8 _ _ _ _ e _ _ _) = e
+
+    get6 :: Exp (a, b, c, d, e, f, g, h) -> Exp f
     get6 (T8 _ _ _ _ _ f _ _) = f
+
+    get7 :: Exp (a, b, c, d, e, f, g, h) -> Exp g
     get7 (T8 _ _ _ _ _ _ g _) = g
+
+    get8 :: Exp (a, b, c, d, e, f, g, h) -> Exp h
     get8 (T8 _ _ _ _ _ _ _ h) = h
 
 -- | Take an array of 9-tuples and return nine arrays, analogous to 'unzip'.
 --
-unzip9 :: (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g, Elt h, Elt i)
+unzip9 :: forall sh a b c d e f g h i. (Shape sh, Elt a, Elt b, Elt c, Elt d, Elt e, Elt f, Elt g, Elt h, Elt i)
        => Acc (Array sh (a, b, c, d, e, f, g, h, i))
        -> ( Acc (Array sh a), Acc (Array sh b), Acc (Array sh c)
           , Acc (Array sh d), Acc (Array sh e), Acc (Array sh f)
@@ -973,14 +1026,31 @@ unzip9 xs = ( map get1 xs, map get2 xs, map get3 xs
             , map get4 xs, map get5 xs, map get6 xs
             , map get7 xs, map get8 xs, map get9 xs )
   where
+    get1 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp a
     get1 (T9 a _ _ _ _ _ _ _ _) = a
+
+    get2 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp b
     get2 (T9 _ b _ _ _ _ _ _ _) = b
+
+    get3 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp c
     get3 (T9 _ _ c _ _ _ _ _ _) = c
+
+    get4 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp d
     get4 (T9 _ _ _ d _ _ _ _ _) = d
+
+    get5 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp e
     get5 (T9 _ _ _ _ e _ _ _ _) = e
+
+    get6 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp f
     get6 (T9 _ _ _ _ _ f _ _ _) = f
+
+    get7 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp g
     get7 (T9 _ _ _ _ _ _ g _ _) = g
+
+    get8 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp h
     get8 (T9 _ _ _ _ _ _ _ h _) = h
+
+    get9 :: Exp (a, b, c, d, e, f, g, h, i) -> Exp i
     get9 (T9 _ _ _ _ _ _ _ _ i) = i
 
 
@@ -1407,7 +1477,14 @@ scanl'Seg
     -> Acc (Segments i)
     -> Acc (Array (sh:.Int) e, Array (sh:.Int) e)
 scanl'Seg f z arr seg =
-  T2 body sums
+  -- This assertion should have been placed between the construction of offset
+  -- and its uses, but that prevents fusion. Hence we perform this check later
+  -- on, and make sure the other code doesn't crash unexpectedly when this
+  -- assertion will fail.
+  -- TODO: Also add these bounds checks to other segmented functions
+  assertBounds "The innermost dimension must have at least as many elements as the sum of the segment descriptor."
+    (\_ -> indexHead (shape arr) >= fromIntegral len)
+    $ T2 body sums
   where
     -- Segmented scan' is implemented by deconstructing a segmented exclusive
     -- scan, to separate the final value and scan body.
@@ -1440,10 +1517,22 @@ scanl'Seg f z arr seg =
     --
     offset      = scanl1 (+) $ map (assertBounds "Segment sizes in foldSeg should be non-negative" (>= 0)) seg
     inc         = scanl1 (+)
-                $ permute' (+) (fill (I1 $ size arr + 1) 0)
-                $ map (\o -> Just_ (T2 (index1' o) (1 :: Exp i))) offset
+                $ permute' (+) (fill (I1 $ indexHead $ shape arr) 0)
+                $ map (\o ->
+                    -- In normal situations, o should be less than or equal to
+                    -- the innermost dimension. When it is less than, we perform
+                    -- write via permute.
+                    -- When it is equal, we ignore this element. When it is
+                    -- larger than the innermost dimension, the segment
+                    -- descriptor is invalid. We later have an assertion that
+                    -- checks this.
+                    if fromIntegral o < indexHead (shape arr) then
+                      Just_ (T2 (index1' o) (1 :: Exp i))
+                    else
+                      Nothing_)
+                  offset
 
-    len         = offset ! I1 (length offset - 1)
+    len         = if length offset == 0 then 0 else offset ! I1 (length offset - 1)
     body        = backpermute
                     (indexTail (shape arr) ::. fromIntegral len)
                     (\(sz ::. i) -> sz ::. i + fromIntegral (inc ! I1 i))

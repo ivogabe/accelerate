@@ -1,6 +1,6 @@
 {-# LANGUAGE MagicHash    #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Sugar.Vec
@@ -22,8 +22,8 @@ import Data.Array.Accelerate.Type
 import Data.Primitive.Types
 import Data.Primitive.Vec
 
+import GHC.Exts
 import GHC.TypeLits
-import GHC.Prim
 
 
 type VecElt a = (Elt a, Prim a, IsSingle a, EltR a ~ a)

@@ -11,10 +11,10 @@
 #endif  // ACCELERATE_TRACY
 
 #include "align.h"
+#include "alloc.h"
 #include "flags.h"
 
-void* accelerate_raw_alloc(uint64_t size, uint64_t align);
-void accelerate_raw_free(void *ptr);
+#include "memory.h"
 
 struct ObjectHeader {
   _Atomic uint64_t reference_count;

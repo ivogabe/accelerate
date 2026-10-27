@@ -1,13 +1,4 @@
 {-# LANGUAGE ViewPatterns #-}
-
--- _Significantly_ speeds up compilation of this file, but at an obvious cost!
--- Even in GHC 9.0.1, which has Lower Your Guards, these checks take some time (though no longer quite as long).
--- Recommended to disable these options when working on this file, and restore them when you're done.
--- {-# OPTIONS_GHC
---   -Wno-overlapping-patterns
---   -Wno-incomplete-patterns
--- #-}
-
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering where
 
 import Data.Array.Accelerate.AST.LeftHandSide ( Exists(..), LeftHandSide (..), lhsToTupR )
@@ -88,7 +79,7 @@ topSort singletons (FusionGraph _ _ strictEdges dataflowEdges _ _ _) cluster rea
             G.graphFromEdges
           . map (\(a,b) -> (a,a,b))
           . M.toList
-          . flip (S.fold (\(x,i,y) -> M.adjust ((y,defaultDir):) (x,i))) edges
+          . flip (S.foldr (\(x,i,y) -> M.adjust ((y,defaultDir):) (x,i))) edges
           . M.fromList
           . map (,[])
           . S.toList

@@ -1,6 +1,7 @@
+{-# LANGUAGE CPP             #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.Classes.Eq
 -- Copyright   : [2016..2020] The Accelerate Team
@@ -13,7 +14,13 @@
 
 module Data.Array.Accelerate.Classes.Eq (
 
-  Bool(..), pattern True_, pattern False_,
+  Bool(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data True_, data False_,
+#else
+  pattern True_, pattern False_,
+#endif
+
   Eq(..),
   (&&), (&&!),
   (||), (||!),

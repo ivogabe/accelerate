@@ -1,5 +1,5 @@
 {-# LANGUAGE MagicHash #-}
-{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# OPTIONS_HADDOCK prune #-}
 -- |
 -- Module      : Data.Array.Accelerate.Interpreter.Simple
@@ -48,10 +48,10 @@ import qualified Data.Array.Accelerate.Trafo.Sharing as Sharing
 import Data.Array.Accelerate.Type
 import Data.Primitive.Vec
 import qualified Data.Array.Accelerate.AST                          as AST
-import qualified Data.Array.Accelerate.Debug.Internal.Flags         as Debug
 -- import qualified Data.Array.Accelerate.Debug.Internal.Graph         as Debug
 import qualified Data.Array.Accelerate.Debug.Internal.Stats         as Debug
 import qualified Data.Array.Accelerate.Debug.Internal.Timed         as Debug
+import qualified Data.Array.Accelerate.FFI.Flags                    as Flags
 import qualified Data.Array.Accelerate.Smart                        as Smart
 import qualified Data.Array.Accelerate.Sugar.Array                  as Sugar
 import qualified Data.Array.Accelerate.Sugar.Elt                    as Sugar
@@ -112,7 +112,7 @@ runN f = go
 -- ---------
 
 phase :: Builder -> Format Builder (Double -> Double -> Builder) -> IO a -> IO a
-phase n fmt go = Debug.timed Debug.dump_phases (now ("phase " <> n <> ": ") % fmt) go
+phase n fmt go = Debug.timed Flags.dump_phases (now ("phase " <> n <> ": ") % fmt) go
 
 
 -- Delayed Arrays

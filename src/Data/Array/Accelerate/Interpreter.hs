@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies    #-}
 
-{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# OPTIONS_HADDOCK prune #-}
 -- |
 -- Module      : Data.Array.Accelerate.Interpreter
@@ -438,7 +438,7 @@ executeSchedule !env = \case
     executeSchedule env next
     -- TODO: S.AwhileSeq
   S.AwhileSeq{} -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
-  S.Spawn a b -> do
+  S.Spawn SplitDefault a b -> do
     _ <- forkIO (executeSchedule env a)
     executeSchedule env b
 

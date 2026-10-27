@@ -1,9 +1,12 @@
+#include <stdint.h>
+
 #ifdef _WIN32
 #include <cstdlib>
-#include <cstdint>
 #else
-#include "./parlaylib/include/parlay/alloc.h"
+#include "parlaylib/include/parlay/alloc.h"
 #endif
+
+#include "alloc.h"
 
 // Windows uses `_aligned_malloc` and `_aligned_free` from MinGW rather than ParlayLib.
 // ParlayLib should compile with MinGW, see: https://github.com/cmuparlay/parlaylib

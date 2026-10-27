@@ -65,7 +65,7 @@ test_issue255 runN =
         )
 
     step :: Acc (A.Vector Double, A.Vector Double, A.Scalar Int) -> Acc (A.Vector Double)
-    step (unlift -> (a, b, A.the -> _i::Exp Int)) = A.zipWith (+) a b
+    step (unlift -> (a, b, A.the -> (_i :: Exp Int))) = A.zipWith (+) a b
 
     total :: A.Vector Double -> A.Scalar Double
     total a = go a

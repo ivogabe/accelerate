@@ -1,9 +1,7 @@
-{-# LANGUAGE CPP              #-}
+{-# LANGUAGE CApiFFI          #-}
 {-# LANGUAGE MagicHash        #-}
-{-# LANGUAGE TemplateHaskell  #-}
 {-# LANGUAGE UnboxedTuples    #-}
 {-# LANGUAGE UnliftedFFITypes #-}
-{-# OPTIONS_GHC -fobject-code #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Crypto.Hash.XKCP
@@ -27,7 +25,6 @@ import Data.List (mapAccumR)
 import Data.Word
 import Foreign.C.Types
 import Foreign.Ptr
-import Language.Haskell.TH.Syntax
 import System.IO.Unsafe 
 
 import Data.Array.Byte
@@ -80,12 +77,6 @@ instance Ord SHA3_256 where
                     r  -> r
     in
     go 0#
-
-#if !MIN_VERSION_base(4,16,0)
-{-# INLINE word8ToWord# #-}
-word8ToWord# :: Word# -> Word#
-word8ToWord# w# = w#
-#endif
 
 -- | Hash a strict 'S.ByteString' into a digest
 --
@@ -157,38 +148,14 @@ keccak_HashFinal_SHA3_256 (Keccak_HashInstance hash_instance#) =
       (# s3, SHA3_256 hash_val# #)
     }}}}
 
--- SEE: [HLS and GHC IDE]
---
-#ifndef __GHCIDE__
+foreign import capi unsafe "xkcp/SimpleFIPS202.h SHA3_256"
+  c_sha3_256 :: MutableByteArray# RealWorld -> Ptr Word8 -> CSize -> IO CInt
 
-foreign import ccall unsafe "SHA3_256" c_sha3_256                            :: MutableByteArray# RealWorld -> Ptr Word8 -> CSize -> IO CInt
-foreign import ccall unsafe "Keccak_HashInitialize" c_keccak_hash_initialise :: MutableByteArray# RealWorld -> CUInt -> CUInt -> CUInt -> CUChar -> IO CInt
-foreign import ccall unsafe "Keccak_HashUpdate" c_keccak_hash_update         :: MutableByteArray# RealWorld -> Ptr Word8 -> CSize -> IO CInt
-foreign import ccall unsafe "Keccak_HashFinal" c_keccak_hash_final           :: MutableByteArray# RealWorld -> MutableByteArray# RealWorld -> IO CInt
+foreign import capi unsafe "xkcp/KeccakHash.h Keccak_HashInitialize"
+  c_keccak_hash_initialise :: MutableByteArray# RealWorld -> CUInt -> CUInt -> CUInt -> CUChar -> IO CInt
 
-#else
+foreign import capi unsafe "xkcp/KeccakHash.h Keccak_HashUpdate"
+  c_keccak_hash_update :: MutableByteArray# RealWorld -> Ptr Word8 -> CSize -> IO CInt
 
-c_sha3_256 :: MutableByteArray# RealWorld -> Ptr Word8 -> CSize -> IO CInt
-c_sha3_256 = undefined
-
-c_keccak_hash_initialise :: MutableByteArray# RealWorld -> CUInt -> CUInt -> CUInt -> CUChar -> IO CInt
-c_keccak_hash_initialise = undefined
-
-c_keccak_hash_update :: MutableByteArray# RealWorld -> Ptr Word8 -> CSize -> IO CInt
-c_keccak_hash_update = undefined
-
-c_keccak_hash_final :: MutableByteArray# RealWorld -> MutableByteArray# RealWorld -> IO CInt
-c_keccak_hash_final = undefined
-
-#endif
-
-
--- SEE: [linking to .c files]
---
-runQ $ do
-  addForeignFilePath LangC "cbits/xkcp/KeccakHash.c"
-  addForeignFilePath LangC "cbits/xkcp/KeccakSponge.c"
-  addForeignFilePath LangC "cbits/xkcp/SimpleFIPS202.c"
-  addForeignFilePath LangC "cbits/xkcp/KeccakP-1600-opt64.c"
-  return []
-
+foreign import capi unsafe "xkcp/KeccakHash.h Keccak_HashFinal"
+  c_keccak_hash_final :: MutableByteArray# RealWorld -> MutableByteArray# RealWorld -> IO CInt

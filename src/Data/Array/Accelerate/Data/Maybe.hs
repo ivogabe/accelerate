@@ -3,7 +3,7 @@
 {-# LANGUAGE PatternSynonyms      #-}
 {-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.Data.Maybe
 -- Copyright   : [2018..2020] The Accelerate Team
@@ -18,7 +18,13 @@
 
 module Data.Array.Accelerate.Data.Maybe (
 
-  Maybe(..), pattern Nothing_, pattern Just_,
+  Maybe(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data Nothing_, data Just_,
+#else
+  pattern Nothing_, pattern Just_,
+#endif
+
   maybe, isJust, isNothing, fromMaybe, fromJust, justs,
 
 ) where

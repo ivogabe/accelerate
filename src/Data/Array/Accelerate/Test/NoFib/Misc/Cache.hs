@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP             #-}
 {-# LANGUAGE PatternSynonyms #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Misc.Cache
@@ -16,7 +17,12 @@ module Data.Array.Accelerate.Test.NoFib.Misc.Cache (
 import Prelude as P
 
 import qualified Data.Array.Accelerate as A
-import Data.Array.Accelerate ( Acc, Scalar, pattern I1, shape, Z(Z), (:.)((:.)), (!) )
+import Data.Array.Accelerate ( Acc, Scalar, shape, Z(Z), (:.)((:.)), (!) )
+#if __GLASGOW_HASKELL__ >= 914
+import Data.Array.Accelerate ( data I1 )
+#else
+import Data.Array.Accelerate ( pattern I1 )
+#endif
 import Data.Array.Accelerate.Test.NoFib.Base
 
 import Test.Tasty

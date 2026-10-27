@@ -6,7 +6,7 @@ import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Node, parent, Nodes,
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver hiding (finalize)
 
-import Data.List (groupBy, sortOn)
+import qualified Data.List as List
 import Prelude hiding (sum, pi, read )
 
 import qualified Data.Map as M
@@ -89,7 +89,9 @@ makeILPStages obj (FusionILP graph constraints bounds) =
 
           graphBounds = fusionBounds <> inPlaceBounds
 
-          fusionBounds = piB <> fusedB <> manifestB <> loweredBounds
+          fusionBounds = piB <> fusedB <> manifestB <> loweredBounds <> binaryBounds
+
+          binaryBounds = foldMap binary $ S.filter isBinaryVar $ varsExpr objective' <> varsConstr constraints'
 
           inPlaceBounds
             | enableIU = pimaxB <> inplaceB
@@ -124,6 +126,7 @@ makeILPStages obj (FusionILP graph constraints bounds) =
         <> horizontalReadCostConstraints
         <> manifestValueConstraints
         <> noInPlaceConstraints
+
 
     inPlaceConstraints = if enableIU
         then onManifestConstraints
@@ -186,7 +189,7 @@ makeILPStages obj (FusionILP graph constraints bounds) =
 
     -- objective function that maximises the number of fused away arrays, and thus minimises the number of array writes
     -- using .-. instead of notB to factor the constants out of the cost function; if we use (1 - manifest l) as elsewhere Gurobi thinks the 1 is a variable name
-    numberOfManifestArrays = foldl' (\e b -> e .-. manifest b) (int 0) buffN
+    numberOfManifestArrays = List.foldl' (\e b -> e .-. manifest b) (int 0) buffN
 
     -- objective function that minimises the total number of array reads + writes
     numberOfArrayReadsWrites loweredCost = numberOfReads loweredCost .+. numberOfManifestArrays
@@ -235,6 +238,7 @@ makeILPStages obj (FusionILP graph constraints bounds) =
 
     -- 0 <= m_i  <= 1
     manifestB = foldMap (binary . IsManifest) buffN
+
 
 
     ----------------------------------------------------------------------------
@@ -335,6 +339,13 @@ makeILPStages obj (FusionILP graph constraints bounds) =
       MemoryUsage -> numberOfManifestArrays .+. numberOfNonInplaceUpdates
       MemoryUsage' -> (int (m + 1) .*. numberOfManifestArrays) .+. (int m .*. numberOfNonInplaceUpdates)
 
+-- | Check if a variable is binary.
+isBinaryVar :: Var -> Bool
+isBinaryVar (Fused _ _) = True
+isBinaryVar (IsManifest _) = True
+isBinaryVar (InPlace _ _ _ _) = True
+isBinaryVar _ = False
+
 -- | Extract the read directions from the ILP solution.
 interpretReadDirs :: Solution -> M.Map ReadEdge Int
 interpretReadDirs = M.fromList . mapMaybe (_1 fromReadDir) . M.toList
@@ -354,26 +365,31 @@ interpretWriteDirs = M.fromList . mapMaybe (_1 fromWriteDir) . M.toList
 -- | Extract the top-level clusters and the sub-scoped clusters from the ILP
 --   solution.
 interpretClusters :: Solution -> ([Nodes Comp], M.Map (Node Comp) [Nodes Comp])
-interpretClusters sol = do
-  let            piVars  = mapMaybe (_1 fromPi) (M.toList sol)               -- Take the Pi variables.
-  let      scopedPiVars  = partition (^._1.parent) piVars                    -- Partition them by their parent (i.e. the scope they are in).
-  let   clusteredPiVars  = map (partition snd) scopedPiVars                  -- Partition them again by their cluster (i.e. the value of the variable).
-  let    scopedClusters  = map (map $ S.fromList . map fst) clusteredPiVars  -- Remove the cluster numbers and convert each cluster to a set.
-  let       topClusters  = head scopedClusters  -- The first scope in the list is the top-level scope.
-  let subScopedClusters  = tail scopedClusters  -- The rest of the scopes are arbitrarily nested sub-scopes.
-  let subScopedClustersM = M.fromList $ map (\s -> (scopeLabel s, s)) subScopedClusters
-  (topClusters, subScopedClustersM)
+interpretClusters sol =
+  let piVars          = mapMaybe (_1 fromPi) (M.toList sol)               -- Take the Pi variables.
+      scopedPiVars    = partition (^._1.parent) piVars                    -- Partition them by their parent (i.e. the scope they are in).
+      clusteredPiVars = map (partition snd) scopedPiVars                  -- Partition them again by their cluster (i.e. the value of the variable).
+      scopedClusters  = map (map $ S.fromList . map fst) clusteredPiVars  -- Remove the cluster numbers and convert each cluster to a set.
+  in  case scopedClusters of
+        -- The first scope in the list is the top-level scope.  The rest of the
+        -- scopes are arbitrarily nested sub-scopes.
+        (topClusters : subScopedClusters) ->
+          let subScopedClustersM = M.fromList $ map (\s -> (scopeLabel s, s)) subScopedClusters
+          in  (topClusters, subScopedClustersM)
+        []                                -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
   where
     fromPi :: Var -> Maybe (Node Comp)
     fromPi (Pi l) = Just l
     fromPi _      = Nothing
 
     scopeLabel :: [Nodes Comp] -> Node Comp
-    scopeLabel = fromJust . view parent . S.findMin . head
+    scopeLabel = \case
+      l:_ -> fromJust . view parent $ S.findMin l
+      []  -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
--- | `groupBy` except it's equivalent to SQL's `GROUP BY` clause.
+-- | 'List.groupBy' except it's equivalent to SQL's @GROUP BY@ clause.
 partition :: Ord b => (a -> b) -> [a] -> [[a]]
-partition f = groupBy ((==) `on` f) . sortOn f
+partition f = List.groupBy ((==) `on` f) . List.sortOn f
 
 interpretInplaceUpdates :: Solution -> M.Map (Node GVal) (Node GVal)
 interpretInplaceUpdates sol = M.map firstInChain inplaceM

@@ -1,5 +1,5 @@
 /*
- * Module      : Data.Array.Accelerate.Debug.Flags
+ * Module      : Data.Array.Accelerate.FFI.Flags
  * Copyright   : [2017..2020] The Accelerate Team
  * License     : BSD3
  *
@@ -25,7 +25,6 @@ typedef union {
     uint32_t fusion                 : 1;
     uint32_t inplace                : 1;
     uint32_t fast_math              : 1;
-    uint32_t fast_permute_const     : 1;
     uint32_t force_recomp           : 1;
 
     uint32_t debug                  : 1;

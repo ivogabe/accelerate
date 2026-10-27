@@ -1,7 +1,8 @@
+{-# LANGUAGE CPP              #-}
 {-# LANGUAGE PatternSynonyms  #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE TemplateHaskell  #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.Classes.Ord
 -- Copyright   : [2016..2020] The Accelerate Team
@@ -15,7 +16,12 @@
 module Data.Array.Accelerate.Classes.Ord (
 
   Ord(..),
-  Ordering(..), pattern LT_, pattern EQ_, pattern GT_,
+  Ordering(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data LT_, data EQ_, data GT_,
+#else
+  pattern LT_, pattern EQ_, pattern GT_,
+#endif
 
 ) where
 

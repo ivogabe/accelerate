@@ -17,12 +17,8 @@
 module Data.Primitive.Vec (
 
   -- * SIMD vector types
-  Vec(..),
-  Vec2, pattern Vec2,
-  Vec3, pattern Vec3,
-  Vec4, pattern Vec4,
-  Vec8, pattern Vec8,
-  Vec16, pattern Vec16,
+  Vec(.., Vec2, Vec3, Vec4, Vec8, Vec16),
+  Vec2, Vec3, Vec4, Vec8, Vec16,
 
   listOfVec,
   liftVec,
@@ -33,14 +29,13 @@ import Control.Monad.ST
 import Data.Kind                                                    ( Type )
 import Data.Primitive.ByteArray
 import Data.Primitive.Types
-import Language.Haskell.TH.Extra                                    qualified as TH
+import qualified Language.Haskell.TH.Extra as TH
 import Prettyprinter
 import qualified Foreign.Storable as S
 import Foreign.Ptr
 
-import GHC.Base                                                     ( isTrue# )
 import GHC.Int
-import GHC.Prim
+import GHC.Exts                                                     hiding ( VecCount(..) )
 import GHC.TypeLits
 import GHC.Word
 

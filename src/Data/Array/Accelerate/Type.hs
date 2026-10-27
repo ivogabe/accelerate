@@ -67,7 +67,7 @@ import Language.Haskell.TH.Extra
 import Numeric.Half
 import Text.Printf
 
-import GHC.Prim
+import GHC.Exts
 import GHC.TypeLits
 
 

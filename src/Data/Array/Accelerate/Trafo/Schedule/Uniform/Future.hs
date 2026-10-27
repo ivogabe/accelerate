@@ -1,6 +1,5 @@
 {-# LANGUAGE MultiWayIf      #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Trafo.Schedule.Uniform.Future
@@ -13,7 +12,7 @@
 --
 
 module Data.Array.Accelerate.Trafo.Schedule.Uniform.Future (
-  Future(..), FutureEnv(..), Lock(..), pattern Move, pattern Borrow,
+  Future(..), FutureEnv(..), Lock(.., Move, Borrow),
   withRef, buildRead, weakenEither,
   fprj, fenvDrop, fenvDrop1, fenvFSkipMany, fenvPushLHS,
   chainFuture, ChainFuture(..), chainFutureEnvironmentSeqIf, chainFutureEnvironment, ChainFutureEnv(..),

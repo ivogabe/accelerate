@@ -11,7 +11,8 @@
 --
 
 module Data.Array.Accelerate.AST.Schedule.Uniform (
-  UniformSchedule(..), UniformScheduleFun(..),
+  UniformSchedule'(..), UniformSchedule, UniformScheduleRC,
+  UniformScheduleFun(..),
   SArg(..), SArgs, sargVars, sargOutputVars, sargBufferVars,
   Input, Output, inputSingle, outputSingle, inputR, outputR,
   InputOutputR(..), inputOutputInputR, inputOutputOutputR,
@@ -29,6 +30,7 @@ module Data.Array.Accelerate.AST.Schedule.Uniform (
   freeVars, funFreeVars, effectFreeVars, bindingFreeVars,
 ) where
 
+import Data.Array.Accelerate.AST.Environment ( Split(SplitDefault), Subset )
 import Data.Array.Accelerate.AST.Exp
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet ( IdxSet )
@@ -49,12 +51,15 @@ import Data.Either
 import Data.IORef
 import Data.Typeable                                                ( (:~:)(..) )
 import Data.Text                                                    ( Text )
+import Data.Kind
 
 -- Generic schedule for a uniform memory space and uniform scheduling.
 -- E.g., we don't have host and device memory or scheduling.
 -- The schedule will exploit task parallelism.
 
 -- The schedule consists of bindings, effects and (parallel) control flow
+--
+-- Type paramter @rc@ determines if reference counting is enabled or not.
 --
 -- Some schedules/terms may be 'spawn-closed'. These terms guarantee that when
 -- the execution of the term finishes, all spawned tasks have also finished.
@@ -92,23 +97,24 @@ import Data.Text                                                    ( Text )
 -- its execution may finish before the execution of the inner spawned term ends.
 -- The entire term is self-closed, as it waits on the completions of both
 -- spawned subterms.
-data UniformSchedule kernel env where
-  Return  :: UniformSchedule kernel env
+data UniformSchedule' (rc :: Bool) kernel env where
+  Return  :: EmptyEnvIfRC rc env
+          => UniformSchedule' rc kernel env
 
   Alet    :: BLeftHandSide t env env'
           -> Binding env t
-          -> UniformSchedule kernel env'
-          -> UniformSchedule kernel env
+          -> UniformSchedule' rc kernel env'
+          -> UniformSchedule' rc kernel env
 
   Effect  :: Effect kernel env
-          -> UniformSchedule kernel env
-          -> UniformSchedule kernel env
+          -> UniformSchedule' rc kernel env
+          -> UniformSchedule' rc kernel env
 
   Acond   :: ExpVar env PrimBool
-          -> UniformSchedule kernel env -- True branch
-          -> UniformSchedule kernel env -- False branch
-          -> UniformSchedule kernel env -- Operations after the if-then-else
-          -> UniformSchedule kernel env
+          -> UniformSchedule' rc kernel env -- True branch
+          -> UniformSchedule' rc kernel env -- False branch
+          -> UniformSchedule' rc kernel env -- Operations after the if-then-else
+          -> UniformSchedule' rc kernel env
 
   -- The step function of the loop outputs a bool to denote whether the loop should
   -- proceed. If true, then the other output values should also be filled, possibly at
@@ -124,8 +130,8 @@ data UniformSchedule kernel env where
           -- Should be spawn-closed.
           -> UniformScheduleFun kernel env (input -> Output PrimBool -> output -> ())
           -> BaseVars env input
-          -> UniformSchedule kernel env -- Operations after the while loop
-          -> UniformSchedule kernel env
+          -> UniformSchedule' rc kernel env -- Operations after the while loop
+          -> UniformSchedule' rc kernel env
 
   -- Variant of Awhile, that can be executed sequentially. This only applies to
   -- parallelism between iterations of the loop. Within an iteration, parallelism
@@ -140,15 +146,32 @@ data UniformSchedule kernel env where
           -- Should be spawn-closed.
           -> UniformScheduleFun kernel env (input -> OutputRef PrimBool -> output -> ())
           -> BaseVars env input
-          -> UniformSchedule kernel env -- Operations after the while loop
-          -> UniformSchedule kernel env
+          -> UniformSchedule' rc kernel env -- Operations after the while loop
+          -> UniformSchedule' rc kernel env
 
   -- Spawns a task/thread for the first subterm, and continues with the second subterm.
   -- Note that we use the name 'spawn' instead of 'fork', to imply that the first
   -- subterm is not executed directly, but handed over to a different core or queued.
-  Spawn   :: UniformSchedule kernel env
-          -> UniformSchedule kernel env
-          -> UniformSchedule kernel env
+  --
+  -- The environment is divided in two, for the two subterms.
+  -- When reference counting is disabled, all bindings are available in both
+  -- subterms, i.e. when rc ~ False then env ~ env1 and env ~ env2.
+  Spawn   :: Split rc env env1 env2
+          -> UniformSchedule' rc kernel env1
+          -> UniformSchedule' rc kernel env2
+          -> UniformSchedule' rc kernel env
+
+  -- Execute a subterm in the specified subset of the environment.
+  -- Only available when reference counting is enabled (rc ~ True).
+  Release :: Subset env env'
+          -> UniformSchedule' True kernel env'
+          -> UniformSchedule' True kernel env
+
+-- Schedule without reference counting
+type UniformSchedule = UniformSchedule' False
+
+-- Schedule with reference counting
+type UniformScheduleRC = UniformSchedule' True
 
 data UniformScheduleFun kernel env t where
   Slam  :: BLeftHandSide s env env'
@@ -157,6 +180,10 @@ data UniformScheduleFun kernel env t where
 
   Sbody :: UniformSchedule    kernel env
         -> UniformScheduleFun kernel env ()
+
+type family EmptyEnvIfRC (rc :: Bool) env :: Constraint where
+  EmptyEnvIfRC False _ = ()
+  EmptyEnvIfRC True env = env ~ ()
 
 type family Input t where
   Input ()         = ()
@@ -369,7 +396,7 @@ freeVars (AwhileSeq _ step ini continuation)
   = IdxSet.union (funFreeVars step)
   $ IdxSet.union (IdxSet.fromVarList $ flattenTupR ini)
   $ freeVars continuation
-freeVars (Spawn s1 s2) = freeVars s1 `IdxSet.union` freeVars s2
+freeVars (Spawn SplitDefault s1 s2) = freeVars s1 `IdxSet.union` freeVars s2
 
 funFreeVars :: UniformScheduleFun kernel env t -> IdxSet env
 funFreeVars (Sbody s)    = freeVars s

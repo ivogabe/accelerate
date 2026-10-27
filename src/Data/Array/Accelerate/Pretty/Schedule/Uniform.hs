@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 -- |
 -- Module      : Data.Array.Accelerate.Pretty.Schedule.Uniform
 -- Copyright   : [2008..2020] The Accelerate Team
@@ -17,12 +17,16 @@ import Data.Array.Accelerate.Pretty.Exp
 import Data.Array.Accelerate.Pretty.Type
 import Data.Array.Accelerate.Pretty.Schedule
 import Data.Array.Accelerate.Pretty.Operation (prettyGroundR, prettyBuffer, prettyExp, prettyModifier)
+import Data.Array.Accelerate.AST.Environment (Split(..), Subset(..))
 import Data.Array.Accelerate.AST.Idx
+import Data.Array.Accelerate.AST.IdxSet (IdxSet)
+import qualified Data.Array.Accelerate.AST.IdxSet as IdxSet
 import Data.Array.Accelerate.AST.Kernel
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Schedule.Uniform
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Representation.Shape
+import Data.Array.Accelerate.Trafo.Schedule.Uniform.Substitution ()
 import Data.Array.Accelerate.Type
 import Data.String
 
@@ -109,6 +113,37 @@ bindingHasTrivialType _             = False
 empty' :: Val' ()
 empty' = Val' Empty 0 0 0 0
 
+valSplitLeft :: Split rc env envL envR -> Val' env -> Val' envL
+valSplitLeft split (Val' env b e s r) = Val' (go split env) b e s r
+  where
+    go :: Split rc env envL envR -> Val env -> Val envL
+    go = \case
+      SplitLeft  split' -> \(Push env' d) -> Push (go split' env') d
+      SplitRight split' -> \(Push env' _) -> go split' env'
+      SplitBoth  split' -> \(Push env' d) -> Push (go split' env') d
+      SplitEnd          -> id
+      SplitDefault      -> id
+
+valSplitRight :: Split rc env envL envR -> Val' env -> Val' envR
+valSplitRight split (Val' env b e s r) = Val' (go split env) b e s r
+  where
+    go :: Split rc env envL envR -> Val env -> Val envR
+    go = \case
+      SplitLeft  split' -> \(Push env' _) -> go split' env'
+      SplitRight split' -> \(Push env' d) -> Push (go split' env') d
+      SplitBoth  split' -> \(Push env' d) -> Push (go split' env') d
+      SplitEnd          -> id
+      SplitDefault      -> id
+
+valSubset :: Subset env envSub -> Val' env -> Val' envSub
+valSubset subset (Val' env b e s r) = Val' (go subset env) b e s r
+  where
+    go :: Subset env envSub -> Val env -> Val envSub
+    go = \case
+      SubsetKeep subset' -> \(Push env' d) -> Push (go subset' env') d
+      SubsetDrop subset' -> \(Push env' _) -> go subset' env'
+      SubsetEnd          -> id
+
 prettyUniformScheduleFun :: PrettyKernel kernel => Val' env -> UniformScheduleFun kernel env t -> Adoc
 prettyUniformScheduleFun env (Slam lhs f)
   | (env', lhs') <- prettyBLhsWithTypes env lhs
@@ -116,7 +151,7 @@ prettyUniformScheduleFun env (Slam lhs f)
 prettyUniformScheduleFun env (Sbody sched)
   = prettyUniformSchedule env sched
 
-prettyUniformSchedule :: forall kernel env. PrettyKernel kernel => Val' env -> UniformSchedule kernel env -> Adoc
+prettyUniformSchedule :: forall kernel env rc. PrettyKernel kernel => Val' env -> UniformSchedule' rc kernel env -> Adoc
 prettyUniformSchedule env = \case
   Return
     -> annotate Statement "return"
@@ -147,18 +182,30 @@ prettyUniformSchedule env = \case
         <> hardline <> hang 4 ("  (" <+> prettyUniformScheduleFun env body)
         <> hardline <> "  )"
         <> prettyNext next
-  Spawn (Effect (SignalAwait signals) body) next
-    -> annotate Statement "spawn await" <+> list (map (prettyIdx env) signals) <+> "{"
-        <> hardline <> indent 2 (prettyUniformSchedule env body)
+  Spawn split (Effect (SignalAwait signals) body) next
+    | envL <- valSplitLeft split env
+    , envR <- valSplitRight split env
+    -> prettySplit env split
+        <> annotate Statement "spawn await"
+        <+> list (map (prettyIdx envL) signals)
+        <+> "{"
+        <> hardline <> indent 2 (prettyUniformSchedule envL body)
         <> hardline <> "}"
-        <> prettyNext next
-  Spawn body next
-    -> annotate Statement "spawn" <+> "{"
-        <> hardline <> indent 2 (prettyUniformSchedule env body)
+        <> prettyNext' envR next
+  Spawn split body next
+    | envL <- valSplitLeft split env
+    , envR <- valSplitRight split env
+    -> prettySplit env split
+        <> annotate Statement "spawn"
+        <+> "{"
+        <> hardline <> indent 2 (prettyUniformSchedule envL body)
         <> hardline <> "}"
-        <> prettyNext next
+        <> prettyNext' envR next
+  Release subset s
+    -> hang 2 $ group $ vsep [annotate Statement "release", prettyIdxSet env $ IdxSet.subsetDropped subset]
+        <> prettyNext' (valSubset subset env) s
   where
-    prettyNext' :: Val' env' -> UniformSchedule kernel env' -> Adoc
+    prettyNext' :: Val' env' -> UniformSchedule' rc kernel env' -> Adoc
     prettyNext' _    Return = emptyDoc
     prettyNext' env' sched  = hardline <> prettyUniformSchedule env' sched
 
@@ -203,6 +250,21 @@ prettyKernelFun env fun args = case prettyKernel of
   PrettyKernelFun prettyKernelAsFun ->
     hang 2 $ group $ vsep [annotate Execute "execute", prettyKernelAsFun fun, prettySArgs env args]
 
+prettySplit :: forall rc env envL envR. Val' env -> Split rc env envL envR -> Adoc
+prettySplit env s = case s of
+  SplitDefault -> mempty -- rc ~ False
+  SplitEnd -> go
+  SplitLeft{} -> go
+  SplitRight{} -> go
+  SplitBoth{} -> go
+  where
+    go :: rc ~ True => Adoc
+    go
+      | IdxSet.null retain = mempty
+      | otherwise = hang 2 (group $ vsep [annotate Statement "retain", prettyIdxSet env retain]) <> hardline
+      where
+        retain = IdxSet.splitLeft s `IdxSet.intersect` IdxSet.splitRight s
+
 prettySArgs :: Val' benv -> SArgs benv f -> Adoc
 prettySArgs env args = tupled $ map (\(Exists a) -> prettySArg env a) $ argsToList args
 
@@ -216,6 +278,9 @@ prettyVar (Val' env _ _ _ _) (Var _ ix) = prj ix env
 
 prettyIdx :: Val' env -> Idx env t -> Adoc
 prettyIdx (Val' env _ _ _ _) ix = prj ix env
+
+prettyIdxSet :: Val' env ->  IdxSet env -> Adoc
+prettyIdxSet env = list . mapExists (prettyIdx env) . IdxSet.toList
 
 prettyVars :: forall env s t. Val' env -> Precedence -> Vars s env t -> Adoc
 prettyVars env = prettyTupR $ const $ prettyVar env

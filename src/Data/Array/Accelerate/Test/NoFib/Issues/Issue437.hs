@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Issues.Issue437
 -- Copyright   : [2009..2020] The Accelerate Team
@@ -18,7 +18,7 @@ module Data.Array.Accelerate.Test.NoFib.Issues.Issue437 (
 
 ) where
 
-import Data.Atomic                                        as Atomic
+import Data.Array.Accelerate.FFI.Atomic                   as Atomic
 import Data.Array.Accelerate                              as A
 import Data.Array.Accelerate.Test.NoFib.Base
 

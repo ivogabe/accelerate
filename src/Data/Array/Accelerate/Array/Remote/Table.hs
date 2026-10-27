@@ -60,9 +60,9 @@ import Data.Array.Accelerate.Array.Remote.Class
 import Data.Array.Accelerate.Array.Remote.Nursery                   ( Nursery(..) )
 import Data.Array.Accelerate.Lifetime
 import qualified Data.Array.Accelerate.Array.Remote.Nursery         as N
-import qualified Data.Array.Accelerate.Debug.Internal.Flags         as Debug
 import qualified Data.Array.Accelerate.Debug.Internal.Profile       as Debug
 import qualified Data.Array.Accelerate.Debug.Internal.Trace         as Debug
+import qualified Data.Array.Accelerate.FFI.Flags                    as Flags
 
 import GHC.Stack
 
@@ -403,12 +403,12 @@ trace msg next = message builder msg >> next
 
 {-# INLINE message #-}
 message :: MonadIO m => Format (m ()) a -> a
-message fmt = Debug.traceM Debug.dump_gc ("gc: " % fmt)
+message fmt = Debug.traceM Flags.dump_gc ("gc: " % fmt)
 
 {-# INLINE management #-}
 management :: (RemoteMemory m, MonadIO m) => Builder -> Nursery p -> m a -> m a
 management msg nrs next = do
-  yes <- liftIO $ Debug.getFlag Debug.dump_gc
+  yes <- liftIO $ Flags.getFlag Flags.dump_gc
   if yes
     then do
       total       <- totalRemoteMem

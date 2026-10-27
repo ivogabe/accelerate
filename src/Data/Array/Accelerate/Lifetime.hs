@@ -26,8 +26,8 @@ import Data.IORef                   ( mkWeakIORef, atomicModifyIORef' )
 import Control.Monad.IO.Class
 
 import GHC.Base                     ( touch#, IO(..))
+import GHC.Exts                     ( mkWeak# )
 import GHC.IORef                    ( IORef(.. ), newIORef )
-import GHC.Prim                     ( mkWeak# )
 import GHC.STRef                    ( STRef(..) )
 import GHC.Weak                     ( Weak(..) )
 

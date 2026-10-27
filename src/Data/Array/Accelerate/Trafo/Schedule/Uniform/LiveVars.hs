@@ -1,5 +1,4 @@
 {-# LANGUAGE MultiWayIf #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Trafo.Schedule.Uniform.LiveVars
@@ -126,16 +125,14 @@ stronglyLiveVariables' liveness = \case
           (step' re)
           (expectJust $ reEnvVars re initial)
           (next' re)
-  Spawn a b ->
+  Spawn SplitDefault a b ->
     let
       LVAnalysis' liveness1 a' = stronglyLiveVariables' liveness  a
       LVAnalysis' liveness2 b' = stronglyLiveVariables' liveness1 b
     in
       LVAnalysis'
         liveness2
-        $ \re -> Spawn
-          (a' re)
-          (b' re)
+        $ \re -> Spawn SplitDefault (a' re) (b' re)
 
 analyseBinding :: env :> env' -> IdxSet env' -> Binding env t -> LivenessEnv env' -> LivenessEnv env'
 analyseBinding k lhs binding liveness = case binding of
