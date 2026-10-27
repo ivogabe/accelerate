@@ -1,6 +1,7 @@
-{-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE MultiWayIf         #-}
-{-# LANGUAGE TypeFamilies       #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ImpredicativeTypes  #-}
+{-# LANGUAGE MultiWayIf          #-}
+{-# LANGUAGE TypeFamilies        #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# OPTIONS_HADDOCK hide #-}
 
@@ -15,7 +16,7 @@
 --
 
 module Data.Array.Accelerate.Trafo.Schedule.Uniform (
-  -- Exports the instance IsSchedule UniformScheduleFun
+  -- Exports the instance IsSchedule (UniformScheduleFun' rc)
 
   compileKernel', CompiledKernel(..), rnfSArg, rnfSArgs,
 ) where
@@ -41,6 +42,7 @@ import Data.Array.Accelerate.Trafo.Schedule.Partial
 import Data.Array.Accelerate.Trafo.Schedule.Uniform.Future
 import Data.Array.Accelerate.Trafo.Schedule.Uniform.Simplify
 import Data.Array.Accelerate.Trafo.Schedule.Uniform.LiveVars
+import Data.Array.Accelerate.Trafo.Schedule.Uniform.RC
 import Data.Array.Accelerate.Trafo.SkipEnvironment
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.AST.Partitioned (PartitionedAfun)
@@ -53,17 +55,16 @@ import Control.Concurrent
 import Data.IORef
 import System.IO.Unsafe (unsafePerformIO)
 
-instance IsSchedule UniformScheduleFun where
-  type ScheduleInput  UniformScheduleFun a = Input a
-  type ScheduleOutput UniformScheduleFun a = Output a
+instance ConvertRC rc => IsSchedule (UniformScheduleFun' rc) where
+  type ScheduleInput  (UniformScheduleFun' rc) a = Input a
+  type ScheduleOutput (UniformScheduleFun' rc) a = Output a
 
-  convertScheduleFun = transformAfun
+  convertScheduleFun = convertRC . transformAfun @rc
 
-  rnfSchedule (Slam lhs s) = rnfLeftHandSide rnfBaseR lhs `seq` rnfSchedule s
-  rnfSchedule (Sbody s) = rnfSchedule' s
+  rnfSchedule = rnfScheduleFun'
 
   callScheduledFun (GFunctionRbody repr) f
-    | Refl <- reprIsBody @UniformScheduleFun repr = do
+    | Refl <- reprIsBody @(UniformScheduleFun' rc) repr = do
       (output, result) <- bindOutput repr
       f output
       return result
@@ -86,7 +87,7 @@ instance IsSchedule UniformScheduleFun where
   callScheduledFun (GFunctionRlam arg ret) f = do
     return $ \a -> do
       input <- bindInput arg a
-      callScheduledFun @UniformScheduleFun ret $ f input
+      callScheduledFun @(UniformScheduleFun' rc) ret $ f input
     where
       bindInput :: GroundsR t -> t -> IO (Input t)
       bindInput TupRunit _ = return ()
@@ -110,21 +111,20 @@ instance IsSchedule UniformScheduleFun where
           return (Signal mvar, Ref ref)
 
 transformAfun
-  :: IsKernel kernel
+  :: forall rc kernel f. IsKernel kernel
   => PartitionedAfun (KernelOperation kernel) () f
-  -> UniformScheduleFun kernel () (Scheduled UniformScheduleFun f)
+  -> UniformScheduleFun kernel () (Scheduled (UniformScheduleFun' rc) f)
 transformAfun afun = simplify $ stronglyLiveVariablesFun $ simplify $ stronglyLiveVariablesFun $ simplify $ stronglyLiveVariablesFun $ makeFunSpawnClosed $ funConstruct (go FEnvEnd afun) weakenId BEmpty
   where
     go
-      :: IsKernel kernel
-      => FutureEnv fenv genv
-      -> PartitionedAfun (KernelOperation kernel) genv f
-      -> BuildScheduleFun kernel fenv (Scheduled UniformScheduleFun f)
+      :: FutureEnv fenv genv
+      -> PartitionedAfun (KernelOperation kernel) genv t
+      -> BuildScheduleFun kernel fenv (Scheduled (UniformScheduleFun' rc) t)
     go env (C.Alam lhs f)
       | DeclareInput _ lhs' env' <- declareInput lhs env
       = buildFunLam lhs' $ go env' f
     go env (C.Abody body)
-      | Refl <- reprIsBody @UniformScheduleFun $ groundsR body
+      | Refl <- reprIsBody @(UniformScheduleFun' rc) $ groundsR body
       , schedule <- convertAccPartial body
       , DeclareOutput skip lhs dest <- declareOutput $ groundsR body
       = buildFunLam lhs $ buildFunBody $
@@ -1102,6 +1102,11 @@ appendMaybe = maybe id (:)
 variableMissing :: HasCallStack => a
 variableMissing = internalError "Variable missing in FutureEnv (and possibly in SyncEnv)"
 
+rnfScheduleFun' :: IsKernel kernel => UniformScheduleFun' rc kernel env t -> ()
+rnfScheduleFun' = \case
+  Slam lhs s -> rnfLeftHandSide rnfBaseR lhs `seq` rnfScheduleFun' s
+  Sbody s    -> rnfSchedule' s
+
 rnfSchedule' :: IsKernel kernel => UniformSchedule' ts kernel env -> ()
 rnfSchedule' Return =
   ()
@@ -1112,9 +1117,9 @@ rnfSchedule' (Effect eff next) =
 rnfSchedule' (Acond c split true false next) =
   rnfExpVar c `seq` rnfSplit split `seq` rnfSchedule' true `seq` rnfSchedule' false `seq` rnfSchedule' next
 rnfSchedule' (Awhile split1 split2 io body initial next) =
-  rnfSplit split1 `seq` rnfSplit split2 `seq` rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar initial `seq` rnfSchedule' next
+  rnfSplit split1 `seq` rnfSplit split2 `seq` rnfInputOutputR io `seq` rnfScheduleFun' body `seq` rnfTupR rnfBaseVar initial `seq` rnfSchedule' next
 rnfSchedule' (AwhileSeq split1 split2 io body ini  next) =
-  rnfSplit split1 `seq` rnfSplit split2 `seq` rnfInputOutputR io `seq` rnfSchedule body `seq` rnfTupR rnfBaseVar ini     `seq` rnfSchedule' next
+  rnfSplit split1 `seq` rnfSplit split2 `seq` rnfInputOutputR io `seq` rnfScheduleFun' body `seq` rnfTupR rnfBaseVar ini     `seq` rnfSchedule' next
 rnfSchedule' (Spawn split a b) =
   rnfSplit split `seq` rnfSchedule' a `seq` rnfSchedule' b
 rnfSchedule' (Release subset s) =

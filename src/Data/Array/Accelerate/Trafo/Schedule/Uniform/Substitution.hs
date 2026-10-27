@@ -46,7 +46,7 @@ instance rc ~ False => Sink' (UniformSchedule' rc kernel) where
   weaken' k (Spawn SplitDefault s1 s2) =
     Spawn SplitDefault (weaken' k s1) (weaken' k s2)
 
-instance Sink (UniformScheduleFun kernel) where
+instance rc ~ False => Sink (UniformScheduleFun' rc kernel) where
   weaken k (Slam lhs f)
     | Exists lhs' <- rebuildLHS lhs = Slam lhs' $ weaken (sinkWithLHS lhs lhs' k) f
   weaken k (Sbody s)    = Sbody $ weaken' k s

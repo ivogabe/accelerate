@@ -27,10 +27,10 @@ import Data.ByteString.Builder
 import Data.ByteString.Short.Internal                               ( ShortByteString(..) )
 import qualified Data.Hashable                                      as Hashable
 
-hashUniformScheduleFun :: IsKernel kernel => UniformScheduleFun kernel env f -> Hash
+hashUniformScheduleFun :: IsKernel kernel => UniformScheduleFun' rc kernel env f -> Hash
 hashUniformScheduleFun = hashlazy . toLazyByteString . encodeUniformScheduleFun
 
-encodeUniformScheduleFun :: IsKernel kernel => UniformScheduleFun kernel env f -> Builder
+encodeUniformScheduleFun :: IsKernel kernel => UniformScheduleFun' rc kernel env f -> Builder
 encodeUniformScheduleFun (Slam lhs f) = intHost $(hashQ ("Slam" :: String)) <> encodeBLeftHandSide lhs <> encodeUniformScheduleFun f
 encodeUniformScheduleFun (Sbody body) = intHost $(hashQ ("Sbody" :: String)) <> encodeUniformSchedule body
 

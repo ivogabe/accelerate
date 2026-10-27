@@ -12,7 +12,10 @@
 -- reference counting operations
 
 module Data.Array.Accelerate.Trafo.Schedule.Uniform.RC (
-  analyse
+
+  ConvertRC(..),
+  analyse, analyseFun,
+
 ) where
 
 import Data.Array.Accelerate.AST.Environment
@@ -27,6 +30,23 @@ import Data.Array.Accelerate.Trafo.Substitution
 import Data.Array.Accelerate.Trafo.Schedule.Uniform.Substitution   ()
 
 {-------------------------------------------------------------------------------
+  ConvertRC
+-------------------------------------------------------------------------------}
+
+-- | Converts a function without reference counting to a function with reference
+-- counting if @rc ~ True@
+class ConvertRC (rc :: Bool) where
+  convertRC
+    :: UniformScheduleFun     kernel () t
+    -> UniformScheduleFun' rc kernel () t
+
+instance ConvertRC False where
+  convertRC = id
+
+instance ConvertRC True where
+  convertRC = analyseFun
+
+{-------------------------------------------------------------------------------
   Analysis
 -------------------------------------------------------------------------------}
 
@@ -36,74 +56,95 @@ analyse
   -> UniformSchedule   kernel env
   -> UniformScheduleRC kernel env
 analyse env schedule
-  | Analysis _used build <- go schedule = build (ownedAll env)
-  where
-    go :: UniformSchedule kernel env -> Analysis kernel env
-    go = \case
-      Return -> Analysis IdxSet.empty $ \owned ->
-        release (ownedReleaseAll owned) Return
-      Alet lhs bnd next
-        | Analysis used build <- go next
-        -> let used' = bindingFreeVars bnd `IdxSet.union` IdxSet.drop' lhs used
-           in  analysis used' $ \owned -> case ownedLHS lhs owned of
-                OwnedLHS lhs' owned' ->
-                  Alet lhs' (weaken (ownedWeaken owned) bnd) (build owned')
-      Effect effect next
-        | Analysis used build <- go next
-        -> let used' = effectFreeVars effect `IdxSet.union` used
-           in  analysis used' $ \owned ->
-                Effect (weaken' (ownedWeaken owned) effect) (build owned)
-      Acond cond SplitDefault true false next
-        | Analysis usedT buildT <- go true
-        , Analysis usedF buildF <- go false
-        , Analysis usedK buildK <- go next
-        -> let used' =
-                IdxSet.insertVar cond $ IdxSet.unions [usedT, usedF, usedK]
-               usedC = IdxSet.union usedT usedF
-           in  analysis used' $ \owned -> case ownedSplit usedC usedK owned of
-                OwnedSplit split ownedC' ownedK' ->
-                  Acond
-                    (weaken (ownedWeaken owned) cond)
-                    split
-                    (buildT ownedC')
-                    (buildF ownedC')
-                    (buildK ownedK')
-      Awhile SplitDefault SplitDefault io step initial next
-        | Analysis used build <- go next
-        -> let usedStep  = funFreeVars step
-               usedStep' = usedStep `IdxSet.union` used
-               usedInit  = IdxSet.fromVars initial
-               used'     = usedInit `IdxSet.union` usedStep'
-           in  analysis used' $ \owned ->
-                case ownedSplit usedInit usedStep' owned of
-                  OwnedSplit split1 ownedInit owned' ->
-                    case ownedSplit usedStep used owned' of
-                      OwnedSplit split2 ownedStep ownedNext ->
-                        Awhile split1 split2 io
-                          (weaken (ownedWeaken ownedStep) step)
-                          (mapTupR (weaken (ownedWeaken ownedInit)) initial)
-                          (build ownedNext)
-      AwhileSeq SplitDefault SplitDefault io step initial next
-        | Analysis used build <- go next
-        -> let usedStep  = funFreeVars step
-               usedStep' = usedStep `IdxSet.union` used
-               usedInit  = IdxSet.fromVars initial
-               used'     = usedInit `IdxSet.union` usedStep'
-           in  analysis used' $ \owned ->
-                case ownedSplit usedInit usedStep' owned of
-                  OwnedSplit split1 ownedInit owned' ->
-                    case ownedSplit usedStep used owned' of
-                      OwnedSplit split2 ownedStep ownedNext ->
-                        AwhileSeq split1 split2 io
-                          (weaken (ownedWeaken ownedStep) step)
-                          (mapTupR (weaken (ownedWeaken ownedInit)) initial)
-                          (build ownedNext)
-      Spawn SplitDefault a b
-        | Analysis usedA buildA <- go a
-        , Analysis usedB buildB <- go b
-        -> let used' = usedA `IdxSet.union` usedB
-           in  analysis used' $ \owned ->
-                spawn (ownedSplitBoth owned) (buildA owned) (buildB owned)
+  | Analysis _used build <- analyse' schedule
+  = build (ownedAll env)
+
+analyse' :: UniformSchedule kernel env -> Analysis kernel env
+analyse' = \case
+  Return -> Analysis IdxSet.empty $ \owned ->
+    release (ownedReleaseAll owned) Return
+  Alet lhs bnd next
+    | Analysis used build <- analyse' next
+    -> let used' = bindingFreeVars bnd `IdxSet.union` IdxSet.drop' lhs used
+       in  analysis used' $ \owned -> case ownedLHS lhs owned of
+            OwnedLHS lhs' owned' ->
+              Alet lhs' (weaken (ownedWeaken owned) bnd) (build owned')
+  Effect effect next
+    | Analysis used build <- analyse' next
+    -> let used' = effectFreeVars effect `IdxSet.union` used
+       in  analysis used' $ \owned ->
+            Effect (weaken' (ownedWeaken owned) effect) (build owned)
+  Acond cond SplitDefault true false next
+    | Analysis usedT buildT <- analyse' true
+    , Analysis usedF buildF <- analyse' false
+    , Analysis usedK buildK <- analyse' next
+    -> let used' =
+            IdxSet.insertVar cond $ IdxSet.unions [usedT, usedF, usedK]
+           usedC = IdxSet.union usedT usedF
+       in  analysis used' $ \owned -> case ownedSplit usedC usedK owned of
+            OwnedSplit split ownedC' ownedK' ->
+              Acond
+                (weaken (ownedWeaken owned) cond)
+                split
+                (buildT ownedC')
+                (buildF ownedC')
+                (buildK ownedK')
+  Awhile SplitDefault SplitDefault io step initial next
+    | Analysis used build <- analyse' next
+    -> let usedStep  = funFreeVars step
+           usedStep' = usedStep `IdxSet.union` used
+           usedInit  = IdxSet.fromVars initial
+           used'     = usedInit `IdxSet.union` usedStep'
+       in  analysis used' $ \owned ->
+            case ownedSplit usedInit usedStep' owned of
+              OwnedSplit split1 ownedInit owned' ->
+                case ownedSplit usedStep used owned' of
+                  OwnedSplit split2 ownedStep ownedNext ->
+                    Awhile split1 split2 io
+                      (analyseFun' ownedStep step)
+                      (mapTupR (weaken (ownedWeaken ownedInit)) initial)
+                      (build ownedNext)
+  AwhileSeq SplitDefault SplitDefault io step initial next
+    | Analysis used build <- analyse' next
+    -> let usedStep  = funFreeVars step
+           usedStep' = usedStep `IdxSet.union` used
+           usedInit  = IdxSet.fromVars initial
+           used'     = usedInit `IdxSet.union` usedStep'
+       in  analysis used' $ \owned ->
+            case ownedSplit usedInit usedStep' owned of
+              OwnedSplit split1 ownedInit owned' ->
+                case ownedSplit usedStep used owned' of
+                  OwnedSplit split2 ownedStep ownedNext ->
+                    AwhileSeq split1 split2 io
+                      (analyseFun' ownedStep step)
+                      (mapTupR (weaken (ownedWeaken ownedInit)) initial)
+                      (build ownedNext)
+  Spawn SplitDefault a b
+    | Analysis usedA buildA <- analyse' a
+    , Analysis usedB buildB <- analyse' b
+    -> let used' = usedA `IdxSet.union` usedB
+       in  analysis used' $ \owned ->
+            spawn (ownedSplitBoth owned) (buildA owned) (buildB owned)
+
+-- | Add reference counting to a function
+--
+-- The function owns the references to its arguments.
+analyseFun
+  :: UniformScheduleFun   kernel () t
+  -> UniformScheduleFunRC kernel () t
+analyseFun = analyseFun' OwnedEnd
+
+analyseFun'
+  :: OwnedEnv env envRC
+  -> UniformScheduleFun   kernel env   t
+  -> UniformScheduleFunRC kernel envRC t
+analyseFun' owned = \case
+  Slam lhs f
+    | OwnedLHS lhs' owned' <- ownedLHS lhs owned
+    -> Slam lhs' (analyseFun' owned' f)
+  Sbody body
+    | Analysis _used build <- analyse' body
+    -> Sbody (build owned)
 
 -- | Construct an 'Analysis' that first releases unused owned bindings
 analysis

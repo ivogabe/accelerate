@@ -12,7 +12,7 @@
 
 module Data.Array.Accelerate.AST.Schedule.Uniform (
   UniformSchedule'(..), UniformSchedule, UniformScheduleRC,
-  UniformScheduleFun(..),
+  UniformScheduleFun'(..), UniformScheduleFun, UniformScheduleFunRC,
   SArg(..), SArgs, sargVars, sargOutputVars, sargBufferVars,
   EmptyEnvIfRC,
   Input, Output, inputSingle, outputSingle, inputR, outputR,
@@ -132,7 +132,7 @@ data UniformSchedule' (rc :: Bool) kernel env where
           -> InputOutputR input output
           -- The body of the while loop.
           -- Should be spawn-closed.
-          -> UniformScheduleFun kernel envStep (input -> Output PrimBool -> output -> ())
+          -> UniformScheduleFun' rc kernel envStep (input -> Output PrimBool -> output -> ())
           -> BaseVars envInit input
           -> UniformSchedule' rc kernel envNext -- Operations after the while loop
           -> UniformSchedule' rc kernel env
@@ -150,7 +150,7 @@ data UniformSchedule' (rc :: Bool) kernel env where
           -> InputOutputR input output
           -- The body of the while loop
           -- Should be spawn-closed.
-          -> UniformScheduleFun kernel envStep (input -> OutputRef PrimBool -> output -> ())
+          -> UniformScheduleFun' rc kernel envStep (input -> OutputRef PrimBool -> output -> ())
           -> BaseVars envInit input
           -> UniformSchedule' rc kernel envNext -- Operations after the while loop
           -> UniformSchedule' rc kernel env
@@ -179,13 +179,22 @@ type UniformSchedule = UniformSchedule' False
 -- Schedule with reference counting
 type UniformScheduleRC = UniformSchedule' True
 
-data UniformScheduleFun kernel env t where
+-- A function owns the references to its arguments when reference counting is
+-- enabled (@rc ~ True@): the caller must retain the arguments it still needs
+-- after the call.
+data UniformScheduleFun' (rc :: Bool) kernel env t where
   Slam  :: BLeftHandSide s env env'
-        -> UniformScheduleFun kernel env' t
-        -> UniformScheduleFun kernel env  (s -> t)
+        -> UniformScheduleFun' rc kernel env' t
+        -> UniformScheduleFun' rc kernel env  (s -> t)
 
-  Sbody :: UniformSchedule    kernel env
-        -> UniformScheduleFun kernel env ()
+  Sbody :: UniformSchedule'    rc kernel env
+        -> UniformScheduleFun' rc kernel env ()
+
+-- Function without reference counting
+type UniformScheduleFun = UniformScheduleFun' False
+
+-- Function with reference counting
+type UniformScheduleFunRC = UniformScheduleFun' True
 
 type family EmptyEnvIfRC (rc :: Bool) env :: Constraint where
   EmptyEnvIfRC False _ = ()

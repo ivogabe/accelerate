@@ -34,7 +34,7 @@ import Prettyprinter
 
 import Prelude hiding (exp)
 
-instance PrettySchedule UniformScheduleFun where
+instance PrettySchedule (UniformScheduleFun' rc) where
   prettySchedule = prettyUniformScheduleFun empty'
 
 prettyBaseR :: BaseR t -> Adoc
@@ -144,7 +144,7 @@ valSubset subset (Val' env b e s r) = Val' (go subset env) b e s r
       SubsetDrop subset' -> \(Push env' _) -> go subset' env'
       SubsetEnd          -> id
 
-prettyUniformScheduleFun :: PrettyKernel kernel => Val' env -> UniformScheduleFun kernel env t -> Adoc
+prettyUniformScheduleFun :: PrettyKernel kernel => Val' env -> UniformScheduleFun' rc kernel env t -> Adoc
 prettyUniformScheduleFun env (Slam lhs f)
   | (env', lhs') <- prettyBLhsWithTypes env lhs
   = "\\" <> lhs' <+> "->" <> hardline <> indent 2 (prettyUniformScheduleFun env' f)
