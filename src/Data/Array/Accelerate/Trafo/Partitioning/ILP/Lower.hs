@@ -29,9 +29,9 @@ lowerAll env constraints = evalState (mconcat <$> mapM (lower env) constraints) 
 lower :: LowerEnv -> Constraint -> Lower
 lower env = \case
   ClusterBefore i j -> pure (pi i .<. pi j, mempty, mempty)
-  DifferentCluster i j -> pure (fused (i, j) .==. int 1, mempty, mempty)
+  Unfused i j -> pure (fused (i, j) .==. int 1, mempty, mempty)
   NotManifestIfAllFused b pairs -> pure (allB (map fused pairs) (notB $ manifest b), mempty, mempty)
-  FusibleOrder i j -> pure (between (fused (i, j)) (pi j .-. pi i) (timesN $ fused (i, j)), mempty, mempty)
+  ClusterBeforeUnlessFused i j -> pure (between (fused (i, j)) (pi j .-. pi i) (timesN $ fused (i, j)), mempty, mempty)
   FusionDirection w b r -> pure (isEqualRangeN (writeDir (w, b)) (readDir (b, r)) (fused (w, r)), mempty, mempty)
   WithinClusterCount l -> pure (pi l .<=. maxCluster, mempty, mempty)
   OnManifestIfInPlace p@((b1, _), (_, b2)) -> pure ((inplace p `impliesB` manifest b1) <> (inplace p `impliesB` manifest b2), mempty, mempty)

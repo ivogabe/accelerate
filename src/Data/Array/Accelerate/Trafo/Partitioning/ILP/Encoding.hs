@@ -22,6 +22,16 @@ import Lens.Micro.Extras ( view )
 import Data.Maybe (fromJust,  mapMaybe )
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage (Constraint(..))
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Lower (LowerEnv(..), lowerAll)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Presolve
+  ( Problem (Problem),
+    emptySubstitution,
+    presolve,
+    substituteBounds,
+    substituteExpression,
+    substituteLinearConstraint,
+    substitutionConstraints
+  )
+import Data.Either (fromRight)
 
 data Objective
   -- Old fusion only objectives:
@@ -41,20 +51,71 @@ data Objective
   | MemoryUsage'         -- ^ Version of `MemoryUsage` that prioritizes fusion when two solutions would otherwise have the same costs.
   deriving (Show, Bounded, Enum, Eq, Ord)
 
+data ILPStages = ILPStages
+  { initialConstraints :: [Constraint]
+  , lowerProblem :: Problem -> ILP
+  , lowerProblemWithSubstitution :: Problem -> ILP
+  }
+
 -- Makes the ILP. Note that this function 'appears' to ignore the Node levels completely!
 -- We could add some assertions, but if all the input is well-formed (no labels, constraints, etc
 -- that reward putting non-siblings in the same cluster) this is fine: We will interpret 'cluster 3'
 -- with parents `Nothing` as a different cluster than 'cluster 3' with parents `Just 5`.
 makeILP :: forall op. MakesILP op => Objective -> FusionILP op -> ILP
-makeILP obj (FusionILP graph constraints bounds) =
-  ILP minMax objFun loweredConstraints (graphBounds <> bounds) (Constants n m)
+makeILP = makeILPWithPresolve True
+
+makeILPWithPresolve :: forall op . MakesILP op => Bool -> Objective -> FusionILP op -> ILP
+makeILPWithPresolve usePresolve obj input =
+  finish problem
   where
-    graphBounds = fusionBounds <> inPlaceBounds
+    ILPStages allConstraints finish _ = makeILPStages obj input
 
-    lowered :: (LinearConstraint, Bounds, Expression)
-    lowered = lowerAll (LowerEnv n) $ finalize @op graph <> fusionConstraints <> inPlaceConstraints <> constraints
+    problem
+      | usePresolve = fromRight (error "presolve: ILP is infeasible") $ presolve allConstraints
+      | otherwise = Problem allConstraints emptySubstitution
 
-    (loweredConstraints, loweredBounds, loweredCost) = lowered
+makeILPStages :: forall op. MakesILP op => Objective -> FusionILP op -> ILPStages
+makeILPStages obj (FusionILP graph constraints bounds) =
+  ILPStages allConstraints (finish False) (finish True)
+  where
+    allConstraints =
+     finalize @op graph
+       <> fusionConstraints
+       <> inPlaceConstraints
+       <> constraints
+
+    finish replaceVariables (Problem remaining subst) =
+      let (loweredConstraints, loweredBounds, loweredCost) = lowerAll (LowerEnv n) remaining
+
+          graphBounds = fusionBounds <> inPlaceBounds
+
+          fusionBounds = piB <> fusedB <> manifestB <> loweredBounds <> binaryBounds
+
+          binaryBounds = foldMap binary $ S.filter isBinaryVar $ varsExpr objective' <> varsConstr constraints'
+
+          inPlaceBounds
+            | enableIU = pimaxB <> inplaceB
+            | otherwise = mempty
+
+          objective' = objective loweredCost
+          constraints' = loweredConstraints <> substitutionConstraints subst
+          bounds' = graphBounds <> bounds
+      in
+        if replaceVariables
+          then
+            ILP
+              minMax
+              (substituteExpression subst objective')
+              (substituteLinearConstraint subst loweredConstraints)
+              (substituteBounds subst bounds')
+              (Constants n m)
+          else
+            ILP
+              minMax
+              objective'
+              constraints'
+              bounds'
+              (Constants n m)
 
     fusionConstraints = strictAcyclicConstraints
         <> infusibleConstraints
@@ -66,7 +127,6 @@ makeILP obj (FusionILP graph constraints bounds) =
         <> manifestValueConstraints
         <> noInPlaceConstraints
 
-    fusionBounds = piB <> fusedB <> manifestB <> loweredBounds <> binaryBounds
 
     inPlaceConstraints = if enableIU
         then onManifestConstraints
@@ -77,8 +137,6 @@ makeILP obj (FusionILP graph constraints bounds) =
             <> atMostOneWriterConstraints
             <> readAliveThroughWritersConstraints
         else mempty
-
-    inPlaceBounds = if enableIU then pimaxB <> inplaceB else mempty
 
     ----------------------------------------------------------------------------
     -- Utils:
@@ -127,14 +185,14 @@ makeILP obj (FusionILP graph constraints bounds) =
         | computation <- S.toList compN
         , let consumers = S.toList . S.map (\(_,b,c) -> (b,c)) $ S.filter (\(c,_,_) -> c == computation) fusibleE]
 
-    numberOfReads = loweredCost .+. numberOfUnfusedEdges
+    numberOfReads loweredCost = loweredCost .+. numberOfUnfusedEdges
 
     -- objective function that maximises the number of fused away arrays, and thus minimises the number of array writes
     -- using .-. instead of notB to factor the constants out of the cost function; if we use (1 - manifest l) as elsewhere Gurobi thinks the 1 is a variable name
     numberOfManifestArrays = List.foldl' (\e b -> e .-. manifest b) (int 0) buffN
 
     -- objective function that minimises the total number of array reads + writes
-    numberOfArrayReadsWrites = numberOfReads .+. numberOfManifestArrays
+    numberOfArrayReadsWrites loweredCost = numberOfReads loweredCost .+. numberOfManifestArrays
 
     -- objective function that minimises the number of clusters only works if the constraint below it is used!
     -- NOTE: this does not work remotely as well as you'd hope, because the ILP outputs clusters that get split afterwards.
@@ -149,13 +207,13 @@ makeILP obj (FusionILP graph constraints bounds) =
     strictAcyclicConstraints   = map (uncurry ClusterBefore)    $ S.toList strictE
 
     -- x_ij == 1 for all infusible edges
-    infusibleConstraints       = map (uncurry DifferentCluster) $ S.toList infusibleE'
+    infusibleConstraints       = map (uncurry Unfused) $ S.toList infusibleE'
 
     -- forall b, iff all (w,b,r) are fused, then b is not manifest.
     manifestConstraints        = map (uncurry NotManifestIfAllFused) . M.toList $ foldl (flip \(i,b,j) -> M.insertWith (<>) b [(i,j)]) M.empty dataflowE
 
     -- x_ij <= pi_j - pi_i <= n*x_ij for all fusible edges
-    fusibleAcyclicConstraints  = map (uncurry FusibleOrder) $ S.toList fusibleE'
+    fusibleAcyclicConstraints  = map (uncurry ClusterBeforeUnlessFused) $ S.toList fusibleE'
 
     -- if (w,b,r) is fused, then d_wb == d_br
     fusionDirectionConstraints = map (\(w,b,r) -> FusionDirection w b r) $ S.toList fusibleE
@@ -181,7 +239,6 @@ makeILP obj (FusionILP graph constraints bounds) =
     -- 0 <= m_i  <= 1
     manifestB = foldMap (binary . IsManifest) buffN
 
-    binaryBounds = foldMap binary $ S.filter isBinaryVar $ varsExpr objFun <> varsConstr loweredConstraints
 
 
     ----------------------------------------------------------------------------
@@ -257,19 +314,30 @@ makeILP obj (FusionILP graph constraints bounds) =
     --
     -- In the future, maybe we want this to be backend-dependent (add to MakesILP).
     -- Also future: add @IVO's IPU reward here.
-    (enableIU, minMax, objFun) = case obj of
-      NumClusters         -> (False, Minimise, numberOfClusters)
-      ArrayReads          -> (False, Minimise, numberOfReads)
-      ArrayReadsWrites    -> (False, Minimise, numberOfArrayReadsWrites)
-      IntermediateArrays  -> (False, Minimise, numberOfManifestArrays)
-      FusedEdges          -> (False, Minimise, numberOfUnfusedEdges)
-      Everything          -> (False, Minimise, numberOfClusters .+. numberOfArrayReadsWrites) -- arrayreadswrites already indictly includes everything else
-      ArrayReads'         -> (True,  Minimise, (int m .*. numberOfReads)            .+. numberOfNonInplaceUpdates)
-      ArrayReadsWrites'   -> (True,  Minimise, (int m .*. numberOfArrayReadsWrites) .+. numberOfNonInplaceUpdates)
-      IntermediateArrays' -> (True,  Minimise, (int m .*. numberOfManifestArrays)   .+. numberOfNonInplaceUpdates)
-      FusedEdges'         -> (True,  Minimise, (int m .*. numberOfUnfusedEdges)     .+. numberOfNonInplaceUpdates)
-      MemoryUsage         -> (True,  Minimise, numberOfManifestArrays .+. numberOfNonInplaceUpdates)
-      MemoryUsage'        -> (True,  Minimise, (int (m+1) .*. numberOfManifestArrays) .+. (int m .*. numberOfNonInplaceUpdates))  -- We want to prioritise solutions that use fusion, so the weight of fusion is increased by a small factor.
+    enableIU = case obj of
+      ArrayReads' -> True
+      ArrayReadsWrites' -> True
+      IntermediateArrays' -> True
+      FusedEdges' -> True
+      MemoryUsage -> True
+      MemoryUsage' -> True
+      _ -> False
+
+    minMax = Minimise
+
+    objective cost = case obj of
+      NumClusters -> numberOfClusters
+      ArrayReads -> numberOfReads cost
+      ArrayReadsWrites -> numberOfArrayReadsWrites cost
+      IntermediateArrays -> numberOfManifestArrays
+      FusedEdges -> numberOfUnfusedEdges
+      Everything -> numberOfClusters .+. numberOfArrayReadsWrites cost
+      ArrayReads' -> (int m .*. numberOfReads cost) .+. numberOfNonInplaceUpdates
+      ArrayReadsWrites' -> (int m .*. numberOfArrayReadsWrites cost) .+. numberOfNonInplaceUpdates
+      IntermediateArrays' -> (int m .*. numberOfManifestArrays) .+. numberOfNonInplaceUpdates
+      FusedEdges' -> (int m .*. numberOfUnfusedEdges) .+. numberOfNonInplaceUpdates
+      MemoryUsage -> numberOfManifestArrays .+. numberOfNonInplaceUpdates
+      MemoryUsage' -> (int (m + 1) .*. numberOfManifestArrays) .+. (int m .*. numberOfNonInplaceUpdates)
 
 -- | Check if a variable is binary.
 isBinaryVar :: Var -> Bool
