@@ -77,48 +77,47 @@ analyse' = \case
   Acond cond SplitDefault true false next
     | Analysis usedT buildT <- analyse' true
     , Analysis usedF buildF <- analyse' false
-    , Analysis usedK buildK <- analyse' next
-    -> let used' =
-            IdxSet.insertVar cond $ IdxSet.unions [usedT, usedF, usedK]
-           usedC = IdxSet.union usedT usedF
-       in  analysis used' $ \owned -> case ownedSplit usedC usedK owned of
-            OwnedSplit split ownedC' ownedK' ->
+    , Analysis usedN buildN <- analyse' next
+    -> let usedC = IdxSet.union usedT usedF
+           used' = IdxSet.insertVar cond $ IdxSet.union usedC usedN
+       in  analysis used' $ \owned -> case ownedSplit usedC usedN owned of
+            OwnedSplit split ownedC ownedN ->
               Acond
                 (weaken (ownedWeaken owned) cond)
                 split
-                (buildT ownedC')
-                (buildF ownedC')
-                (buildK ownedK')
+                (buildT ownedC)
+                (buildF ownedC)
+                (buildN ownedN)
   Awhile SplitDefault SplitDefault io step initial next
     | Analysis used build <- analyse' next
-    -> let usedStep  = funFreeVars step
-           usedStep' = usedStep `IdxSet.union` used
-           usedInit  = IdxSet.fromVars initial
-           used'     = usedInit `IdxSet.union` usedStep'
+    -> let usedS  = funFreeVars step
+           usedS' = usedS `IdxSet.union` used
+           usedI  = IdxSet.fromVars initial
+           used'  = usedI `IdxSet.union` usedS'
        in  analysis used' $ \owned ->
-            case ownedSplit usedInit usedStep' owned of
-              OwnedSplit split1 ownedInit owned' ->
-                case ownedSplit usedStep used owned' of
-                  OwnedSplit split2 ownedStep ownedNext ->
+            case ownedSplit usedI usedS' owned of
+              OwnedSplit split1 ownedI owned' ->
+                case ownedSplit usedS used owned' of
+                  OwnedSplit split2 ownedS ownedN ->
                     Awhile split1 split2 io
-                      (analyseFun' ownedStep step)
-                      (mapTupR (weaken (ownedWeaken ownedInit)) initial)
-                      (build ownedNext)
+                      (analyseFun' ownedS step)
+                      (mapTupR (weaken (ownedWeaken ownedI)) initial)
+                      (build ownedN)
   AwhileSeq SplitDefault SplitDefault io step initial next
     | Analysis used build <- analyse' next
-    -> let usedStep  = funFreeVars step
-           usedStep' = usedStep `IdxSet.union` used
-           usedInit  = IdxSet.fromVars initial
-           used'     = usedInit `IdxSet.union` usedStep'
+    -> let usedS  = funFreeVars step
+           usedS' = usedS `IdxSet.union` used
+           usedI  = IdxSet.fromVars initial
+           used'  = usedI `IdxSet.union` usedS'
        in  analysis used' $ \owned ->
-            case ownedSplit usedInit usedStep' owned of
-              OwnedSplit split1 ownedInit owned' ->
-                case ownedSplit usedStep used owned' of
-                  OwnedSplit split2 ownedStep ownedNext ->
+            case ownedSplit usedI usedS' owned of
+              OwnedSplit split1 ownedI owned' ->
+                case ownedSplit usedS used owned' of
+                  OwnedSplit split2 ownedS ownedN ->
                     AwhileSeq split1 split2 io
-                      (analyseFun' ownedStep step)
-                      (mapTupR (weaken (ownedWeaken ownedInit)) initial)
-                      (build ownedNext)
+                      (analyseFun' ownedS step)
+                      (mapTupR (weaken (ownedWeaken ownedI)) initial)
+                      (build ownedN)
   Spawn SplitDefault a b
     | Analysis usedA buildA <- analyse' a
     , Analysis usedB buildB <- analyse' b
@@ -204,9 +203,9 @@ release = \case
 -- * If a binding is passed to both subterms, it does not need to be retained
 --   and released.
 spawn
-  :: Split True env envL envR
-  -> UniformScheduleRC kernel envL
-  -> UniformScheduleRC kernel envR
+  :: Split True env envA envB
+  -> UniformScheduleRC kernel envA
+  -> UniformScheduleRC kernel envB
   -> UniformScheduleRC kernel env
 spawn split a b
   | Released subsetL a' <- leadingRelease a

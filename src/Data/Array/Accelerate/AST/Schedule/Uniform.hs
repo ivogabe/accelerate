@@ -112,10 +112,10 @@ data UniformSchedule' (rc :: Bool) kernel env where
           -> UniformSchedule' rc kernel env
 
   Acond   :: ExpVar env PrimBool
-          -> Split rc env envC envK
-          -> UniformSchedule' rc kernel envC -- True branch
-          -> UniformSchedule' rc kernel envC -- False branch
-          -> UniformSchedule' rc kernel envK -- Operations after the if-then-else
+          -> Split rc env envB envN
+          -> UniformSchedule' rc kernel envB -- True branch
+          -> UniformSchedule' rc kernel envB -- False branch
+          -> UniformSchedule' rc kernel envN -- Operations after the if-then-else
           -> UniformSchedule' rc kernel env
 
   -- The step function of the loop outputs a bool to denote whether the loop should
@@ -127,14 +127,14 @@ data UniformSchedule' (rc :: Bool) kernel env where
   -- of the loop consists of multiple variables. Synchronisations are handled via
   -- Signal(Resolver)s in 'input' and 'output'.
   -- A sequential variant is available in AwhileSeq.
-  Awhile  :: Split rc env envInit env'
-          -> Split rc env' envStep envNext
+  Awhile  :: Split rc env envI env'
+          -> Split rc env' envS envN
           -> InputOutputR input output
           -- The body of the while loop.
           -- Should be spawn-closed.
-          -> UniformScheduleFun' rc kernel envStep (input -> Output PrimBool -> output -> ())
-          -> BaseVars envInit input
-          -> UniformSchedule' rc kernel envNext -- Operations after the while loop
+          -> UniformScheduleFun' rc kernel envS (input -> Output PrimBool -> output -> ())
+          -> BaseVars envI input
+          -> UniformSchedule' rc kernel envN -- Operations after the while loop
           -> UniformSchedule' rc kernel env
 
   -- Variant of Awhile, that can be executed sequentially. This only applies to
@@ -144,15 +144,15 @@ data UniformSchedule' (rc :: Bool) kernel env where
   -- step function is spawn-closed, this guarantees proper synchronisations.
   -- Hence we don't need Signal(Resolver)s in 'input' or 'output'.
   AwhileSeq
-          :: Split rc env envInit env'
-          -> Split rc env' envStep envNext
+          :: Split rc env envI env'
+          -> Split rc env' envS envN
           -- Should not contain InputOutputRsignal
           -> InputOutputR input output
           -- The body of the while loop
           -- Should be spawn-closed.
-          -> UniformScheduleFun' rc kernel envStep (input -> OutputRef PrimBool -> output -> ())
-          -> BaseVars envInit input
-          -> UniformSchedule' rc kernel envNext -- Operations after the while loop
+          -> UniformScheduleFun' rc kernel envS (input -> OutputRef PrimBool -> output -> ())
+          -> BaseVars envI input
+          -> UniformSchedule' rc kernel envN -- Operations after the while loop
           -> UniformSchedule' rc kernel env
 
   -- Spawns a task/thread for the first subterm, and continues with the second subterm.
@@ -162,9 +162,9 @@ data UniformSchedule' (rc :: Bool) kernel env where
   -- The environment is divided in two, for the two subterms.
   -- When reference counting is disabled, all bindings are available in both
   -- subterms, i.e. when rc ~ False then env ~ env1 and env ~ env2.
-  Spawn   :: Split rc env env1 env2
-          -> UniformSchedule' rc kernel env1
-          -> UniformSchedule' rc kernel env2
+  Spawn   :: Split rc env envA envB
+          -> UniformSchedule' rc kernel envA
+          -> UniformSchedule' rc kernel envB
           -> UniformSchedule' rc kernel env
 
   -- Execute a subterm in the specified subset of the environment.
