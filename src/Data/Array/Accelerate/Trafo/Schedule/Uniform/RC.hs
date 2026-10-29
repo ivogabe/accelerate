@@ -161,7 +161,7 @@ data Analysis kernel env where
     -- ^ Bindings used in the term
     -> (forall envRC. OwnedEnv env envRC -> UniformScheduleRC kernel envRC)
     -- ^ Construct the term with reference counting given currently owned
-    -- bindings (superset of binidngs used in the term)
+    -- bindings (superset of bindings used in the term)
     -> Analysis kernel env
 
 -- | 'SubsetKeep' smart constructor
