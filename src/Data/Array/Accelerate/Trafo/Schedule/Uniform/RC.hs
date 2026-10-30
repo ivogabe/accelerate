@@ -375,7 +375,11 @@ restrict set = \case
       | otherwise ->
         Restrict (SubsetDrop subset) (OwnedSkip owned')
   OwnedSkip owned -> case restrict (IdxSet.drop set) owned of
-    Restrict subset owned' -> Restrict subset (OwnedSkip owned')
+    Restrict subset owned'
+      | ZeroIdx `IdxSet.member` set ->
+        internalError "used binding is not owned"
+      | otherwise ->
+        Restrict subset (OwnedSkip owned')
 
 data Restrict env envRC where
   Restrict
@@ -423,8 +427,11 @@ ownedSplit setL setR = \case
           OwnedSplit (SplitRight split) (OwnedSkip ownedL) (OwnedKeep ownedR)
   OwnedSkip owned ->
     case ownedSplit (IdxSet.drop setL) (IdxSet.drop setR) owned of
-      OwnedSplit split ownedL ownedR ->
-        OwnedSplit split (OwnedSkip ownedL) (OwnedSkip ownedR)
+      OwnedSplit split ownedL ownedR
+        | ZeroIdx `IdxSet.member` setL || ZeroIdx `IdxSet.member` setR ->
+          internalError "used binding is not owned"
+        | otherwise ->
+          OwnedSplit split (OwnedSkip ownedL) (OwnedSkip ownedR)
   OwnedEnd        -> OwnedSplit SplitEnd OwnedEnd OwnedEnd
 
 data OwnedSplit env envRC where
