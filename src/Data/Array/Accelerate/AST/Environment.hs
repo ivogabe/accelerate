@@ -25,7 +25,7 @@ module Data.Array.Accelerate.AST.Environment (
 
   skipWeakenIdx, lhsSkip,
 
-  prjUpdate', prjReplace', update', updates', mapEnv,
+  prjUpdate', prjReplace', update', updates', mapEnv, mapMEnv,
   (:>)(Weaken), (>:>), weakenId, weakenSucc, weakenSucc', weakenEmpty, weakenReplace,
   sink, (.>), sinkWithLHS, weakenWithLHS, substituteLHS,
   varsGet, varsGetVal, stripWithLhs,
@@ -37,8 +37,10 @@ module Data.Array.Accelerate.AST.Environment (
   subsetIdx,
   composeSubsets,
   unionSubset, UnionSubset(..),
+  subsetHoistLHS, SubsetHoistLHS(..),
+  subsetEnv,
 
-  Split(..), splitBothAll, rnfSplit,
+  Split(..), splitBothAll, rnfSplit, splitSubsetLeft, splitSubsetRight,
   weakenWithSplit, weakenSplit, WeakenSplit(..),
 ) where
 
@@ -320,6 +322,9 @@ mapEnv :: (forall t. a t -> b t) -> Env a env -> Env b env
 mapEnv _ Empty = Empty
 mapEnv g (Push env f) = Push (mapEnv g env) (g f)
 
+mapMEnv :: Applicative m => (forall t. a t -> m (b t)) -> Env a env -> m (Env b env)
+mapMEnv _ Empty = pure Empty
+mapMEnv g (Push env f) = Push <$> mapMEnv g env <*> g f
 
 -- The type of shifting terms from one context into another
 --
@@ -448,6 +453,8 @@ infixr 9 .>
 -- Default case
 (.>) k1 k2 = WeakenChain k2 k1
 
+-- | Converts a weakening before a LHS to the weakening after the LHS.
+-- The two provided LeftHandSides must have the same structure.
 sinkWithLHS :: HasCallStack => LeftHandSide s t env1 env1' -> LeftHandSide s t env2 env2' -> env1 :> env2 -> env1' :> env2'
 sinkWithLHS (LeftHandSideWildcard _) (LeftHandSideWildcard _) k = k
 sinkWithLHS (LeftHandSideSingle _)   (LeftHandSideSingle _)   k = sink k
@@ -550,7 +557,7 @@ data WeakenSubset env' envSub where
 -- | Project an index into a subset, if it exists
 --
 -- The type of this function /should/ be @Subset env envSub -> env :?> envSub@,
--- but @(:?>)@ cannot be imported into tihs module.
+-- but @(:?>)@ cannot be imported into this module.
 subsetIdx :: Subset env envSub -> Idx env t -> Maybe (Idx envSub t)
 subsetIdx = \case
   SubsetKeep subset -> \case
@@ -604,6 +611,33 @@ data UnionSubset env env1 env2 where
               -> Subset env' env2
               -> UnionSubset env env1 env2
 
+-- | Hoist a @Subset@ to before a @LeftHandSide@.
+-- Eg convert: let lhs = .. in release subset ..
+-- to: release subset'; let lhs' = .. in ..
+subsetHoistLHS
+  :: LeftHandSide r t env env'
+  -> Subset env' envSub'
+  -> SubsetHoistLHS r t env env' envSub'
+subsetHoistLHS (LeftHandSideWildcard t) subset = SubsetHoistLHS subset (LeftHandSideWildcard t)
+subsetHoistLHS lhs SubsetEnd = SubsetHoistLHS SubsetEnd lhs
+subsetHoistLHS (LeftHandSideSingle t) (SubsetKeep subset) = SubsetHoistLHS subset (LeftHandSideSingle t)
+subsetHoistLHS (LeftHandSideSingle t) (SubsetDrop subset) = SubsetHoistLHS subset (LeftHandSideWildcard $ TupRsingle t)
+subsetHoistLHS (LeftHandSidePair l1 l2) subset
+  | SubsetHoistLHS subset'  l2' <- subsetHoistLHS l2 subset
+  , SubsetHoistLHS subset'' l1' <- subsetHoistLHS l1 subset'
+  = SubsetHoistLHS subset'' $ LeftHandSidePair l1' l2'
+
+data SubsetHoistLHS r t env env' envSub' where
+  SubsetHoistLHS
+    :: Subset env envSub
+    -> LeftHandSide r t envSub envSub'
+    -> SubsetHoistLHS r t env env' envSub'
+
+subsetEnv :: Subset env env' -> Env f env -> Env f env'
+subsetEnv SubsetEnd env = env
+subsetEnv (SubsetDrop subset) (Push env _) = subsetEnv subset env
+subsetEnv (SubsetKeep subset) (Push env v) = subsetEnv subset env `Push` v
+
 -- | Every binding in @env@ is in either @envL@, @envR@, or both
 --
 -- This type is used in the implementation of reference counting.  The @rc@ type
@@ -628,6 +662,22 @@ rnfSplit = \case
   SplitBoth  split -> rnfSplit split
   SplitEnd         -> ()
   SplitDefault     -> ()
+
+splitSubsetLeft :: Split rc env envL envR -> Subset env envL
+splitSubsetLeft = \case
+  SplitLeft  s -> subsetKeep $ splitSubsetLeft s
+  SplitRight s -> SubsetDrop $ splitSubsetLeft s
+  SplitBoth  s -> subsetKeep $ splitSubsetLeft s
+  SplitEnd     -> SubsetEnd
+  SplitDefault -> SubsetEnd
+
+splitSubsetRight :: Split rc env envL envR -> Subset env envR
+splitSubsetRight = \case
+  SplitLeft  s -> SubsetDrop $ splitSubsetRight s
+  SplitRight s -> subsetKeep $ splitSubsetRight s
+  SplitBoth  s -> subsetKeep $ splitSubsetRight s
+  SplitEnd     -> SubsetEnd
+  SplitDefault -> SubsetEnd
 
 -- | Construct left and right weakening relations given a 'Split'
 weakenWithSplit

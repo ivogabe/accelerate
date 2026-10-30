@@ -15,7 +15,7 @@ module Data.Array.Accelerate.AST.Schedule.Uniform (
   UniformScheduleFun'(..), UniformScheduleFun, UniformScheduleFunRC,
   SArg(..), SArgs, sargVars, sargOutputVars, sargBufferVars,
   EmptyEnvIfRC,
-  leadingRelease, Released(..),
+  leadingRelease, Released(..), leadingReleaseFun, ReleasedFun(..),
   Input, Output, inputSingle, outputSingle, inputR, outputR,
   InputOutputR(..), inputOutputInputR, inputOutputOutputR,
   Binding(..), Effect(..),
@@ -32,7 +32,7 @@ module Data.Array.Accelerate.AST.Schedule.Uniform (
   freeVars, funFreeVars, effectFreeVars, bindingFreeVars,
 ) where
 
-import Data.Array.Accelerate.AST.Environment ( Split(SplitDefault), Subset(SubsetEnd) )
+import Data.Array.Accelerate.AST.Environment ( Split(..), Subset(..), SubsetHoistLHS(..), subsetHoistLHS )
 import Data.Array.Accelerate.AST.Exp
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet ( IdxSet )
@@ -211,6 +211,21 @@ data Released kernel env where
     :: Subset env envSub
     -> UniformScheduleRC kernel envSub
     -> Released kernel env
+
+leadingReleaseFun :: UniformScheduleFunRC kernel env f -> ReleasedFun kernel env f
+leadingReleaseFun (Sbody s)
+  | Released subset s' <- leadingRelease s
+  = ReleasedFun subset $ Sbody s'
+leadingReleaseFun (Slam lhs f)
+  | ReleasedFun subset f' <- leadingReleaseFun f
+  , SubsetHoistLHS subset' lhs' <- subsetHoistLHS lhs subset
+  = ReleasedFun subset' $ Slam lhs' f'
+
+data ReleasedFun kernel env f where
+  ReleasedFun
+    :: Subset env envSub
+    -> UniformScheduleFunRC kernel envSub f
+    -> ReleasedFun kernel env f
 
 type family Input t where
   Input ()         = ()

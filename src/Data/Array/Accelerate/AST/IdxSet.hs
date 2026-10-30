@@ -10,7 +10,7 @@
 --
 
 module Data.Array.Accelerate.AST.IdxSet (
-  IdxSet(..),
+  IdxSet(..), Present(..),
   member, varMember, overlaps, isSubsetOf, intersect, union, unions, (\\), (>>=),
   insert, insertVar, insertVars, skip, skip',
   push, push', empty, isEmpty, drop, drop', remove, partialEnvRemoveSet, partialEnvFilterSet,
