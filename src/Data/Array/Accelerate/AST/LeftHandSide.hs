@@ -15,7 +15,7 @@
 
 module Data.Array.Accelerate.AST.LeftHandSide
   (
-    Exists(..),
+    Exists(..), withExists, mapExists,
     LeftHandSide(.., LeftHandSideUnit), leftHandSidePair,
     lhsToTupR, lhsSize, leftHandSideIsVoid,
     rnfLeftHandSide, liftLeftHandSide, mapLeftHandSide, flattenTupR)
@@ -33,6 +33,12 @@ data Exists f where
 instance (forall a . Show (f a)) => Show (Exists f) where
   show :: (forall a. Show (f a)) => Exists f -> String
   show (Exists e) = show e
+
+withExists :: Exists f -> (forall a. f a -> r) -> r
+withExists (Exists x) k = k x
+
+mapExists :: (forall a. f a -> r) -> [Exists f] -> [r]
+mapExists k = map (`withExists` k)
 
 data LeftHandSide s v env env' where
   LeftHandSideSingle

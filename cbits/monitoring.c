@@ -1,5 +1,5 @@
 /*
- * Module      : Data.Array.Accelerate.Debug.Monitoring
+ * Module      : Data.Array.Accelerate.FFI.Monitoring
  * Copyright   : [2016..2020] The Accelerate Team
  * License     : BSD3
  *

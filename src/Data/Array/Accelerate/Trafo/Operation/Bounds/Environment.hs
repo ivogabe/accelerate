@@ -34,7 +34,7 @@ import qualified Data.Functor.Const as Functor
 import Data.Array.Accelerate.Trafo.Operation.Bounds.Algebra
 
 import Data.Maybe
-import Data.List (foldl')
+import qualified Data.List as List
 
 type BoundsGraph = Graph.Graph Node Edge
 
@@ -333,7 +333,7 @@ boundsGraphClearNodes
   -> IdxSet env
   -> BoundsGraph env
 boundsGraphClearNodes graph set =
-  foldl' (\g (Exists idx) -> boundsGraphClearNode g idx) graph
+  List.foldl' (\g (Exists idx) -> boundsGraphClearNode g idx) graph
     $ IdxSet.toList set
 
 lookupAssertion

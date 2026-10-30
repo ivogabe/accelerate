@@ -17,12 +17,11 @@ module Data.Array.Accelerate.Trafo.Config (
 
 ) where
 
+import Data.Array.Accelerate.FFI.Flags                              as Flags
 import Data.BitSet
-import Data.Array.Accelerate.Debug.Internal.Flags                   as F
 
 import Data.Word
 import System.IO.Unsafe
-import Foreign.Storable
 
 
 data Config = Config
@@ -33,4 +32,4 @@ data Config = Config
 {-# NOINLINE defaultOptions #-}
 defaultOptions :: Config
 defaultOptions = unsafePerformIO $!
-  Config <$> BitSet <$> peek F.__cmd_line_flags
+  Config <$> BitSet <$> Flags.peekFlags

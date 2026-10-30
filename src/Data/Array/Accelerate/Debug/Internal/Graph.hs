@@ -25,7 +25,7 @@ module Data.Array.Accelerate.Debug.Internal.Graph (
 -- import System.Directory                                             ( getTemporaryDirectory, createDirectoryIfMissing )
 -- import System.FilePath                                              ( (</>) )
 -- import System.IO                                                    ( Handle, openTempFile, hPutStrLn, hPrint, hClose, stderr )
--- import qualified Data.Array.Accelerate.Debug.Internal.Flags         as Debug
+-- import qualified Data.Array.Accelerate.FFI.Flags                    as Flags
 
 -- #if defined(mingw32_HOST_OS)
 -- import System.Win32.Process                                         ( ProcessId )
@@ -42,8 +42,8 @@ module Data.Array.Accelerate.Debug.Internal.Graph (
 -- #ifdef ACCELERATE_DEBUG
 -- dumpGraph g =
 --   liftIO $ do
---     Debug.when Debug.dump_dot       $ writeGraph Full   g
---     Debug.when Debug.dump_simpl_dot $ writeGraph Simple g
+--     Flags.when Flags.dump_dot       $ writeGraph Full   g
+--     Flags.when Flags.dump_simpl_dot $ writeGraph Simple g
 -- #else
 -- dumpGraph _ = return ()
 -- #endif

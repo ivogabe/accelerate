@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP             #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns    #-}
@@ -13,7 +14,12 @@
 
 module Data.Array.Accelerate.Pattern.Ordering (
 
-  Ordering, pattern LT_, pattern EQ_, pattern GT_,
+  Ordering,
+#if __GLASGOW_HASKELL__ >= 914
+  data LT_, data EQ_, data GT_,
+#else
+  pattern LT_, pattern EQ_, pattern GT_,
+#endif
 
 ) where
 

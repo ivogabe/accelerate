@@ -31,6 +31,8 @@ test_spectral runN =
   testGroup "spectral"
     [ test_blackscholes runN
     , test_smvm runN
-    , test_radixsort runN
+    -- Disabled due to performance problems in the ILP solver,
+    -- see https://github.com/AccelerateHS/accelerate/issues/585
+    -- , test_radixsort runN
     ]
 

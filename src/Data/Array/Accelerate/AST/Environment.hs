@@ -30,7 +30,13 @@ module Data.Array.Accelerate.AST.Environment (
   sink, (.>), sinkWithLHS, weakenWithLHS, substituteLHS,
   varsGet, varsGetVal, stripWithLhs,
   
-  Append
+  Append,
+
+  Subset(..), subsetKeepAll, rnfSubset,
+  weakenWithSubset, weakenSubset, WeakenSubset(..),
+
+  Split(..), splitBothAll, rnfSplit,
+  weakenWithSplit, weakenSplit, WeakenSplit(..),
 ) where
 
 import Data.Array.Accelerate.AST.Idx
@@ -38,6 +44,7 @@ import Data.Array.Accelerate.AST.Var
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Type
+import Data.Bifunctor (Bifunctor(bimap))
 import Data.Typeable                                ((:~:)(..))
 import Data.Either
 import Data.List ( sortOn )
@@ -487,3 +494,97 @@ stripWithLhs (LeftHandSidePair lhs1 lhs2) env = stripWithLhs lhs1 $ stripWithLhs
 type family Append env1 env2 where
   Append env1 () = env1
   Append env1 (env2, t) = (Append env1 env2, t)
+
+-- | Bindings in @envSub@ are an arbitrary subset of bindings in @env@
+--
+-- This type is used in the implementation of reference counting.
+data Subset env envSub where
+  SubsetKeep :: Subset env envSub -> Subset (env, t) (envSub, t)
+  SubsetDrop :: Subset env envSub -> Subset (env, t)  envSub
+  SubsetEnd  ::                      Subset  env      env
+
+-- | A 'Subset' that keeps all bindings
+subsetKeepAll :: Subset env env
+subsetKeepAll = SubsetEnd
+
+rnfSubset :: Subset env envSub -> ()
+rnfSubset = \case
+  SubsetKeep subset -> rnfSubset subset
+  SubsetDrop subset -> rnfSubset subset
+  SubsetEnd         -> ()
+
+-- | Construct a weakening relation given a 'Subset'
+weakenWithSubset
+  :: Subset env envSub
+  -> envSub :> env
+weakenWithSubset = \case
+  SubsetKeep subset -> sink        (weakenWithSubset subset)
+  SubsetDrop subset -> weakenSucc' (weakenWithSubset subset)
+  SubsetEnd         -> weakenId
+
+-- | Weaken a 'Subset'
+--
+-- Since weakenings are opaque, this implementation uses 'SubsetEnd'.
+weakenSubset
+  :: env :> env'
+  -> Subset env envSub
+  -> WeakenSubset env' envSub
+weakenSubset k subset = WeakenSubset SubsetEnd (k .> weakenWithSubset subset)
+
+data WeakenSubset env' envSub where
+  WeakenSubset :: Subset env' envSub'
+               -> envSub :> envSub'
+               -> WeakenSubset env' envSub
+
+-- | Every binding in @env@ is in either @envL@, @envR@, or both
+--
+-- This type is used in the implementation of reference counting.  The @rc@ type
+-- parameter indicates if reference counting is enabled or disabled.  When
+-- disabled, only the trivial split (when @envL@ and @envR@ are @env@) is
+-- allowed.
+data Split (rc :: Bool) env envL envR where
+  SplitLeft  :: Split True env envL envR -> Split True (env, t) (envL, t)  envR
+  SplitRight :: Split True env envL envR -> Split True (env, t)  envL     (envR, t)
+  SplitBoth  :: Split True env envL envR -> Split True (env, t) (envL, t) (envR, t)
+  SplitEnd   ::                             Split True   ()       ()        ()
+  SplitDefault ::                           Split False env      env       env
+
+-- | A 'Split' that keeps all bindings in both environments
+splitBothAll :: Split False env env env
+splitBothAll = SplitDefault
+
+rnfSplit :: Split rc env envL envR -> ()
+rnfSplit = \case
+  SplitLeft  split -> rnfSplit split
+  SplitRight split -> rnfSplit split
+  SplitBoth  split -> rnfSplit split
+  SplitEnd         -> ()
+  SplitDefault     -> ()
+
+-- | Construct left and right weakening relations given a 'Split'
+weakenWithSplit
+  :: Split rc env envL envR
+  -> (envL :> env, envR :> env)
+weakenWithSplit = \case
+  SplitLeft  split -> bimap sink        weakenSucc' (weakenWithSplit split)
+  SplitRight split -> bimap weakenSucc' sink        (weakenWithSplit split)
+  SplitBoth  split -> bimap sink        sink        (weakenWithSplit split)
+  SplitEnd         -> (weakenEmpty, weakenEmpty)
+  SplitDefault     -> (weakenId, weakenId)
+
+-- | Weaken a 'Split'
+--
+-- Since weakenings are opaque, this implementation uses 'SplitDefault'.
+weakenSplit
+  :: env :> env'
+  -> Split False env envL envR
+  -> WeakenSplit False env' envL envR
+weakenSplit k split =
+  let (kL, kR) = weakenWithSplit split
+  in  WeakenSplit SplitDefault (k .> kL) (k .> kR)
+
+data WeakenSplit rc env' envL envR where
+  WeakenSplit :: Split rc env' envL' envR'
+              -> envL :> envL'
+              -> envR :> envR'
+              -> WeakenSplit rc env' envL envR

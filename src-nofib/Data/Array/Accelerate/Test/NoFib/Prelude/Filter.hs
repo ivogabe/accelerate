@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Prelude.Filter
 -- Copyright   : [2009..2020] The Accelerate Team
@@ -23,6 +24,10 @@ import Data.Array.Accelerate.Sugar.Shape                            as S
 import Data.Array.Accelerate.Test.NoFib.Base
 import Data.Array.Accelerate.Test.NoFib.Config
 import Data.Array.Accelerate.Test.Similar
+
+#ifdef ACCELERATE_INTERNAL_CHECKS
+import Data.Typeable
+#endif
 
 import Hedgehog
 
@@ -58,7 +63,11 @@ test_filter runN =
         ]
       where
         testDim
-            :: forall sh. (Shape sh, Slice sh, Show sh, P.Eq sh)
+            :: forall sh. (
+#ifdef ACCELERATE_INTERNAL_CHECKS
+                 Typeable sh,
+#endif
+                 Shape sh, Slice sh, Show sh, P.Eq sh)
             => Gen (sh:.Int)
             -> TestTree
         testDim sh =
@@ -78,7 +87,11 @@ test_filter runN =
         ]
       where
         testDim
-            :: forall sh. (Shape sh, Slice sh, Show sh, P.Eq sh)
+            :: forall sh. (
+#ifdef ACCELERATE_INTERNAL_CHECKS
+                 Typeable sh,
+#endif
+                 Shape sh, Slice sh, Show sh, P.Eq sh)
             => Gen (sh:.Int)
             -> TestTree
         testDim sh =
@@ -89,7 +102,11 @@ test_filter runN =
 
 {-# NOINLINE test_even #-}
 test_even
-    :: (Shape sh, Slice sh, Show sh, Similar e, Show e, P.Eq sh, P.Integral e, A.Integral e)
+    :: (
+#ifdef ACCELERATE_INTERNAL_CHECKS
+         Typeable sh,
+#endif
+         Shape sh, Slice sh, Show sh, Similar e, Show e, P.Eq sh, P.Integral e, A.Integral e)
     => RunN
     -> Gen (sh:.Int)
     -> Gen e
@@ -102,7 +119,11 @@ test_even runN dim e =
 
 {-# NOINLINE test_positive #-}
 test_positive
-    :: (Shape sh, Slice sh, Show sh, Similar e, Show e, P.Eq sh, P.Num e, P.Ord e, A.Num e, A.Ord e)
+    :: (
+#ifdef ACCELERATE_INTERNAL_CHECKS
+         Typeable sh,
+#endif
+         Shape sh, Slice sh, Show sh, Similar e, Show e, P.Eq sh, P.Num e, P.Ord e, A.Num e, A.Ord e)
     => RunN
     -> Gen (sh:.Int)
     -> Gen e

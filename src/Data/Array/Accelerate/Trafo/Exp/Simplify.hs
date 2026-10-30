@@ -35,8 +35,8 @@ import Data.Array.Accelerate.Trafo.Substitution
 import Data.Array.Accelerate.Type
 
 import qualified Data.Array.Accelerate.Debug.Internal.Stats         as Stats
-import qualified Data.Array.Accelerate.Debug.Internal.Flags         as Debug
 import qualified Data.Array.Accelerate.Debug.Internal.Trace         as Debug
+import qualified Data.Array.Accelerate.FFI.Flags                    as Flags
 
 import Control.Applicative                                          hiding ( Const )
 import Control.Monad
@@ -650,7 +650,7 @@ iterate summarise match shrink simplify = fix 1 . setup
     lIMIT       = 25
 
     simplify'   = Stats.simplifierDone . simplify
-    setup x     = Debug.trace Debug.dump_simpl_iterations (msg 0 "init" x)
+    setup x     = Debug.trace Flags.dump_simpl_iterations (msg 0 "init" x)
                 $ snd (trace 1 "simplify" (simplify' x))
 
     fix :: Int -> f a -> f a
@@ -668,7 +668,7 @@ iterate summarise match shrink simplify = fix 1 . setup
     u ==^ (_,v)         = isJust (match u v)
 
     trace i s v@(changed,x)
-      | changed         = Debug.trace Debug.dump_simpl_iterations (msg i s x) v
+      | changed         = Debug.trace Flags.dump_simpl_iterations (msg i s x) v
       | otherwise       = v
 
     msg :: Int -> Builder -> f a -> Builder

@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP                 #-}
 {-# LANGUAGE TemplateHaskell     #-}
 -- |
 -- Module      : Data.Array.Accelerate.Test.NoFib.Config
@@ -15,7 +16,10 @@ module Data.Array.Accelerate.Test.NoFib.Config
 
 import Data.Bits
 import Data.Proxy
+
+#if __GLASGOW_HASKELL__ < 912
 import Data.Typeable
+#endif
 
 import Test.Tasty
 import Test.Tasty.Ingredients
@@ -39,19 +43,35 @@ nofibIngredient =
     , Option (Proxy::Proxy Interpreter)
     ]
 
-newtype TestAll     = TestAll     Bool deriving (Eq, Show, Typeable)
-newtype TestHalf    = TestHalf    Bool deriving (Eq, Show, Typeable)
-newtype TestFloat   = TestFloat   Bool deriving (Eq, Show, Typeable)
-newtype TestDouble  = TestDouble  Bool deriving (Eq, Show, Typeable)
-newtype TestInt8    = TestInt8    Bool deriving (Eq, Show, Typeable)
-newtype TestInt16   = TestInt16   Bool deriving (Eq, Show, Typeable)
-newtype TestInt32   = TestInt32   Bool deriving (Eq, Show, Typeable)
-newtype TestInt64   = TestInt64   Bool deriving (Eq, Show, Typeable)
-newtype TestWord8   = TestWord8   Bool deriving (Eq, Show, Typeable)
-newtype TestWord16  = TestWord16  Bool deriving (Eq, Show, Typeable)
-newtype TestWord32  = TestWord32  Bool deriving (Eq, Show, Typeable)
-newtype TestWord64  = TestWord64  Bool deriving (Eq, Show, Typeable)
-newtype Interpreter = Interpreter Bool deriving (Eq, Show, Typeable)
+newtype TestAll     = TestAll     Bool deriving (Eq, Show)
+newtype TestHalf    = TestHalf    Bool deriving (Eq, Show)
+newtype TestFloat   = TestFloat   Bool deriving (Eq, Show)
+newtype TestDouble  = TestDouble  Bool deriving (Eq, Show)
+newtype TestInt8    = TestInt8    Bool deriving (Eq, Show)
+newtype TestInt16   = TestInt16   Bool deriving (Eq, Show)
+newtype TestInt32   = TestInt32   Bool deriving (Eq, Show)
+newtype TestInt64   = TestInt64   Bool deriving (Eq, Show)
+newtype TestWord8   = TestWord8   Bool deriving (Eq, Show)
+newtype TestWord16  = TestWord16  Bool deriving (Eq, Show)
+newtype TestWord32  = TestWord32  Bool deriving (Eq, Show)
+newtype TestWord64  = TestWord64  Bool deriving (Eq, Show)
+newtype Interpreter = Interpreter Bool deriving (Eq, Show)
+
+#if __GLASGOW_HASKELL__ < 912
+deriving instance Typeable TestAll
+deriving instance Typeable TestHalf
+deriving instance Typeable TestFloat
+deriving instance Typeable TestDouble
+deriving instance Typeable TestInt8
+deriving instance Typeable TestInt16
+deriving instance Typeable TestInt32
+deriving instance Typeable TestInt64
+deriving instance Typeable TestWord8
+deriving instance Typeable TestWord16
+deriving instance Typeable TestWord32
+deriving instance Typeable TestWord64
+deriving instance Typeable Interpreter
+#endif
 
 instance IsOption TestAll where
   defaultValue = TestAll False

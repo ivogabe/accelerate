@@ -33,8 +33,8 @@ import Data.Array.Accelerate.Trafo.Substitution             hiding ( weakenArray
 import Data.Array.Accelerate.Trafo.WeakenedEnvironment
 import Data.Array.Accelerate.Trafo.Operation.Substitution
 import Data.Array.Accelerate.Trafo.LiveVars                 ( SubTupR(..), subTupR, subTupRpair, subTupPreserves )
+import qualified Data.List                                  as List
 import Data.Maybe                                           ( mapMaybe )
-import Data.List                                            ( foldl' )
 import Data.Text                                            ( Text )
 import Control.Monad
 import Data.Functor.Identity
@@ -472,7 +472,7 @@ bindingEnv _ fenceSet (LeftHandSideSingle _) Alloc{} (InfoEnv env)
 bindingEnv _ fenceSet (LeftHandSideSingle _) (Unit (Var _ idx)) (InfoEnv env)
   | IdxSet.null fenceSet = InfoEnv $ wpush env $ InfoBuffer (Just $ SuccIdx idx) Nothing []
 bindingEnv outputs fenceSet (LeftHandSideWildcard _) (Exec op args) env
-  | IdxSet.null fenceSet = foldl' addCopy env $ detectCopy op args
+  | IdxSet.null fenceSet = List.foldl' addCopy env $ detectCopy op args
     where
       addCopy :: InfoEnv env -> CopyOperation env -> InfoEnv env
       addCopy env' (CopyOperation input output)

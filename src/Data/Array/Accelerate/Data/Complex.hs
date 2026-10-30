@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                  #-}
 {-# LANGUAGE PatternSynonyms      #-}
 {-# LANGUAGE RebindableSyntax     #-}
 {-# LANGUAGE TypeFamilies         #-}
@@ -19,7 +20,13 @@
 module Data.Array.Accelerate.Data.Complex (
 
   -- * Rectangular from
-  Complex(..), pattern (::+),
+  Complex(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data (::+),
+#else
+  pattern (::+),
+#endif
+
   real,
   imag,
 

@@ -31,6 +31,9 @@ import qualified Data.Array.Accelerate.Representation.Array         as R
 import qualified Data.Array.Accelerate.Representation.Shape         as R
 
 import Data.Text                                                    ( Text )
+import qualified Language.Haskell.TH                                as TH
+import qualified Language.Haskell.TH.Syntax                         as TH
+import Type.Reflection
 
 
 -- $tracing
@@ -61,27 +64,49 @@ atrace message (Acc result)
 -- the console, before the 'Acc' computation proceeds with the result of
 -- the third argument.
 --
-atraceArray :: forall a b. (Arrays a, Arrays b, Show a) => Text -> Acc a -> Acc b -> Acc b
+atraceArray :: forall a b. (Arrays a, Arrays b, Show a, Typeable a) => Text -> Acc a -> Acc b -> Acc b
 atraceArray message (Acc inspect) (Acc result)
   = Acc
   $ SmartAcc
-  $ Atrace (Message (show . toArr @a)
-           (Just [|| show . toArr @a ||]) message) inspect result
+  $ Atrace (Message showArrays (Just showArraysCode) message) inspect result
+  where
+    showArrays :: ArraysR a -> String
+    showArrays = show . toArr @a
+
+    showArraysCode :: TH.CodeQ (ArraysR a -> String)
+    showArraysCode = TH.unsafeCodeCoerce $
+      let ty     = pure $ liftTypeRep (typeRep @a)
+          toArrA = TH.appTypeE [| toArr |] ty
+      in  [| show . $toArrA |]
 
 -- | Outputs the trace message and the array(s) to the console, before the
 -- 'Acc' computation proceeds with the result of that array.
 --
-atraceId :: (Arrays a, Show a) => Text -> Acc a -> Acc a
+atraceId :: (Arrays a, Show a, Typeable a) => Text -> Acc a -> Acc a
 atraceId message value = atraceArray message value value
 
 -- | Outputs the trace message and a scalar value to the console, before
 -- the 'Acc' computation proceeds with the result of the third argument.
 --
-atraceExp :: forall e a. (Elt e, Show e, Arrays a) => Text -> Exp e -> Acc a -> Acc a
+atraceExp :: forall e a. (Elt e, Show e, Typeable e, Arrays a) => Text -> Exp e -> Acc a -> Acc a
 atraceExp message value (Acc result) =
   let Acc inspect = unit value
    in Acc
     $ SmartAcc
-    $ Atrace (Message (\a -> show (toElt @e (R.indexArray (R.ArrayR R.dim0 (eltR @e)) a ())))
-             (Just [|| \a -> show (toElt @e (R.indexArray (R.ArrayR R.dim0 (eltR @e)) a ())) ||]) message) inspect result
+    $ Atrace (Message showScalar (Just showScalarCode) message) inspect result
+  where
+    showScalar :: R.Array R.DIM0 (EltR e) -> String
+    showScalar a = show (toElt @e (R.indexArray (R.ArrayR R.dim0 (eltR @e)) a ()))
 
+    showScalarCode :: TH.CodeQ (ArraysR (Scalar e) -> String)
+    showScalarCode = TH.unsafeCodeCoerce $
+      let ty     = pure $ liftTypeRep (typeRep @e)
+          toEltE = TH.appTypeE [| toElt |] ty
+          eltRE  = TH.appTypeE [| eltR  |] ty
+      in  [| \a -> show ($toEltE (R.indexArray (R.ArrayR R.dim0 $eltRE) a ())) |]
+
+liftTypeRep :: TypeRep t -> TH.Type
+liftTypeRep = \case
+  Fun a b -> TH.AppT (TH.AppT TH.ArrowT (liftTypeRep a)) (liftTypeRep b)
+  App f x -> TH.AppT (liftTypeRep f) (liftTypeRep x)
+  Con tc  -> TH.ConT (TH.mkNameG_tc (tyConPackage tc) (tyConModule tc) (tyConName tc))

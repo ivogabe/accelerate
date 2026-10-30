@@ -1,5 +1,5 @@
 /*
- * Module      : Data.Atomic
+ * Module      : Data.Array.Accelerate.FFI.Atomic
  * Copyright   : [2017..2020] The Accelerate Team
  * License     : BSD3
  *
@@ -11,6 +11,7 @@
  */
 
 #include <stdint.h>
+#include "atomic.h"
 
 int64_t atomic_fetch_and_add_64(volatile int64_t* ptr, int64_t val)
 {

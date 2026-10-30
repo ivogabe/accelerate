@@ -1,9 +1,6 @@
-{-# LANGUAGE CPP               #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE TemplateHaskell   #-}
-{-# OPTIONS_GHC -fobject-code #-}
+{-# LANGUAGE CApiFFI #-}
 -- |
--- Module      : Data.Atomic
+-- Module      : Data.Array.Accelerate.FFI.Atomic
 -- Copyright   : [2016..2020] The Accelerate Team
 -- License     : BSD3
 --
@@ -14,18 +11,16 @@
 -- Atomic integer values. All operations are thread safe.
 --
 
-module Data.Atomic (
+module Data.Array.Accelerate.FFI.Atomic (
 
   Atomic(..),
   read, write, add, and, subtract,
 
 ) where
 
-import Data.Int
-import Language.Haskell.TH.Syntax
-
-import GHC.Ptr
-import GHC.Base
+import Data.Int                                                     ( Int64 )
+import Foreign.Ptr                                                  ( Ptr )
+import Prelude                                                      hiding (and, read, subtract)
 
 
 -- | A mutable atomic integer
@@ -47,52 +42,22 @@ newtype Atomic = Atomic ( Ptr Int64 )
 --   write a v
 --   return a
 
--- SEE: [HLS and GHC IDE]
---
-#ifndef __GHCIDE__
-
 -- | Get the current value.
---
-foreign import ccall unsafe "atomic_read_64" read :: Atomic -> IO Int64
+foreign import capi unsafe "atomic.h atomic_read_64"
+  read :: Atomic -> IO Int64
 
 -- | Set the atomic to the given value.
---
-foreign import ccall unsafe "atomic_write_64" write :: Atomic -> Int64 -> IO ()
+foreign import capi unsafe "atomic.h atomic_write_64"
+  write :: Atomic -> Int64 -> IO ()
 
 -- | Increase the atomic by the given amount. Returns the old value.
---
-foreign import ccall unsafe "atomic_fetch_and_add_64" add :: Atomic -> Int64 -> IO Int64
+foreign import capi unsafe "atomic.h atomic_fetch_and_add_64"
+  add :: Atomic -> Int64 -> IO Int64
 
 -- | Bitwise AND the atomic with the given value. Return the old value.
---
-foreign import ccall unsafe "atomic_fetch_and_and_64" and :: Atomic -> Int64 -> IO Int64
+foreign import capi unsafe "atomic.h atomic_fetch_and_and_64"
+  and :: Atomic -> Int64 -> IO Int64
 
 -- | Decrement the atomic value by the given amount. Return the old value.
---
-foreign import ccall unsafe "atomic_fetch_and_sub_64" subtract :: Atomic -> Int64 -> IO Int64
-
-#else
-
-read :: Atomic -> IO Int64
-read = undefined
-
-write :: Atomic -> Int64 -> IO ()
-write = undefined
-
-add :: Atomic -> Int64 -> IO Int64
-add = undefined
-
-and :: Atomic -> Int64 -> IO Int64
-and = undefined
-
-subtract :: Atomic -> Int64 -> IO Int64
-subtract = undefined
-
-#endif
-
--- SEE: [linking to .c files]
---
-runQ $ do
-  addForeignFilePath LangC "cbits/atomic.c"
-  return []
-
+foreign import capi unsafe "atomic.h atomic_fetch_and_sub_64"
+  subtract :: Atomic -> Int64 -> IO Int64

@@ -18,7 +18,7 @@ module Data.Array.Accelerate.Test.NoFib.Issues.Issue437 (
 
 ) where
 
-import Data.Atomic                                        as Atomic
+import Data.Array.Accelerate.FFI.Atomic                   as Atomic
 import Data.Array.Accelerate                              as A
 import Data.Array.Accelerate.Test.NoFib.Base
 

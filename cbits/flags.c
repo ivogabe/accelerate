@@ -1,5 +1,5 @@
 /*
- * Module      : Data.Array.Accelerate.Debug.Flags
+ * Module      : Data.Array.Accelerate.FFI.Flags
  * Copyright   : [2017..2020] The Accelerate Team
  * License     : BSD3
  *
@@ -8,7 +8,7 @@
  * Portability : non-portable (GHC extensions)
  *
  * Option parsing for debug flags. This is a translation of the module
- * Data.Array.Accelerate.Debug.Flags into C, so that we can implement it at
+ * Data.Array.Accelerate.FFI.Flags into C, so that we can implement it at
  * program initialisation.
  *
  * This processes flags between +ACC ... -ACC on the command line. The
@@ -31,14 +31,14 @@
 
 
 /* SEE: [layout of command line options bitfield]
- * There are 7 default-enabled options, followed by 1 default-disabled option,
+ * There are 6 default-enabled options, followed by 1 default-disabled option,
  * followed by 17 debug options.
  * Note the bit trick: ((1 << n) - 1) is a number with the lowest n bits set. */
-static const uint32_t def_enabled_opts_bitfield = { (1<<7) - 1 };
+static const uint32_t def_enabled_opts_bitfield = { (1<<6) - 1 };
 #ifndef ACCELERATE_DEBUG
-static const uint32_t debug_opts_bitfield = { ((1<<17) - 1) << (7+1) };
+static const uint32_t debug_opts_bitfield = { ((1<<17) - 1) << (6+1) };
 #endif
-static const int disable_opts_offset = (7+1+17);
+static const int disable_opts_offset = (6+1+17);
 
 /* This global is accessed from the Haskell side. */
 __flags_t __cmd_line_flags            = { def_enabled_opts_bitfield };
@@ -59,8 +59,8 @@ enum {
  * - The -f enablers and -f disablers lists must be exactly the same, including
  *   the order.
  * - The order of the options in __flags_t in flags.h must also be the same.
- * - Data.Array.Accelerate.Debug.Internal.Flags contains 2 blocks of code
- *   hard-coding offsets into this options list.
+ * - Data.Array.Accelerate.FFI.Flags contains 2 blocks of code hard-coding
+ *   offsets into this options list.
  * - Some metrics about this options list used in the bit hacks are at the top
  *   of this file (def_enabled_opts_bitfield etc.).
  */
@@ -72,7 +72,6 @@ static const struct option longopts[] =
   , { "ffusion",                        no_argument,       NULL, OPT_ENABLE                    }
   , { "finplace",                       no_argument,       NULL, OPT_ENABLE                    }
   , { "ffast-math",                     no_argument,       NULL, OPT_ENABLE                    }
-  , { "ffast-permute-const",            no_argument,       NULL, OPT_ENABLE                    }
   , { "fforce-recomp",                  no_argument,       NULL, OPT_ENABLE                    }
 
   , { "ddebug",                         no_argument,       NULL, OPT_ENABLE                    }
@@ -99,7 +98,6 @@ static const struct option longopts[] =
   , { "fno-fusion",                     no_argument,       NULL, OPT_DISABLE                   }
   , { "fno-inplace",                    no_argument,       NULL, OPT_DISABLE                   }
   , { "fno-fast-math",                  no_argument,       NULL, OPT_DISABLE                   }
-  , { "fno-fast-permute-const",         no_argument,       NULL, OPT_DISABLE                   }
   , { "fno-force-recomp",               no_argument,       NULL, OPT_DISABLE                   }
 
   /* There were options that took arguments here before; see the git blame of

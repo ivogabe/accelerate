@@ -18,7 +18,13 @@
 
 module Data.Array.Accelerate.Data.Either (
 
-  Either(..), pattern Left_, pattern Right_,
+  Either(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data Left_, data Right_,
+#else
+  pattern Left_, pattern Right_,
+#endif
+
   either, isLeft, isRight, fromLeft, fromRight, lefts, rights,
 
 ) where

@@ -18,7 +18,13 @@
 
 module Data.Array.Accelerate.Data.Maybe (
 
-  Maybe(..), pattern Nothing_, pattern Just_,
+  Maybe(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data Nothing_, data Just_,
+#else
+  pattern Nothing_, pattern Just_,
+#endif
+
   maybe, isJust, isNothing, fromMaybe, fromJust, justs,
 
 ) where

@@ -15,20 +15,17 @@ module Data.Array.Accelerate.Test.NoFib (
   nofib,
   nofibIngredient,
 
-#ifndef ACCELERATE_DISABLE_NOFIB
   module Data.Array.Accelerate.Test.NoFib.Sharing,
   module Data.Array.Accelerate.Test.NoFib.Prelude,
   module Data.Array.Accelerate.Test.NoFib.Imaginary,
   module Data.Array.Accelerate.Test.NoFib.Spectral,
   module Data.Array.Accelerate.Test.NoFib.Issues,
   module Data.Array.Accelerate.Test.NoFib.Misc,
-#endif
 
 ) where
 
 import Data.Array.Accelerate.Test.NoFib.Base
 import Data.Array.Accelerate.Test.NoFib.Config
-#ifndef ACCELERATE_DISABLE_NOFIB
 import Data.Array.Accelerate.Test.NoFib.Sharing
 import Data.Array.Accelerate.Test.NoFib.Prelude
 import Data.Array.Accelerate.Test.NoFib.Imaginary
@@ -39,16 +36,10 @@ import Data.Array.Accelerate.Test.NoFib.Misc
 import Test.Tasty.Runners
 import Test.Tasty.Ingredients.Rerun
 import System.Environment
-#endif
 import Test.Tasty
 
 
 nofib :: RunN -> TestTree -> IO ()
-#ifdef ACCELERATE_DISABLE_NOFIB
-nofib _ _  = error $ unlines [ "Data.Array.Accelerate: the nofib test-suite has been disabled."
-                             , "Reinstall package 'accelerate' with '-fnofib' to enable it."
-                             ]
-#else
 nofib runN test_runq = do
   me <- getProgName
   defaultMainWithIngredients [rerunningTests (nofibIngredient : defaultIngredients)]
@@ -62,5 +53,3 @@ nofib runN test_runq = do
         , test_misc runN
         , test_runq
         ]
-#endif
-

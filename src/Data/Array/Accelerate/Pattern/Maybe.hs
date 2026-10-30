@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP             #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns    #-}
@@ -13,7 +14,12 @@
 
 module Data.Array.Accelerate.Pattern.Maybe (
 
-  Maybe, pattern Nothing_, pattern Just_,
+  Maybe,
+#if __GLASGOW_HASKELL__ >= 914
+  data Nothing_, data Just_,
+#else
+  pattern Nothing_, pattern Just_,
+#endif
 
 ) where
 

@@ -79,7 +79,7 @@ topSort singletons (FusionGraph _ _ strictEdges dataflowEdges _ _ _) cluster rea
             G.graphFromEdges
           . map (\(a,b) -> (a,a,b))
           . M.toList
-          . flip (S.fold (\(x,i,y) -> M.adjust ((y,defaultDir):) (x,i))) edges
+          . flip (S.foldr (\(x,i,y) -> M.adjust ((y,defaultDir):) (x,i))) edges
           . M.fromList
           . map (,[])
           . S.toList

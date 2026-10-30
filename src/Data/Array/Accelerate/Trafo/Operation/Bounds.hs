@@ -43,8 +43,8 @@ import Data.Array.Accelerate.Analysis.Match
 import Data.Array.Accelerate.Trafo.Operation.Bounds.Algebra
 import Data.Array.Accelerate.Trafo.Operation.Bounds.Environment
 
+import qualified Data.List as List
 import Data.Maybe (mapMaybe)
-import Data.List (foldl')
 
 boundsOptimizeAfun
   :: forall op f.
@@ -154,7 +154,7 @@ boundsOptimizeAcc env@(BoundsEnv _ _ zero bindings) acc = case acc of
           _ -> Nothing
         )
         $ wprjSet set (boundsBindings env)
-    , env' <- foldl' assumeTrue env assertions
+    , env' <- List.foldl' assumeTrue env assertions
     , (modified, _, _, body') <- boundsOptimizeAcc env' body
     -- We cannot propagate any information from within the body of this fence.
     -- If we do that, and later act on it, then we may let other code work
@@ -548,7 +548,7 @@ boundsGraphWithArgsClearNodes
   -> IdxSet (UniformEnv benv ())
   -> (BoundsGraph (UniformEnv benv ()), InputBoundArgs benv args)
 boundsGraphWithArgsClearNodes graphArgs set =
-  foldl' (\ga (Exists idx) -> boundsGraphWithArgsClearNode ga idx) graphArgs
+  List.foldl' (\ga (Exists idx) -> boundsGraphWithArgsClearNode ga idx) graphArgs
     $ IdxSet.toList set
 
 class OperationBounds op where

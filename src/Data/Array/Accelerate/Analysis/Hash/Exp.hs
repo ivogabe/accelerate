@@ -25,6 +25,8 @@ module Data.Array.Accelerate.Analysis.Hash.Exp (
   encodeArrayType,
   encodeIdx,
   encodeIdxSet,
+  encodeSplit,
+  encodeSubset,
   encodeShapeR,
   encodeScalarType,
   encodeScalarConst,
@@ -39,6 +41,7 @@ module Data.Array.Accelerate.Analysis.Hash.Exp (
 ) where
 
 import Data.Array.Accelerate.AST.Exp
+import Data.Array.Accelerate.AST.Environment
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet (IdxSet)
 import qualified Data.Array.Accelerate.AST.IdxSet as IdxSet
@@ -123,6 +126,18 @@ encodeIdxSet set =
   <> mconcat (map (\(Exists idx) -> encodeIdx idx) list)
   where
     list = IdxSet.toList set
+
+encodeSplit :: Split rc env envL envR -> Builder
+encodeSplit (SplitLeft  s) = intHost $(hashQ ("SplitLeft"  :: String)) <> encodeSplit s
+encodeSplit (SplitRight s) = intHost $(hashQ ("SplitRight" :: String)) <> encodeSplit s
+encodeSplit (SplitBoth  s) = intHost $(hashQ ("SplitBoth"  :: String)) <> encodeSplit s
+encodeSplit SplitEnd       = intHost $(hashQ ("SplitEnd" :: String))
+encodeSplit SplitDefault   = intHost $(hashQ ("SplitDefault" :: String))
+
+encodeSubset :: Subset env env' -> Builder
+encodeSubset (SubsetKeep s) = intHost $(hashQ ("SubsetKeep" :: String)) <> encodeSubset s
+encodeSubset (SubsetDrop s) = intHost $(hashQ ("SubsetDrop" :: String)) <> encodeSubset s
+encodeSubset SubsetEnd      = intHost $(hashQ ("SubsetEnd" :: String))
 
 encodeTupR :: (forall b. s b -> Builder) -> TupR s a -> Builder
 encodeTupR _ TupRunit         = intHost $(hashQ ("TupRunit" :: String))

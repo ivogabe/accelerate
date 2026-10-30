@@ -34,7 +34,7 @@ encodeUniformScheduleFun :: IsKernel kernel => UniformScheduleFun kernel env f -
 encodeUniformScheduleFun (Slam lhs f) = intHost $(hashQ ("Slam" :: String)) <> encodeBLeftHandSide lhs <> encodeUniformScheduleFun f
 encodeUniformScheduleFun (Sbody body) = intHost $(hashQ ("Sbody" :: String)) <> encodeUniformSchedule body
 
-encodeUniformSchedule :: IsKernel kernel => UniformSchedule kernel env -> Builder
+encodeUniformSchedule :: IsKernel kernel => UniformSchedule' rc kernel env -> Builder
 encodeUniformSchedule Return = intHost $(hashQ ("Return" :: String))
 encodeUniformSchedule (Alet lhs bnd next)
   = intHost $(hashQ ("Alet" :: String))
@@ -63,10 +63,15 @@ encodeUniformSchedule (AwhileSeq io fn initial next)
   <> encodeUniformScheduleFun fn
   <> encodeTupR (\(Var _ idx) -> encodeIdx idx) initial
   <> encodeUniformSchedule next
-encodeUniformSchedule (Spawn a b)
+encodeUniformSchedule (Spawn split a b)
   = intHost $(hashQ ("Spawn" :: String))
+  <> encodeSplit split
   <> encodeUniformSchedule a
   <> encodeUniformSchedule b
+encodeUniformSchedule (Release subset s)
+  = intHost $(hashQ ("Release" :: String))
+  <> encodeSubset subset
+  <> encodeUniformSchedule s
 
 encodeBLeftHandSide :: BLeftHandSide t env env' -> Builder
 encodeBLeftHandSide = encodeLeftHandSide encodeBaseR

@@ -1,4 +1,5 @@
 {-# LANGUAGE BlockArguments       #-}
+{-# LANGUAGE CPP                  #-}
 {-# LANGUAGE PatternSynonyms      #-}
 {-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -21,8 +22,19 @@ module Data.Array.Accelerate.Data.Monoid (
 
   Monoid(..), (<>),
 
-  Sum(..), pattern Sum_,
-  Product(..), pattern Product_,
+  Sum(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data Sum_,
+#else
+  pattern Sum_,
+#endif
+
+  Product(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data Product_,
+#else
+  pattern Product_,
+#endif
 
 ) where
 

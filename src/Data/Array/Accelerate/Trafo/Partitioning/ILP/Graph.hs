@@ -1294,7 +1294,7 @@ filterKeys p = M.filterWithKey (\k _ -> p k)
 -- | Converts a graph to a DOT representation.
 toDOT :: FusionGraph -> Symbols op -> String
 toDOT g syms = "strict digraph {\n" ++
-  concatMap (\c -> "  <" ++ show c ++ "> [shape=box, label=\"" ++ show (syms M.! c) ++ tail (show c) ++ "\"];\n") (g^.computationNodes) ++
+  concatMap (\c -> "  <" ++ show c ++ "> [shape=box, label=\"" ++ show (syms M.! c) ++ drop 1 (show c) ++ "\"];\n") (g^.computationNodes) ++
   concatMap (\b -> "  <" ++ show b ++ "> [shape=ellipse, label=\"" ++ show b ++ "\"];\n") (g^.valueNodes) ++
   concatMap (\(b,c) -> "  <" ++ show b ++ "> -> <" ++ show c ++ "> [];\n") (g^.readEdges) ++
   concatMap (\(c,b) -> "  <" ++ show c ++ "> -> <" ++ show b ++ "> [];\n") (g^.writeEdges) ++

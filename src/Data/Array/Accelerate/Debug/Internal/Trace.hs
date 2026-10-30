@@ -23,7 +23,7 @@ module Data.Array.Accelerate.Debug.Internal.Trace (
 
 ) where
 
-import Data.Array.Accelerate.Debug.Internal.Flags
+import Data.Array.Accelerate.FFI.Flags                              ( Flag )
 
 import Control.Monad.Trans
 import Data.Double.Conversion.Text
@@ -31,7 +31,8 @@ import Data.Text.Lazy.Builder
 import Formatting
 
 #ifdef ACCELERATE_DEBUG
-import Data.Array.Accelerate.Debug.Internal.Clock
+import Data.Array.Accelerate.FFI.Clock
+import qualified Data.Array.Accelerate.FFI.Flags                    as Flags
 import System.IO                                                    hiding ( stderr )
 import System.IO.Unsafe
 import qualified Data.Text.IO                                       as T
@@ -119,7 +120,7 @@ traceM :: MonadIO m => Flag -> Format (m ()) a -> a
 traceM _f m =
   runFormat m $ \_k -> do
 #ifdef ACCELERATE_DEBUG
-    when _f $ putTraceMsg (now _k)
+    Flags.when _f $ putTraceMsg (now _k)
 #endif
     return ()
 

@@ -15,8 +15,8 @@ module Data.Array.Accelerate.Array.Remote.Nursery (
 ) where
 
 import Data.Array.Accelerate.Error
-import Data.Array.Accelerate.Debug.Internal.Flags                   as Debug
 import Data.Array.Accelerate.Debug.Internal.Trace                   as Debug
+import Data.Array.Accelerate.FFI.Flags                              as Flags
 
 import Control.Concurrent.MVar
 import Data.Int
@@ -115,5 +115,5 @@ size (Nursery ref _)
 
 {-# INLINE message #-}
 message :: Format (IO ()) a -> a
-message fmt = Debug.traceM Debug.dump_gc ("gc: " % fmt)
+message fmt = Debug.traceM Flags.dump_gc ("gc: " % fmt)
 

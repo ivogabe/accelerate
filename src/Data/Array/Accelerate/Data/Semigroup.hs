@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                  #-}
 {-# LANGUAGE PatternSynonyms      #-}
 {-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -21,8 +22,19 @@ module Data.Array.Accelerate.Data.Semigroup (
 
   Semigroup(..),
 
-  Min(..), pattern Min_,
-  Max(..), pattern Max_,
+  Min(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data Min_,
+#else
+  pattern Min_,
+#endif
+
+  Max(..),
+#if __GLASGOW_HASKELL__ >= 914
+  data Max_,
+#else
+  pattern Max_,
+#endif
 
 ) where
 
