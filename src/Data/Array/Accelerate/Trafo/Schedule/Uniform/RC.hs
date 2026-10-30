@@ -340,20 +340,20 @@ ownedAll = \case
 
 -- | Construct a weakening of owned bindings
 ownedWeaken :: OwnedEnv env envRC -> env :> envRC
-ownedWeaken owned = Weaken $ \ix -> case ownedIdx owned ix of
-  Just ix' -> ix'
-  Nothing  -> internalError "binding is not owned"
+ownedWeaken owned = Weaken $ \idx -> case ownedIdx owned idx of
+  Just idx' -> idx'
+  Nothing   -> internalError "binding is not owned"
 
-ownedIdx :: OwnedEnv env envRC -> Idx env t -> Maybe (Idx envRC t)
+ownedIdx :: OwnedEnv env envRC -> env :?> envRC
 ownedIdx = \case
   OwnedKeep owned -> \case
-    SuccIdx ix -> SuccIdx <$> ownedIdx owned ix
-    ZeroIdx    -> Just ZeroIdx
+    SuccIdx idx -> SuccIdx <$> ownedIdx owned idx
+    ZeroIdx     -> Just ZeroIdx
   OwnedSkip owned -> \case
-    SuccIdx ix -> ownedIdx owned ix
-    ZeroIdx    -> Nothing
+    SuccIdx idx -> ownedIdx owned idx
+    ZeroIdx     -> Nothing
   OwnedEnd        -> \case
-    VoidIdx x -> x
+    VoidIdx x   -> x
 
 -- | Construct a 'Subset' that releases all owned bindings
 ownedReleaseAll :: OwnedEnv env envRC -> Subset envRC ()
