@@ -15,6 +15,7 @@ module Data.Array.Accelerate.AST.Schedule.Uniform (
   UniformScheduleFun'(..), UniformScheduleFun, UniformScheduleFunRC,
   SArg(..), SArgs, sargVars, sargOutputVars, sargBufferVars,
   EmptyEnvIfRC,
+  leadingRelease, Released(..),
   Input, Output, inputSingle, outputSingle, inputR, outputR,
   InputOutputR(..), inputOutputInputR, inputOutputOutputR,
   Binding(..), Effect(..),
@@ -31,7 +32,7 @@ module Data.Array.Accelerate.AST.Schedule.Uniform (
   freeVars, funFreeVars, effectFreeVars, bindingFreeVars,
 ) where
 
-import Data.Array.Accelerate.AST.Environment ( Split(SplitDefault), Subset )
+import Data.Array.Accelerate.AST.Environment ( Split(SplitDefault), Subset(SubsetEnd) )
 import Data.Array.Accelerate.AST.Exp
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet ( IdxSet )
@@ -199,6 +200,17 @@ type UniformScheduleFunRC = UniformScheduleFun' True
 type family EmptyEnvIfRC (rc :: Bool) env :: Constraint where
   EmptyEnvIfRC False _ = ()
   EmptyEnvIfRC True env = env ~ ()
+
+leadingRelease :: UniformScheduleRC kernel env -> Released kernel env
+leadingRelease = \case
+  Release subset s -> Released subset s
+  s                -> Released SubsetEnd s
+
+data Released kernel env where
+  Released
+    :: Subset env envSub
+    -> UniformScheduleRC kernel envSub
+    -> Released kernel env
 
 type family Input t where
   Input ()         = ()

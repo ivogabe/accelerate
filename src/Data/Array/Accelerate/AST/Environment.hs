@@ -32,8 +32,11 @@ module Data.Array.Accelerate.AST.Environment (
   
   Append,
 
-  Subset(..), subsetKeepAll, rnfSubset,
+  Subset(..), subsetKeep, subsetKeepAll, rnfSubset,
   weakenWithSubset, weakenSubset, WeakenSubset(..),
+  subsetIdx,
+  composeSubsets,
+  unionSubset, UnionSubset(..),
 
   Split(..), splitBothAll, rnfSplit,
   weakenWithSplit, weakenSplit, WeakenSplit(..),
@@ -503,6 +506,14 @@ data Subset env envSub where
   SubsetDrop :: Subset env envSub -> Subset (env, t)  envSub
   SubsetEnd  ::                      Subset  env      env
 
+-- | 'SubsetKeep' smart constructor
+--
+-- A 'SubsetKeep' is only needed when later bindings are dropped.
+subsetKeep :: Subset env envSub -> Subset (env, t) (envSub, t)
+subsetKeep = \case
+  SubsetEnd -> SubsetEnd
+  subset    -> SubsetKeep subset
+
 -- | A 'Subset' that keeps all bindings
 subsetKeepAll :: Subset env env
 subsetKeepAll = SubsetEnd
@@ -535,6 +546,63 @@ data WeakenSubset env' envSub where
   WeakenSubset :: Subset env' envSub'
                -> envSub :> envSub'
                -> WeakenSubset env' envSub
+
+-- | Project an index into a subset, if it exists
+--
+-- The type of this function /should/ be @Subset env envSub -> env :?> envSub@,
+-- but @(:?>)@ cannot be imported into tihs module.
+subsetIdx :: Subset env envSub -> Idx env t -> Maybe (Idx envSub t)
+subsetIdx = \case
+  SubsetKeep subset -> \case
+    SuccIdx idx -> SuccIdx <$> subsetIdx subset idx
+    ZeroIdx     -> Just ZeroIdx
+  SubsetDrop subset -> \case
+    SuccIdx idx -> subsetIdx subset idx
+    ZeroIdx     -> Nothing
+  SubsetEnd         -> Just
+
+-- | Compose two 'Subset's
+composeSubsets
+  :: Subset env    envSub
+  -> Subset envSub envSubSub
+  -> Subset env    envSubSub
+composeSubsets SubsetEnd       s2              = s2
+composeSubsets s1              SubsetEnd       = s1
+composeSubsets (SubsetDrop s1) s2              = SubsetDrop (composeSubsets s1 s2)
+composeSubsets (SubsetKeep s1) (SubsetDrop s2) = SubsetDrop (composeSubsets s1 s2)
+composeSubsets (SubsetKeep s1) (SubsetKeep s2) = subsetKeep (composeSubsets s1 s2)
+
+-- | Compute the union of two 'Subset's
+--
+-- This function computes the following three subsets:
+--
+-- 1. Union subset: bindings kept by either subset
+-- 2. First sub-subset: first subset as a subset of the union subset
+-- 3. Second sub-subset: second subset as a subset of the union subset
+--
+-- This function can also be thought of as computing the intersection of
+-- bindings dropped by the two subsets.
+unionSubset :: Subset env env1 -> Subset env env2 -> UnionSubset env env1 env2
+unionSubset SubsetEnd sR = UnionSubset SubsetEnd SubsetEnd sR
+unionSubset sL SubsetEnd = UnionSubset SubsetEnd sL SubsetEnd
+unionSubset (SubsetKeep sL) (SubsetKeep sR)
+  | UnionSubset sU sL' sR' <- unionSubset sL sR
+  = UnionSubset (subsetKeep sU) (subsetKeep sL') (subsetKeep sR')
+unionSubset (SubsetKeep sL) (SubsetDrop sR)
+  | UnionSubset sU sL' sR' <- unionSubset sL sR
+  = UnionSubset (subsetKeep sU) (subsetKeep sL') (SubsetDrop sR')
+unionSubset (SubsetDrop sL) (SubsetKeep sR)
+  | UnionSubset sU sL' sR' <- unionSubset sL sR
+  = UnionSubset (subsetKeep sU) (SubsetDrop sL') (subsetKeep sR')
+unionSubset (SubsetDrop sL) (SubsetDrop sR)
+  | UnionSubset sU sL' sR' <- unionSubset sL sR
+  = UnionSubset (SubsetDrop sU) sL' sR'
+
+data UnionSubset env env1 env2 where
+  UnionSubset :: Subset env env'
+              -> Subset env' env1
+              -> Subset env' env2
+              -> UnionSubset env env1 env2
 
 -- | Every binding in @env@ is in either @envL@, @envR@, or both
 --

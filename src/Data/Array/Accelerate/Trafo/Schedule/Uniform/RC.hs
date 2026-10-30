@@ -27,7 +27,8 @@ import Data.Array.Accelerate.AST.Schedule.Uniform
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Trafo.Substitution
-import Data.Array.Accelerate.Trafo.Schedule.Uniform.Substitution   ()
+import Data.Array.Accelerate.Trafo.Schedule.Uniform.Substitution    ()
+import Data.Maybe                                                   ( fromMaybe )
 
 {-------------------------------------------------------------------------------
   ConvertRC
@@ -80,14 +81,13 @@ analyse' = \case
     , Analysis usedN buildN <- analyse' next
     -> let usedC = IdxSet.union usedT usedF
            used' = IdxSet.insertVar cond $ IdxSet.union usedC usedN
-       in  analysis used' $ \owned -> case ownedSplit usedC usedN owned of
-            OwnedSplit split ownedC ownedN ->
-              Acond
-                (weaken (ownedWeaken owned) cond)
-                split
-                (buildT ownedC)
-                (buildF ownedC)
-                (buildN ownedN)
+       in  analysis used' $ \owned ->
+            acond
+              (weaken (ownedWeaken owned) cond)
+              (ownedSplitBoth owned)
+              (buildT owned)
+              (buildF owned)
+              (buildN owned)
   Awhile SplitDefault SplitDefault io step initial next
     | Analysis used build <- analyse' next
     -> let usedS  = funFreeVars step
@@ -163,14 +163,6 @@ data Analysis kernel env where
     -- bindings (superset of bindings used in the term)
     -> Analysis kernel env
 
--- | 'SubsetKeep' smart constructor
---
--- A 'SubsetKeep' is only needed when later bindings are dropped.
-subsetKeep :: Subset env envSub -> Subset (env, t) (envSub, t)
-subsetKeep = \case
-  SubsetEnd -> SubsetEnd
-  subset    -> SubsetKeep subset
-
 -- | 'Release' smart constructor
 --
 -- * A 'Release' is omitted if no bindings are dropped.
@@ -182,18 +174,35 @@ release
 release = \case
   SubsetEnd -> id
   subset    -> \case
-    Release subset' s -> Release (subset >.> subset') s
+    Release subset' s -> Release (composeSubsets subset subset') s
     s                 -> Release subset s
-  where
-    (>.>)
-      :: Subset env    envSub
-      -> Subset envSub envSubSub
-      -> Subset env    envSubSub
-    SubsetEnd     >.> s2            = s2
-    s1            >.> SubsetEnd     = s1
-    SubsetDrop s1 >.> s2            = SubsetDrop (s1 >.> s2)
-    SubsetKeep s1 >.> SubsetDrop s2 = SubsetDrop (s1 >.> s2)
-    SubsetKeep s1 >.> SubsetKeep s2 = subsetKeep (s1 >.> s2)
+
+-- | 'Acond' smart constructor
+--
+-- * 'Release's at the start of subterms are optimised.
+-- * A binding released in both branches and next operation, but not used in the
+--   conditional check, is instead released before the 'Acond'.
+acond
+  :: ExpVar env PrimBool
+  -> Split True env envB envN
+  -> UniformScheduleRC kernel envB
+  -> UniformScheduleRC kernel envB
+  -> UniformScheduleRC kernel envN
+  -> UniformScheduleRC kernel env
+acond (Var tp idx) split true false next
+  | Released subsetT true'                 <- leadingRelease true
+  , Released subsetF false'                <- leadingRelease false
+  , UnionSubset subsetB subsetT' subsetF'  <- unionSubset subsetT subsetF
+  , Released subsetN next'                 <- leadingRelease next
+  , Hoist subset' split' subsetB' subsetN' <-
+      hoist (IdxSet.singleton idx) split subsetB subsetN
+  , cond'                                <- Var tp $
+      fromMaybe (internalError "condition is released") (subsetIdx subset' idx)
+  = release subset' $
+      Acond cond' split'
+        (release (composeSubsets subsetB' subsetT') true')
+        (release (composeSubsets subsetB' subsetF') false')
+        (release subsetN' next')
 
 -- | 'Spawn' smart constructor
 --
@@ -208,57 +217,96 @@ spawn
   -> UniformScheduleRC kernel envB
   -> UniformScheduleRC kernel env
 spawn split a b
-  | Released subsetL a' <- leadingRelease a
-  , Released subsetR b' <- leadingRelease b
-  , Hoist subset split' <- hoist split subsetL subsetR
-  = release subset (Spawn split' a' b')
+  | Released subsetL a'                    <- leadingRelease a
+  , Released subsetR b'                    <- leadingRelease b
+  , Hoist subset' split' subsetL' subsetR' <-
+      hoist IdxSet.empty split subsetL subsetR
+  = release subset' $ Spawn split' (release subsetL' a') (release subsetR' b')
 
-leadingRelease :: UniformScheduleRC kernel env -> Released kernel env
-leadingRelease = \case
-  Release subset s -> Released subset s
-  s                -> Released SubsetEnd s
-
-data Released kernel env where
-  Released
-    :: Subset env envSub
-    -> UniformScheduleRC kernel envSub
-    -> Released kernel env
-
--- | Transform a 'Split' followed by a 'Subset' on both sides to a 'Subset'
--- followed by a 'Split'
+-- | Hoist a 'Split' followed by a 'Subset' on both sides
+--
+-- This function computes the following:
+--
+-- 1. Initial subset: bindings selected by the split and subsets, as well as
+--    protected bindings
+-- 2. New split: split of the initial subset
+-- 3. New left subset: left subset in the new split
+-- 4. New right subset: right subset in the new split
+--
+-- The computed subsets can also be thought of in terms of what is dropped:
+--
+-- 1. Initial subset: drops every binding dropped by every side, unless
+--    protected
+-- 2. New split: split of the initial subset
+-- 3. New left subset: drops every protected binding that both sides dropped
+-- 4. New right subset: drops every protected binding dropped by right side
 hoist
-  :: Split True env envL envR
+  :: IdxSet env  -- Protected bindings
+  -> Split True env envL envR
   -> Subset envL envL'
   -> Subset envR envR'
   -> Hoist env envL' envR'
-hoist (SplitLeft split) subsetL subsetR = case viewSubset subsetL of
-  ViewKeep subsetL' -> case hoist split subsetL' subsetR of
-    Hoist subset split' -> Hoist (subsetKeep subset) (SplitLeft split')
-  ViewDrop subsetL' -> case hoist split subsetL' subsetR of
-    Hoist subset split' -> Hoist (SubsetDrop subset) split'
-hoist (SplitRight split) subsetL subsetR = case viewSubset subsetR of
-  ViewKeep subsetR' -> case hoist split subsetL subsetR' of
-    Hoist subset split' -> Hoist (subsetKeep subset) (SplitRight split')
-  ViewDrop subsetR' -> case hoist split subsetL subsetR' of
-    Hoist subset split' -> Hoist (SubsetDrop subset) split'
-hoist (SplitBoth split) subsetL subsetR = case viewSubset subsetL of
-  ViewKeep subsetL' -> case viewSubset subsetR of
-    ViewKeep subsetR' -> case hoist split subsetL' subsetR' of
-      Hoist subset split' -> Hoist (subsetKeep subset) (SplitBoth split')
-    ViewDrop subsetR' -> case hoist split subsetL' subsetR' of
-      Hoist subset split' -> Hoist (subsetKeep subset) (SplitLeft split')
-  ViewDrop subsetL' -> case viewSubset subsetR of
-    ViewKeep subsetR' -> case hoist split subsetL' subsetR' of
-      Hoist subset split' -> Hoist (subsetKeep subset) (SplitRight split')
-    ViewDrop subsetR' -> case hoist split subsetL' subsetR' of
-      Hoist subset split' -> Hoist (SubsetDrop subset) split'
-hoist SplitEnd SubsetEnd SubsetEnd = Hoist SubsetEnd SplitEnd
+hoist protected (SplitLeft split) subsetL subsetR
+  | (isProtected, protected') <- unconsProtected protected
+  = case viewSubset subsetL of
+      ViewKeep subsetL' -> case hoist protected' split subsetL' subsetR of
+        Hoist subset split' restL restR ->
+          Hoist (subsetKeep subset) (SplitLeft split') (subsetKeep restL) restR
+      ViewDrop subsetL' -> case hoist protected' split subsetL' subsetR of
+        Hoist subset split' restL restR
+          | isProtected ->
+              Hoist (subsetKeep subset) (SplitLeft split') (SubsetDrop restL) restR
+          | otherwise ->
+              Hoist (SubsetDrop subset) split' restL restR
+hoist protected (SplitRight split) subsetL subsetR
+  | (isProtected, protected') <- unconsProtected protected
+  = case viewSubset subsetR of
+      ViewKeep subsetR' -> case hoist protected' split subsetL subsetR' of
+        Hoist subset split' restL restR ->
+          Hoist (subsetKeep subset) (SplitRight split') restL (SubsetKeep restR)
+      ViewDrop subsetR' -> case hoist protected' split subsetL subsetR' of
+        Hoist subset split' restL restR
+          | isProtected ->
+              Hoist (subsetKeep subset) (SplitRight split') restL (SubsetDrop restR)
+          | otherwise ->
+              Hoist (SubsetDrop subset) split' restL restR
+hoist protected (SplitBoth split) subsetL subsetR
+  | (isProtected, protected') <- unconsProtected protected
+  = case viewSubset subsetL of
+      ViewKeep subsetL' -> case viewSubset subsetR of
+        ViewKeep subsetR' -> case hoist protected' split subsetL' subsetR' of
+          Hoist subset split' restL restR ->
+            Hoist (subsetKeep subset) (SplitBoth split') (subsetKeep restL) (subsetKeep restR)
+        ViewDrop subsetR' -> case hoist protected' split subsetL' subsetR' of
+          Hoist subset split' restL restR ->
+            Hoist (subsetKeep subset) (SplitLeft split') (subsetKeep restL) restR
+      ViewDrop subsetL' -> case viewSubset subsetR of
+        ViewKeep subsetR' -> case hoist protected' split subsetL' subsetR' of
+          Hoist subset split' restL restR ->
+            Hoist (subsetKeep subset) (SplitRight split') restL (subsetKeep restR)
+        ViewDrop subsetR' -> case hoist protected' split subsetL' subsetR' of
+          Hoist subset split' restL restR
+            | isProtected ->
+                Hoist (subsetKeep subset) (SplitLeft split') (SubsetDrop restL) restR
+            | otherwise ->
+                Hoist (SubsetDrop subset) split' restL restR
+hoist _protected SplitEnd SubsetEnd SubsetEnd =
+  Hoist SubsetEnd SplitEnd SubsetEnd SubsetEnd
 
-data Hoist env envL envR where
-  Hoist
-    :: Subset env env'
-    -> Split True env' envL envR
-    -> Hoist env envL envR
+data Hoist env envL' envR' where
+  Hoist :: Subset env env'
+        -> Split True env' envL'' envR''
+        -> Subset envL'' envL'
+        -> Subset envR'' envR'
+        -> Hoist env envL' envR'
+
+-- | Uncons the rightmost binding of a protected 'IdxSet'
+--
+-- This function returns whether the head bindings is protected and the rest of
+-- the protected bindings.
+unconsProtected :: IdxSet (env, t) -> (Bool, IdxSet env)
+unconsProtected protected =
+  (ZeroIdx `IdxSet.member` protected, IdxSet.drop protected)
 
 viewSubset :: Subset (env, t) envSub -> SubsetView env t envSub
 viewSubset = \case
