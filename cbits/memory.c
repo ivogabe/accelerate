@@ -71,7 +71,7 @@ void* accelerate_buffer_alloc(uint64_t byte_size) {
   void *ptr = accelerate_raw_alloc(size, CACHE_LINE_SIZE);
 
   // No-op when Tracy not enabled
-  AccTracyEmitMemoryAlloc(ptr, size, 0);
+  AccTracyEmitMemoryAlloc(ptr, size);
 
   #ifdef ACCELERATE_MEMORY_COUNTER
   // For benchmarking memory usage:
@@ -114,7 +114,7 @@ void accelerate_buffer_release_by(void* interior, uint64_t amount) {
   if (old == amount) {
 
     // No-op when Tracy not enabled
-    AccTracyEmitMemoryFree(header, 0);
+    AccTracyEmitMemoryFree(header);
 
     #ifdef ACCELERATE_MEMORY_COUNTER
     pthread_mutex_lock(&mutex);

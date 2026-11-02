@@ -58,14 +58,14 @@ runQ $ sequence
 local_memory_alloc :: Ptr a -> Int -> IO ()
 local_memory_alloc ptr n
   | Tracy.tracyIsEnabled = do
-      Tracy.emitMemoryAlloc ptr (fromIntegral n) 0
+      Tracy.emitMemoryAlloc ptr (fromIntegral n)
       void $ Atomic.add Mon.__total_bytes_allocated_local (fromIntegral n)
   | otherwise            = return ()
 
 {-# INLINE local_memory_free  #-}
 local_memory_free :: Ptr a -> IO ()
 local_memory_free ptr
-  | Tracy.tracyIsEnabled = Tracy.emitMemoryFree ptr 0
+  | Tracy.tracyIsEnabled = Tracy.emitMemoryFree ptr
   | otherwise            = return ()
 
 {-------------------------------------------------------------------------------
@@ -76,14 +76,14 @@ local_memory_free ptr
 remote_memory_alloc :: CString -> Ptr a -> Int -> IO ()
 remote_memory_alloc name ptr bytes
   | Tracy.tracyIsEnabled = do
-      Tracy.emitMemoryAllocNamed ptr (fromIntegral bytes) 0 name
+      Tracy.emitMemoryAllocNamed ptr (fromIntegral bytes) name
       void $ Atomic.add Mon.__total_bytes_allocated_remote (fromIntegral bytes)
   | otherwise            = return ()
 
 {-# INLINE remote_memory_free  #-}
 remote_memory_free :: CString -> Ptr a -> IO ()
 remote_memory_free name ptr
-  | Tracy.tracyIsEnabled = Tracy.emitMemoryFreeNamed ptr 0 name
+  | Tracy.tracyIsEnabled = Tracy.emitMemoryFreeNamed ptr name
   | otherwise            = return ()
 
 {-# INLINE remote_memory_evict #-}
@@ -99,12 +99,12 @@ remote_memory_evict name ptr bytes
 remote_memory_alloc_nursery :: Ptr a -> Int -> IO ()
 remote_memory_alloc_nursery p n
   | Tracy.tracyIsEnabled =
-      Tracy.emitMemoryAllocNamed p (fromIntegral n) 0 ___nursery
+      Tracy.emitMemoryAllocNamed p (fromIntegral n) ___nursery
   | otherwise            = return ()
 
 remote_memory_free_nursery :: Ptr a -> IO ()
 remote_memory_free_nursery p
-  | Tracy.tracyIsEnabled = Tracy.emitMemoryFreeNamed p 0 ___nursery
+  | Tracy.tracyIsEnabled = Tracy.emitMemoryFreeNamed p ___nursery
   | otherwise            = return ()
 
 {-------------------------------------------------------------------------------
