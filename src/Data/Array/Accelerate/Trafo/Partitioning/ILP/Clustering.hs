@@ -171,7 +171,8 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
       EmptyFold -> Exists $ Return TupRunit
       NotFold con -> case con of
         SExe {}    -> error "should be Fold/InitFold!"
-        SExe'{}    -> error "should be Fold/InitFold!"
+        SExe' _ _ Fusible _ -> error "should be Fold/InitFold!"
+        SExe' env' args NotFusible op -> Exists (Exec (ExecSingle op) $ fromJust $ reindexArgs (mkReindexPartial' env' env) $ unLabelOp args)
         SUse se  n be             -> Exists $ Use se n be
         SITE env' c t f   -> case (makeAST env (subcluster t), makeAST env (subcluster f)) of
           (Exists tacc, Exists facc) -> Exists $ tryBuildAcond
@@ -198,7 +199,6 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
         SUnt env' evar     -> Exists $ Unit            (fromJust $ reindexVar  (mkReindexPartial' env' env) evar)
         SFen {} -> Exists $ Return TupRunit -- Fence with no futher terms does nothing
     makeAST env (cluster:ctail) =
-      -- TODO: use guards to fuse these two identical cases
       case makeCluster env cluster of
         NotFold con
           | SLet mylhs b u <- con ->
@@ -274,6 +274,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
                                     EmptyFold
                                   else
                                     InitFold op l args'
+                              sym@(SExe' _ _ NotFusible _) -> NotFold sym
                               _                 -> error "avoid this next refactor" -- c -> NotFold c
                           ) ls
     makeCluster _ (NonExecL l) = NotFold $ symbols !?? l

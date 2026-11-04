@@ -35,6 +35,7 @@ import qualified Data.Map as M
 import Lens.Micro
 import Lens.Micro.Mtl
 
+import Control.Monad
 import Control.Monad.State.Strict (State, runState)
 import Data.Foldable (Foldable (foldr'), traverse_, toList)
 import Data.Kind (Type)
@@ -418,6 +419,17 @@ class ( Eq (BackendArg op) , Show (BackendArg op), Ord (BackendArg op) ) => Make
     -> op True args           -- ^ The operation.
     -> LabelledArgs env args  -- ^ The arguments to the operation.
     -> State (BackendGraphState op env) ()
+  
+  -- | For non-fusible operations, whether this operation supports in-place
+  -- updates. This is an all-or-nothing switch; an operation either supports
+  -- in-place updates on all inputs and outputs, or none. If needed, we can
+  -- make this more fine grained in the future.
+  --
+  -- For fusible operations, this should be handled by mkGraph
+  opInplace
+    :: op False args
+    -> Bool
+  opInplace _ = False
 
   -- | This function lets the backend define additional constraints on the ILP.
   finalize :: FusionGraph -> [Constraint]
@@ -893,13 +905,29 @@ mkFusionGraph (Exec (ExecOp f op) args) = do
   let inpArrs      = inputArrays labelledArgs
   let outArrs      = outputArrays labelledArgs
   let notArrs      = notArrays labelledArgs
-  c `readsBuffers`   (inpArrs `S.difference`   outArrs)
-  c `writesBuffers`  (outArrs `S.difference`   inpArrs)
-  c `mutatesBuffers` (inpArrs `S.intersection` outArrs)
-  c `requiresBuffers` notArrs
   () <- case f of
-    Fusible -> zoom (backendGraphState renv wenv) (mkGraph c op labelledArgs)
-    NotFusible -> internalError "TODO: Generate fusion constraints for infusible operations"
+    Fusible -> do
+      c `readsBuffers`    (inpArrs `S.difference`   outArrs)
+      c `writesBuffers`   (outArrs `S.difference`   inpArrs)
+      c `mutatesBuffers`  (inpArrs `S.intersection` outArrs)
+      c `requiresBuffers` notArrs
+      zoom (backendGraphState renv wenv) (mkGraph c op labelledArgs)
+    NotFusible -> do
+      -- By using requiresBuffers instead of readsBuffers, we will not fuse
+      -- this operation with a prior operation that produced the input.
+      c `requiresBuffers` (inpArrs `S.difference`   outArrs)
+      c `writesBuffers`   (outArrs `S.difference`   inpArrs)
+      c `mutatesBuffers`  (inpArrs `S.intersection` outArrs)
+      c `requiresBuffers` notArrs
+      -- Don't fuse output of this operation
+      zoom (backendGraphState renv wenv) $
+        fusionILP.bounds %= (<> foldMap (equal (-3) . WriteDir c) outArrs)
+
+      unless (opInplace op) $
+        zoom (backendGraphState renv wenv) $
+          fusionILP.bounds %= (<> foldMap (equal (-2) . (`ReadDir` c)) inpArrs)
+
+      return ()
   symbol c ?= SExe env labelledArgs f op
   return TupRunit
 

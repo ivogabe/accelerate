@@ -1,7 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding where
 
-import Data.Array.Accelerate.AST.Operation (IsFusible(..))
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph hiding (graph, constraints, bounds)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (Node, parent, Nodes, Comp, GVal, DataflowEdge, StrictEdge, ReadEdge, InplacePath, WriteEdge)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
@@ -354,15 +353,15 @@ splitExecs (xs, xM) symbolM = (f xs, M.map f xM)
 
     isExec :: Node Comp -> Bool
     isExec l = case symbolM M.!? l of
-      Just (SExe _ _ Fusible _) -> True
-      Just (SExe' _ _ Fusible _) -> True
+      Just SExe{} -> True
+      Just SExe'{} -> True
       _ -> False
     isBeforeExec l = case symbolM M.!? l of
       Just SLet{} -> True
       _ -> False
     isAfterExec l = case symbolM M.!? l of
-      Just (SExe _ _ Fusible _) -> False
-      Just (SExe' _ _ Fusible _) -> False
+      Just SExe{} -> False
+      Just SExe'{} -> False
       Just SLet{} -> False
       Nothing -> False
       _ -> True
