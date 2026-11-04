@@ -217,7 +217,7 @@ prettyUniformSchedule env = \case
         <> hardline <> "}"
         <> prettyNext' envR next
   Release subset s
-    -> hang 2 $ group $ vsep [annotate Statement "release", prettyIdxSet env $ IdxSet.subsetDropped subset]
+    -> hang 2 (group $ vsep [annotate Statement "release", prettyIdxSet env $ IdxSet.subsetDropped subset])
         <> prettyNext' (valSubset subset env) s
   where
     prettyNext' :: Val' env' -> UniformSchedule' rc kernel env' -> Adoc
