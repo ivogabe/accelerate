@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# OPTIONS_HADDOCK hide #-}
 
@@ -16,20 +17,25 @@ module Data.Array.Accelerate.Trafo.Operation.LiveVars (
 
   stronglyLiveVariables, stronglyLiveVariablesFun,
 
-  SLVOperation(..), ShrinkOperation(..), ShrunkOperation(..), SubArgs(..), SubArg(..),
+  SLVExecute(..), ShrinkExecute(..), ShrunkExecute(..),
+  SLVOperation(..), ShrinkOperation(..), ShrunkOperation(..),
+  SubArgs(..), SubArg(..),
   reEnvArrayInstr, 
   reEnvArrayDescriptors,
-  ShrinkArg(..), shrinkArgs, composeSubArgs,
+  composeSubArgs,
 
   defaultSlvGenerate, defaultSlvMap, defaultSlvBackpermute,
 ) where
 
 import qualified Data.Array.Accelerate.AST.IdxSet as IdxSet
+import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.Var
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Operation
+import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.AST.Environment
 import Data.Array.Accelerate.Representation.Array
+import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Trafo.Exp.Substitution
 import Data.Array.Accelerate.Trafo.LiveVars
@@ -37,18 +43,19 @@ import Data.Array.Accelerate.Error
 
 import Data.Type.Equality
 import Data.Maybe (mapMaybe)
+import Data.Kind
 
-stronglyLiveVariablesFun :: SLVOperation op => PreOpenAfun op () t -> PreOpenAfun op () t
+stronglyLiveVariablesFun :: SLVExecute exe => PreOpenAfun exe () t -> PreOpenAfun exe () t
 stronglyLiveVariablesFun acc = acc' ReEnvEnd
   where
     LVAnalysisFun _ acc' = stronglyLiveVariablesFun' emptyLivenessEnv acc
 
-stronglyLiveVariables :: SLVOperation op => PreOpenAcc op () t -> PreOpenAcc op () t
+stronglyLiveVariables :: SLVExecute exe => PreOpenAcc exe () t -> PreOpenAcc exe () t
 stronglyLiveVariables acc = fromEither' $ acc' ReEnvEnd SubTupRkeep
   where
     LVAnalysis _ acc' = stronglyLiveVariables' emptyLivenessEnv returnImplicationsLive (mapTupR (const Shared) $ groundsR acc) acc
 
-stronglyLiveVariablesFun' :: SLVOperation op => LivenessEnv env -> PreOpenAfun op env t -> LVAnalysisFun (PreOpenAfun op) env t
+stronglyLiveVariablesFun' :: SLVExecute exe => LivenessEnv env -> PreOpenAfun exe env t -> LVAnalysisFun (PreOpenAfun exe) env t
 stronglyLiveVariablesFun' liveness (Alam lhs f)
   | liveness1 <- lEnvPushLHS lhs liveness
   , LVAnalysisFun liveness2 f' <- stronglyLiveVariablesFun' liveness1 f
@@ -64,7 +71,7 @@ stronglyLiveVariablesFun' liveness (Abody body)
       liveness1
       $ \re -> Abody $ fromEither' $ body' re SubTupRkeep
 
-stronglyLiveVariablesFun'' :: SLVOperation op => LivenessEnv env -> Uniquenesses t -> PreOpenAfun op env (s -> t) -> LVAnalysisFun (PreOpenAfun op) env (s -> t)
+stronglyLiveVariablesFun'' :: SLVExecute exe => LivenessEnv env -> Uniquenesses t -> PreOpenAfun exe env (s -> t) -> LVAnalysisFun (PreOpenAfun exe) env (s -> t)
 stronglyLiveVariablesFun'' liveness us (Alam lhs (Abody body))
   | liveness1 <- lEnvPushLHS lhs liveness
   , LVAnalysis liveness2 body' <- stronglyLiveVariables' liveness1 returnImplicationsLive us body
@@ -80,10 +87,10 @@ fromEither' :: Either a a -> a
 fromEither' (Left  x) = x
 fromEither' (Right x) = x
 
-stronglyLiveVariables' :: SLVOperation op => LivenessEnv env -> ReturnImplications env t -> Uniquenesses t -> PreOpenAcc op env t -> LVAnalysis (PreOpenAcc op) env t
+stronglyLiveVariables' :: SLVExecute exe => LivenessEnv env -> ReturnImplications env t -> Uniquenesses t -> PreOpenAcc exe env t -> LVAnalysis (PreOpenAcc exe) env t
 stronglyLiveVariables' liveness returns us = \case
-  Exec op args
-    | Just (ShrinkOperation shrinkOp) <- slvOperation op
+  Exec exe args
+    | Just (ShrinkExecute shrinkExe) <- slvExecute exe
     -- We can shrink this operation to output to part of its buffers.
     , input <- IdxSet.fromList $ argsInputs args
     , output <- IdxSet.fromList $ argsOutputs args
@@ -97,8 +104,8 @@ stronglyLiveVariables' liveness returns us = \case
 
           | Refl <- subTupUnit s
           , ReEnvSubArgs subArgs args' <- reEnvSubArgs re args
-          , ShrunkOperation op' args'' <- shrinkOp subArgs args' args ->
-            Right $ Exec op' args''
+          , ShrunkExecute exe' args'' <- shrinkExe subArgs args' args ->
+            Right $ Exec exe' args''
 
     -- We cannot shrink this operation to only output a part of its buffers.
     -- Hence it's "all or nothing", if we use at least one of the output
@@ -115,7 +122,7 @@ stronglyLiveVariables' liveness returns us = \case
 
           | Refl <- subTupUnit s
           , args' <- reEnvArgs re args ->
-            Right $ Exec op args' -- Live
+            Right $ Exec exe args' -- Live
   Return vars
     | liveness1 <- returnVars returns vars liveness ->
       LVAnalysis
@@ -161,13 +168,13 @@ stronglyLiveVariables' liveness returns us = \case
           case s of
             SubTupRskip -> Right $ Return TupRunit
             SubTupRkeep -> Right $ Alloc shr tp $ expectJust $ reEnvVars re sh
-  Use tp size buffer ->
+  Use tp size' buffer ->
     LVAnalysis
       liveness
       $ \_ s ->
         case s of
           SubTupRskip -> Right $ Return TupRunit
-          SubTupRkeep -> Right $ Use tp size buffer
+          SubTupRkeep -> Right $ Use tp size' buffer
   Unit var
     | free <- IdxSet.singleton $ varIdx var
     , liveness1 <- returnIndices returns free liveness ->
@@ -224,22 +231,22 @@ stronglyLiveVariables' liveness returns us = \case
               Left  next'' -> Left  $ Fence set' next''
               Right next'' -> Right $ Fence set' next''
   where
-    mkAcond :: ExpVar env' PrimBool -> PreOpenAcc op env' t' -> PreOpenAcc op env' t' -> PreOpenAcc op env' t'
+    mkAcond :: ExpVar env' PrimBool -> PreOpenAcc exe env' t' -> PreOpenAcc exe env' t' -> PreOpenAcc exe env' t'
     mkAcond _         (Return TupRunit) (Return TupRunit) = Return TupRunit
     mkAcond condition true              false             = Acond condition true false
 
-    mkAlet :: GLeftHandSide bnd subenv subenv' -> Uniquenesses bnd -> PreOpenAcc op subenv bnd -> PreOpenAcc op subenv' t -> PreOpenAcc op subenv t
+    mkAlet :: GLeftHandSide bnd subenv subenv' -> Uniquenesses bnd -> PreOpenAcc exe subenv bnd -> PreOpenAcc exe subenv' t -> PreOpenAcc exe subenv t
     mkAlet (LeftHandSideWildcard TupRunit) _ (Return TupRunit) body = body
     mkAlet lhs us' bnd body = Alet lhs us' bnd body
 
 -- Implementation of stronglyLiveVariables' for Compute, Aassert and Aassume
 stronglyLiveVariablesComputeLike
-  :: SLVOperation op
-  => (forall env' t'. SubTupR t t' -> Exp env' t' -> OperationAcc op env' t')
+  :: SLVExecute exe
+  => (forall env' t'. SubTupR t t' -> Exp env' t' -> PreOpenAcc exe env' t')
   -> LivenessEnv env
   -> ReturnImplications env t
   -> Exp env t
-  -> LVAnalysis (PreOpenAcc op) env t
+  -> LVAnalysis (PreOpenAcc exe) env t
 stronglyLiveVariablesComputeLike constructor liveness returns expr
   -- If the LHS of the binding is live, then all free variables of this
   -- expression are live as well.
@@ -263,14 +270,115 @@ reEnvIdxSet re idxSet =
     mapMaybe (\(Exists ix) -> fmap Exists (reEnvIdx re ix))
              (IdxSet.toList idxSet)
 
-class SLVOperation op where
-  slvOperation :: op f -> Maybe (ShrinkOperation op f)
+class SLVOperation (op :: Bool -> Type -> Type) where
+  slvOperation :: op b f -> Maybe (ShrinkOperation op b f)
 
-newtype ShrinkOperation op f = ShrinkOperation (forall f' env' env. SubArgs f f' -> Args env' f' -> Args env f -> ShrunkOperation op env')
+class SLVExecute (exe :: Type -> Type) where
+  slvExecute :: exe f -> Maybe (ShrinkExecute exe f)
+
+newtype ShrinkOperation (op :: Bool -> Type -> Type) (b :: Bool) f = ShrinkOperation (forall f' env' env. SubArgs f f' -> Args env' f' -> Args env f -> ShrunkOperation op b env')
+newtype ShrinkExecute (exe :: Type -> Type) f = ShrinkExecute (forall f' env' env. SubArgs f f' -> Args env' f' -> Args env f -> ShrunkExecute exe env')
 
 -- existential over f: otherwise, you couldn't change the non-array arguments. You need this e.g. for a Generate: smaller array means smaller function.
-data ShrunkOperation op env where
-  ShrunkOperation :: op f -> Args env f -> ShrunkOperation op env
+data ShrunkOperation op b env where
+  ShrunkOperation :: op b f -> Args env f -> ShrunkOperation op b env
+data ShrunkExecute exe env where
+  ShrunkExecute :: exe f -> Args env f -> ShrunkExecute exe env
+
+instance SLVOperation op => SLVExecute (ExecOp op) where
+  slvExecute (ExecOp fusible op) = case slvOperation op of
+    Just (ShrinkOperation shrinkOp) -> Just $ ShrinkExecute $ \sa args' args ->
+      case shrinkOp sa args' args of
+        ShrunkOperation op' args'' ->
+          ShrunkExecute (ExecOp fusible op') args''
+    Nothing -> Nothing
+
+instance SLVOperation op => SLVExecute (ExecCluster op) where
+  slvExecute (ExecSingle op) = case slvOperation op of
+    Just (ShrinkOperation shrinkOp) -> Just $ ShrinkExecute $ \sa args' args ->
+      case shrinkOp sa args' args of
+        ShrunkOperation op' args'' ->
+          ShrunkExecute (ExecSingle op') args''
+    Nothing -> Nothing
+  slvExecute (ExecClustered cluster) = Just $ ShrinkExecute $ \ff' a' a ->
+    case slvCluster cluster ff' a' a of
+      ShrunkOperation' cluster' args ->
+        ShrunkExecute (ExecClustered cluster') args
+
+slvClusterArg :: forall f f' t. SubArgs f f' -> ClusterArg (FunToEnv f) t -> ClusterArg (FunToEnv f') t
+slvClusterArg subArgs (ClusterArgSingle idx) = case reindexSlv subArgs idx of
+  ReindexSlvKeep idx' -> ClusterArgSingle idx'
+  _ -> internalError "Expected a preserved variable, as this is not an Out argument"
+slvClusterArg subArgs (ClusterArgArray m shr tp buffers) = ClusterArgArray m shr tp $ go buffers
+  where
+    go :: ClusterArgBuffers (FunToEnv f) m sh e -> ClusterArgBuffers (FunToEnv f') m sh e
+    go (ClusterArgBuffersPair a1 a2) = go a1 `ClusterArgBuffersPair` go a2
+    go (ClusterArgBuffersDead tp' idx) = case reindexSlv subArgs idx of
+      ReindexSlvKeep idx' -> ClusterArgBuffersDead tp' idx'
+    go (ClusterArgBuffersLive tp' idx) = case reindexSlv subArgs idx of
+      ReindexSlvKeep idx' -> ClusterArgBuffersLive tp' idx'
+      ReindexSlvDead idx' -> ClusterArgBuffersDead tp' idx'
+
+reindexSlv :: SubArgs f f' -> Idx (FunToEnv f) t -> ReindexSlv f' t
+reindexSlv (SubArgsDead _) ZeroIdx = ReindexSlvDead ZeroIdx
+reindexSlv (SubArgsLive arg _) ZeroIdx = case arg of
+  SubArgKeep -> ReindexSlvKeep ZeroIdx
+  SubArgOut SubTupRkeep -> ReindexSlvKeep ZeroIdx
+  _ -> internalError "Expected preserved value"
+reindexSlv (SubArgsDead s) (SuccIdx idx) = case reindexSlv s idx of
+  ReindexSlvKeep idx' -> ReindexSlvKeep $ SuccIdx idx'
+  ReindexSlvDead idx' -> ReindexSlvDead $ SuccIdx idx'
+reindexSlv (SubArgsLive _ s) (SuccIdx idx) = case reindexSlv s idx of
+  ReindexSlvKeep idx' -> ReindexSlvKeep $ SuccIdx idx'
+  ReindexSlvDead idx' -> ReindexSlvDead $ SuccIdx idx'
+reindexSlv SubArgsNil idx = case idx of {}
+
+data ReindexSlv f t where
+  ReindexSlvKeep :: Idx (FunToEnv f) t -> ReindexSlv f t
+  ReindexSlvDead :: Idx (FunToEnv f) (Var' sh) -> ReindexSlv f (Out sh e)
+
+slvCluster :: Cluster op f -> SubArgs f f' -> Args env' f' -> Args env f -> ShrunkOperation' (Cluster op) env' f'
+slvCluster (SingleOp (Single op args) label) sub args' _
+  = ShrunkOperation' (SingleOp (Single op $ mapArgs (slvClusterArg sub) args) label) args'
+
+slvCluster (Fused fusion leftCluster rightCluster) sub args1' args1 = splitslvstuff fusion sub args1' args1 $
+  \f' lsub largs' largs rsub rargs' rargs -> case (slvCluster leftCluster lsub largs' largs, slvCluster rightCluster rsub rargs' rargs) of
+    (ShrunkOperation' lop largs'', ShrunkOperation' rop rargs'') ->
+      ShrunkOperation' (Fused f' lop rop) (both (\x _ -> outvar x) f' largs'' rargs'')
+  where
+    splitslvstuff :: Fusion l r a
+      -> SubArgs a a'
+      -> Args env' a'
+      -> Args env a
+      -> (forall l' r'. Fusion l' r' a' -> SubArgs l l' -> Args env' l' -> Args env l -> SubArgs r r' -> Args env' r' -> Args env r -> result)
+      -> result
+    splitslvstuff EmptyF SubArgsNil ArgsNil ArgsNil k = k EmptyF SubArgsNil ArgsNil ArgsNil SubArgsNil ArgsNil ArgsNil
+    splitslvstuff _ (SubArgsLive (SubArgOut SubTupRskip) _) _ _ _ = error "completely removed out arg using subtupr" --splitslvstuff f (SubArgsDead subs) args' args k
+    splitslvstuff f (SubArgsLive (SubArgOut SubTupRkeep) subs) args' args k = splitslvstuff f (SubArgsLive SubArgKeep subs) args' args k
+    splitslvstuff _ (SubArgsLive (SubArgOut SubTupRpair{}) _) (_:>:_) (_:>:_) _ = error "not SOA'd array"
+    splitslvstuff (Diagonal   f) (SubArgsDead subs) args' (ArgArray _ r sh _:>:args) k = splitslvstuff (Vertical r f) (SubArgsLive SubArgKeep subs) args' (ArgVar (groundToExpVar (shapeType $ arrayRshape r) sh) :>:args) k
+    splitslvstuff (IntroO1    f) (SubArgsDead subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \g lsubs largs' largs rsubs rargs' rargs -> k (IntroL   g) (SubArgsDead lsubs) (arg':>:largs') (arg:>:largs)              rsubs          rargs'         rargs
+    splitslvstuff (IntroO2    f) (SubArgsDead subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \g lsubs largs' largs rsubs rargs' rargs -> k (IntroR   g)              lsubs          largs'         largs  (SubArgsDead rsubs) (arg':>:rargs') (arg:>:rargs)
+    splitslvstuff (IntroL     _) (SubArgsDead _) (_:>:_) (_:>:_) _ = error "out in IntroL/R"
+    splitslvstuff (IntroR     _) (SubArgsDead _) (_:>:_) (_:>:_) _ = error "out in IntroL/R"
+    splitslvstuff (Vertical r  f) (SubArgsLive SubArgKeep subs) (ArgVar arg':>:args') (ArgVar arg:>:args) k = splitslvstuff f subs args' args $ \g lsubs largs' largs rsubs rargs' rargs -> k (Vertical r g) (SubArgsLive SubArgKeep lsubs) (ArgArray Out r sh' buf :>:largs') (ArgArray Out r sh buf :>:largs) (SubArgsLive SubArgKeep rsubs) (ArgArray In r sh' buf :>:rargs') (ArgArray In r sh buf :>:rargs)
+      where
+        buf = error "fused away buffer"
+        sh = expToGroundVar arg
+        sh' = expToGroundVar arg'
+    splitslvstuff (Diagonal   f) (SubArgsLive SubArgKeep subs) (arg'@(ArgArray Out r' sh' buf'):>:args') (arg@(ArgArray Out r sh buf):>:args) k = splitslvstuff f subs args' args $ \g lsubs largs' largs rsubs rargs' rargs -> k (Diagonal   g) (SubArgsLive SubArgKeep lsubs) (arg':>:largs') (arg:>:largs) (SubArgsLive SubArgKeep rsubs) (ArgArray In r' sh' buf':>:rargs') (ArgArray In r sh buf:>:rargs)
+    splitslvstuff (Horizontal f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \g lsubs largs' largs rsubs rargs' rargs -> k (Horizontal g) (SubArgsLive SubArgKeep lsubs) (       arg':>:largs') (       arg:>:largs) (SubArgsLive SubArgKeep rsubs) (      arg':>:rargs') (      arg:>:rargs)
+    splitslvstuff (IntroI1    f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \g lsubs largs' largs rsubs rargs' rargs -> k (IntroI1    g) (SubArgsLive SubArgKeep lsubs) (       arg':>:largs') (       arg:>:largs)                         rsubs                rargs'               rargs
+    splitslvstuff (IntroI2    f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \g lsubs largs' largs rsubs rargs' rargs -> k (IntroI2    g)                         lsubs                 largs'                largs  (SubArgsLive SubArgKeep rsubs) (      arg':>:rargs') (      arg:>:rargs)
+    splitslvstuff (IntroO1    f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \g lsubs largs' largs rsubs rargs' rargs -> k (IntroO1    g) (SubArgsLive SubArgKeep lsubs) (       arg':>:largs') (       arg:>:largs)                         rsubs                rargs'               rargs
+    splitslvstuff (IntroO2    f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \g lsubs largs' largs rsubs rargs' rargs -> k (IntroO2    g)                         lsubs                 largs'                largs  (SubArgsLive SubArgKeep rsubs) (      arg':>:rargs') (      arg:>:rargs)
+    splitslvstuff (IntroL     f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \g lsubs largs' largs rsubs rargs' rargs -> k (IntroL     g) (SubArgsLive SubArgKeep lsubs) (       arg':>:largs') (       arg:>:largs)                         rsubs                rargs'               rargs
+    splitslvstuff (IntroR     f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \g lsubs largs' largs rsubs rargs' rargs -> k (IntroR     g)                         lsubs                 largs'                largs  (SubArgsLive SubArgKeep rsubs) (      arg':>:rargs') (      arg:>:rargs)
+
+-- Variant of ShrunkOperation where f is not an existential
+data ShrunkOperation' op env f where
+  ShrunkOperation' :: op f -> Args env f -> ShrunkOperation' op env f
+
 
 data SubArgs f f' where
   SubArgsNil  :: SubArgs () ()
@@ -293,22 +401,9 @@ data SubArg t t' where
   SubArgOut  :: SubTupR e e'
              -> SubArg (Out sh e) (Out sh e')
 
-class ShrinkArg arg where
-  shrinkArg :: SubArg t t' -> arg t -> arg t'
-  deadArg :: arg (Out sh e) -> arg (Var' sh)
-
--- instance ShrinkArg (Arg env) where
---   shrinkArg = _
---   deadArg = _
-
-shrinkArgs :: ShrinkArg arg => SubArgs f f' -> PreArgs arg f -> PreArgs arg f'
-shrinkArgs SubArgsNil ArgsNil = ArgsNil
-shrinkArgs (SubArgsDead sargs) (a:>:args) = deadArg a :>: shrinkArgs sargs args
-shrinkArgs (SubArgsLive sarg sargs) (a:>:args) = shrinkArg sarg a :>: shrinkArgs sargs args
-
 defaultSlvGenerate
-  :: (forall sh' t'. op (Fun' (sh' -> t') -> Out sh' t' -> ()))
-  -> Maybe (ShrinkOperation op (Fun' (sh -> t) -> Out sh t -> ()))
+  :: (forall sh' t'. op b (Fun' (sh' -> t') -> Out sh' t' -> ()))
+  -> Maybe (ShrinkOperation op b (Fun' (sh -> t) -> Out sh t -> ()))
 defaultSlvGenerate mkGenerate = Just $ ShrinkOperation $ \subArgs args _ -> case subArgs of
   SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
     -> ShrunkOperation mkGenerate args
@@ -318,8 +413,8 @@ defaultSlvGenerate mkGenerate = Just $ ShrinkOperation $ \subArgs args _ -> case
   _ `SubArgsLive` SubArgsDead _ -> internalError "At least one output should be preserved"
 
 defaultSlvMap
-  :: (forall sh' s' t'. op (Fun' (s' -> t') -> In sh' s' -> Out sh' t' -> ()))
-  -> Maybe (ShrinkOperation op (Fun' (s -> t)    -> In sh s -> Out sh  t -> ()))
+  :: (forall sh' s' t'. op b (Fun' (s' -> t') -> In sh' s' -> Out sh' t' -> ()))
+  -> Maybe (ShrinkOperation op b (Fun' (s -> t) -> In sh s -> Out sh  t -> ()))
 defaultSlvMap mkMap = Just $ ShrinkOperation $ \subArgs args _ -> case subArgs of
   SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
     -> ShrunkOperation mkMap args
@@ -329,8 +424,8 @@ defaultSlvMap mkMap = Just $ ShrinkOperation $ \subArgs args _ -> case subArgs o
   _ `SubArgsLive` _ `SubArgsLive` SubArgsDead _ -> internalError "At least one output should be preserved"
 
 defaultSlvBackpermute
-  :: (forall sh1' sh2' t'. op (Fun' (sh2' -> sh1') -> In sh1' t' -> Out sh2' t' -> ()))
-  -> Maybe (ShrinkOperation op (Fun' (sh2 -> sh1) -> In sh1 t -> Out sh2 t -> ()))
+  :: (forall sh1' sh2' t'. op b (Fun' (sh2' -> sh1') -> In sh1' t' -> Out sh2' t' -> ()))
+  -> Maybe (ShrinkOperation op b (Fun' (sh2 -> sh1) -> In sh1 t -> Out sh2 t -> ()))
 defaultSlvBackpermute mkBackpermute = Just $ ShrinkOperation $ \subArgs args _ -> case subArgs of
   SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
     -> ShrunkOperation mkBackpermute args

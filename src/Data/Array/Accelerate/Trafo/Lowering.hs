@@ -38,9 +38,6 @@ import Data.Array.Accelerate.Error
 import Data.Kind
 import Data.Maybe (isJust)
 
-type a $ b = a b
-infixr 0 $
-
 -- | Vanilla boundary condition specification for stencil operations
 -- Note that this data type is not used in the actual AST, it is just
 -- used to pass to 'mkStencil' or 'mkStencil2'.
@@ -64,7 +61,7 @@ data Boundary env t where
             -> Boundary env (Array sh e)
 
 
-class NFData' op => LowerAcc (op :: Type -> Type) where
+class NFDataOp op => LowerAcc (op :: Bool -> Type -> Type) where
   mkMap         :: Arg env (Fun' (s -> t))
                 -> Arg env (In sh s)
                 -> Arg env (Out sh t)

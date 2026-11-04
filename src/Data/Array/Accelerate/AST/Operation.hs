@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
@@ -15,6 +16,7 @@
 module Data.Array.Accelerate.AST.Operation (
   PreOpenAcc(..), PreOpenAfun(..),
   OperationAcc, OperationAfun,
+  ExecOp(..), IsFusible(..),
   Uniqueness(..), Uniquenesses, shared, unique, pairUniqueness,
 
   GroundR(..), GroundsR, GroundVar, GroundVars, GLeftHandSide, Var(..), Vars,
@@ -44,13 +46,11 @@ module Data.Array.Accelerate.AST.Operation (
   arrayDescriptorsIdxSet,
   argVars, argsVars, argsInputs, argsOutputs, AccessGroundR(..),
 
-  mapAccExecutable, mapAfunExecutable,
-
   GroundRWithUniqueness(..), groundsRWithUniquenesses, lhsWithUniquesses,
 
   module Data.Array.Accelerate.AST.Exp,
 
-  NFData'(..)
+  NFData'(..), NFDataOp(..)
 ,reindexAcc,toGrounds,fromGrounds,weakenThroughReindex,fuseArgsWith,argsFromList,expToGroundVar) where
 
 import Data.Array.Accelerate.AST.Environment
@@ -83,7 +83,7 @@ import qualified Data.Array.Accelerate.AST.IdxSet as IdxSet
 -- bookkeeping (allocating or copying buffers).
 --
 -- The data type is parameterized over the type of executable operations. In
--- the compiler pipeline, it is first instantiated with 'Execute op', which
+-- the compiler pipeline, it is first instantiated with 'ExecOp op', which
 -- means that the Exec constructor will target a single operation. Type
 -- argument op is platform dependent, such that we can have different
 -- operations for each backend and thus have backend specific optimizations
@@ -95,20 +95,20 @@ import qualified Data.Array.Accelerate.AST.IdxSet as IdxSet
 -- consisting of ground values typed by 'GroundR', and the return type, which
 -- is a tuple of ground values, typed by 'GroundsR'.
 --
-data PreOpenAcc (op :: Type -> Type) env a where
+data PreOpenAcc (exe :: Type -> Type) env a where
   -- | Executes an executable operation. Such execution does not return a
   -- value, the effects of the execution are only visible by the mutation of
   -- buffers which were annotated with either 'Mut' or 'Out'.
   -- Provides the operation arguments from the environment.
   --
-  Exec    :: op args
+  Exec    :: exe args
           -> Args env args
-          -> PreOpenAcc op env ()
+          -> PreOpenAcc exe env ()
 
   -- | Returns the values of the given variables.
   --
   Return  :: GroundVars env a
-          -> PreOpenAcc op env a
+          -> PreOpenAcc exe env a
 
   -- | Fusion boundary.
   -- Corresponds with 'compute' in the user-facing language. Internally we use
@@ -118,12 +118,12 @@ data PreOpenAcc (op :: Type -> Type) env a where
   -- This constructor may only occur before fusion.
   --
   Manifest :: GroundVar env (Buffer e)
-           -> PreOpenAcc op env (Buffer e)
+           -> PreOpenAcc exe env (Buffer e)
 
   -- | Evaluates the expression and returns its value.
   --
   Compute :: Exp env t
-          -> PreOpenAcc op env t
+          -> PreOpenAcc exe env t
 
   -- | Local binding of ground values.
   -- As it is common in this intermediate representation to evaluate some program
@@ -131,16 +131,16 @@ data PreOpenAcc (op :: Type -> Type) env a where
   -- and then do some other code, we write 'a; b' to denote 'let () = a in b'.
   Alet    :: GLeftHandSide bnd env env'
           -> Uniquenesses bnd
-          -> PreOpenAcc op env  bnd
-          -> PreOpenAcc op env' t
-          -> PreOpenAcc op env  t
+          -> PreOpenAcc exe env  bnd
+          -> PreOpenAcc exe env' t
+          -> PreOpenAcc exe env  t
 
   -- | Allocates a new buffer of the given size.
   --
   Alloc   :: ShapeR sh
           -> ScalarType e
           -> ExpVars env sh
-          -> PreOpenAcc op env (Buffer e)
+          -> PreOpenAcc exe env (Buffer e)
 
   -- | Buffer inlet. To pass an array constant in this data type, one may need
   -- multiple 'Use' constructs because of the explicit Structure-of-Arrays.
@@ -149,33 +149,33 @@ data PreOpenAcc (op :: Type -> Type) env a where
   Use     :: ScalarType e
           -> Int -- Number of elements
           -> Buffer e
-          -> PreOpenAcc op env (Buffer e)
+          -> PreOpenAcc exe env (Buffer e)
 
   -- | Capture a scalar in a singleton buffer
   --
   Unit    :: ExpVar env e
-          -> PreOpenAcc op env (Buffer e)
+          -> PreOpenAcc exe env (Buffer e)
 
   -- | If-then-else for array-level computations
   --
   Acond   :: ExpVar env PrimBool
-          -> PreOpenAcc op env a
-          -> PreOpenAcc op env a
-          -> PreOpenAcc op env a
+          -> PreOpenAcc exe env a
+          -> PreOpenAcc exe env a
+          -> PreOpenAcc exe env a
 
   -- | Value-recursion for array-level computations.
   -- The uniqueness guarantees are an invariant of the loop
   -- and should hold before and after each iteration.
   --
   Awhile  :: Uniquenesses a
-          -> PreOpenAfun op env (a -> PrimBool)
-          -> PreOpenAfun op env (a -> a)
-          -> GroundVars     env a
-          -> PreOpenAcc  op env a
+          -> PreOpenAfun exe env (a -> PrimBool)
+          -> PreOpenAfun exe env (a -> a)
+          -> GroundVars      env a
+          -> PreOpenAcc  exe env a
 
   Atrace :: Text
          -> ArrayDescriptors env t
-         -> PreOpenAcc op env Word8
+         -> PreOpenAcc exe env Word8
 
   -- | Asserts that the given expression evaluates to true.
   --
@@ -189,7 +189,7 @@ data PreOpenAcc (op :: Type -> Type) env a where
   --
   Aassert :: Text
           -> Exp env PrimBool
-          -> PreOpenAcc op env Word8
+          -> PreOpenAcc exe env Word8
 
   -- | Assumes that the given expression evaluates to true,
   -- without checking.
@@ -198,7 +198,7 @@ data PreOpenAcc (op :: Type -> Type) env a where
   -- with Fence.
   --
   Aassume :: Exp env PrimBool
-          -> PreOpenAcc op env Word8
+          -> PreOpenAcc exe env Word8
 
   -- | Compiler fence, to prevent the compiler from reordering the computation
   -- of the given variables past this point.
@@ -210,14 +210,14 @@ data PreOpenAcc (op :: Type -> Type) env a where
   -- granularity, assertions can block fusion in certain situations
   --
   Fence   :: IdxSet env
-          -> PreOpenAcc op env t
-          -> PreOpenAcc op env t
+          -> PreOpenAcc exe env t
+          -> PreOpenAcc exe env t
 
 -- | Function abstraction over parametrised array computations
 --
-data PreOpenAfun op env t where
-  Abody ::                             PreOpenAcc  op env  t -> PreOpenAfun op env t
-  Alam  :: GLeftHandSide a env env' -> PreOpenAfun op env' t -> PreOpenAfun op env (a -> t)
+data PreOpenAfun exe env t where
+  Abody ::                             PreOpenAcc  exe env  t -> PreOpenAfun exe env t
+  Alam  :: GLeftHandSide a env env' -> PreOpenAfun exe env' t -> PreOpenAfun exe env (a -> t)
 
 
 -- | Types for local bindings
@@ -418,14 +418,22 @@ argArrayR (ArgArray _ repr _ _) = repr
 -- only consists of the control flow structure and bookkeeping (allocating or
 -- copying buffers). It is parameterized over the actual type of operations.
 --
-type OperationAcc op = PreOpenAcc op
+type OperationAcc op = PreOpenAcc (ExecOp op)
 
 -- | Functions on an intermediate representation consisting of operations.
 -- This data type only consists of the control flow structure and bookkeeping (allocating or
 -- copying buffers). It is parameterized over the actual type of operations.
 --
-type OperationAfun op = PreOpenAfun op
+type OperationAfun op = PreOpenAfun (ExecOp op)
 
+-- | Execute a single operation.
+-- Marks whether this operation is fusible.
+data ExecOp (op :: Bool -> Type -> Type) t where
+  ExecOp :: IsFusible b -> op b t -> ExecOp op t
+
+data IsFusible b where
+  Fusible :: IsFusible True
+  NotFusible :: IsFusible False
 
 class HasGroundsR f where
   groundsR :: f a -> GroundsR a
@@ -588,8 +596,8 @@ reindexIdxSet k set =
     go :: Exists (Idx env) -> f (IdxSet.IdxSet env') -> f (IdxSet.IdxSet env')
     go (Exists ix) acc = IdxSet.insert <$> k ix <*> acc
 
-reindexAcc :: Applicative f => ReindexPartial f env env' -> PreOpenAcc op env t -> f (PreOpenAcc op env' t)
-reindexAcc r (Exec opargs pa) = Exec opargs <$> reindexArgs r pa
+reindexAcc :: Applicative f => ReindexPartial f env env' -> PreOpenAcc exe env t -> f (PreOpenAcc exe env' t)
+reindexAcc r (Exec exe pa) = Exec exe <$> reindexArgs r pa
 reindexAcc r (Return tr) = Return <$> reindexVars r tr
 reindexAcc r (Manifest var) = Manifest <$> reindexVar r var
 reindexAcc r (Compute poe) = Compute <$> reindexExp r poe
@@ -610,7 +618,7 @@ reindexArrayDescriptors k = traverseTupR (reindexArrayDescriptor k)
 reindexArrayDescriptor :: Applicative f => ReindexPartial f env env' -> ArrayDescriptor env a -> f (ArrayDescriptor env' a)
 reindexArrayDescriptor k (ArrayDescriptor shr sh buffers) = ArrayDescriptor shr <$> reindexVars k sh <*> reindexVars k buffers
 
-reindexAfun :: Applicative f => ReindexPartial f env env' -> PreOpenAfun op env t -> f (PreOpenAfun op env' t)
+reindexAfun :: Applicative f => ReindexPartial f env env' -> PreOpenAfun exe env t -> f (PreOpenAfun exe env' t)
 reindexAfun r (Abody poa) = Abody <$> reindexAcc r poa
 reindexAfun r (Alam lhs poa) = reindexLHS r lhs $ \lhs' r' -> Alam lhs' <$> reindexAfun r' poa
 
@@ -678,27 +686,6 @@ arrayInstrGroundVars :: Exists (ArrayInstr benv) -> Exists (GroundVar benv)
 arrayInstrGroundVars (Exists (Parameter (Var tp ix))) = Exists $ Var (GroundRscalar tp) ix
 arrayInstrGroundVars (Exists (Index var))             = Exists var
 
-mapAccExecutable :: (forall args benv'. op args -> Args benv' args -> op' args) -> PreOpenAcc op benv t -> PreOpenAcc op' benv t
-mapAccExecutable f = \case
-  Exec op args                  -> Exec (f op args) args
-  Return vars                   -> Return vars
-  Manifest var                  -> Manifest var
-  Compute e                     -> Compute e
-  Alet lhs uniqueness bnd body  -> Alet lhs uniqueness (mapAccExecutable f bnd) (mapAccExecutable f body)
-  Alloc shr tp sh               -> Alloc shr tp sh
-  Use tp n buffer               -> Use tp n buffer
-  Unit vars                     -> Unit vars
-  Acond var a1 a2               -> Acond var (mapAccExecutable f a1) (mapAccExecutable f a2)
-  Awhile uniqueness c g a       -> Awhile uniqueness (mapAfunExecutable f c) (mapAfunExecutable f g) a
-  Aassert msg cond              -> Aassert msg cond
-  Aassume cond                  -> Aassume cond
-  Atrace msg t                  -> Atrace msg t
-  Fence set e                   -> Fence set (mapAccExecutable f e)
-
-mapAfunExecutable :: (forall args benv'. op args -> Args benv' args -> op' args) -> PreOpenAfun op benv t -> PreOpenAfun op' benv t
-mapAfunExecutable f (Abody a)    = Abody    $ mapAccExecutable  f a
-mapAfunExecutable f (Alam lhs a) = Alam lhs $ mapAfunExecutable f a
-
 groundToExpVar :: TypeR e -> GroundVars benv e -> ExpVars benv e
 groundToExpVar (TupRsingle t)   (TupRsingle (Var _ ix)) = TupRsingle (Var t ix)
 groundToExpVar (TupRpair t1 t2) (TupRpair v1 v2)        = groundToExpVar t1 v1 `TupRpair` groundToExpVar t2 v2
@@ -713,8 +700,11 @@ expToGroundVar  (TupRpair x y) = TupRpair (expToGroundVar x) (expToGroundVar y)
 class NFData' f where
   rnf' :: f a -> ()
 
-instance NFData' op => NFData (OperationAcc op env a) where
-  rnf (Exec op args)                = rnf' op `seq` rnfArgs args
+class NFDataOp (f :: Bool -> Type -> Type) where
+  rnfOp :: f b a -> ()
+
+instance NFData' exe => NFData (PreOpenAcc exe env a) where
+  rnf (Exec exe args)               = rnf' exe `seq` rnfArgs args
   rnf (Return vars)                 = rnfGroundVars vars
   rnf (Manifest var)                = rnfGroundVar var
   rnf (Compute expr)                = rnfOpenExp expr
@@ -729,10 +719,13 @@ instance NFData' op => NFData (OperationAcc op env a) where
   rnf (Atrace msg t)                = rnf msg `seq` rnf' t
   rnf (Fence set a)                 = IdxSet.rnfIdxSet set `seq` rnf a
 
+instance NFDataOp op => NFData' (ExecOp op) where
+  rnf' (ExecOp !_ op) = rnfOp op
+
 instance NFData' (ArrayDescriptor env) where
   rnf' (ArrayDescriptor shr sh buffers) = rnfShapeR shr `seq` rnfGroundVars sh `seq` rnfGroundVars buffers
 
-instance NFData' op => NFData (OperationAfun op env a) where
+instance NFData' exe => NFData (PreOpenAfun exe env a) where
   rnf (Abody a) = rnf a
   rnf (Alam lhs f) = rnfLeftHandSide rnfGroundR lhs `seq` rnf f
 

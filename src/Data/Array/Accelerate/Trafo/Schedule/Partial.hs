@@ -41,7 +41,7 @@ import Data.Array.Accelerate.Trafo.Substitution
 import Data.Array.Accelerate.Trafo.Exp.Substitution
 import Data.Array.Accelerate.Type
 import qualified Data.Array.Accelerate.AST.IdxSet           as IdxSet
-import Data.Array.Accelerate.AST.Partitioned (PartitionedAcc, PartitionedAfun, Clustered)
+import Data.Array.Accelerate.AST.Partitioned (PartitionedAcc, PartitionedAfun, ExecCluster)
 import qualified Data.Array.Accelerate.AST.Partitioned as C
 import Data.Text (Text)
 import Data.Kind
@@ -351,7 +351,7 @@ data CompiledKernel kenv fenv kernel where
 compileKernel'
   :: forall fenv kernel args.
      IsKernel kernel
-  => Clustered (KernelOperation kernel) args
+  => ExecCluster (KernelOperation kernel) args
   -> Args fenv args
   -> CompiledKernel () fenv kernel
 compileKernel' cluster args =

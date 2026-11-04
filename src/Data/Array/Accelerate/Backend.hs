@@ -27,7 +27,7 @@ module Data.Array.Accelerate.Backend (
   Operation.SLVOperation(..),
   Operation.SubArgs(..), Operation.SubArg(..),
   Operation.defaultSlvGenerate, Operation.defaultSlvMap, Operation.defaultSlvBackpermute,
-  Operation.EncodeOperation(..), Operation.hashOperation,
+  Operation.EncodeOperation(..), Operation.hashOperation, Operation.hashCluster,
 
   Operation.SimplifyOperation(..),
   Operation.CopyOperation(..),
@@ -41,7 +41,6 @@ module Data.Array.Accelerate.Backend (
   Pretty.PrettyOp(..),
   Execute(..),
   Operation.NFData'(..),
-  Operation.ShrinkArg(..), -- runWithObj, runNWithObj, runNBench, Benchmarking
 ) where
 
 import qualified Data.Array.Accelerate.Smart as Smart

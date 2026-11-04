@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds              #-}
 {-# LANGUAGE MultiWayIf             #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances   #-}
@@ -29,7 +30,6 @@ import Data.Array.Accelerate.AST.Operation hiding (OperationAcc, OperationAfun)
 import Prelude hiding ( take )
 import Data.Bifunctor
 import Data.Maybe (isJust, fromMaybe)
-import Data.Array.Accelerate.Trafo.Operation.Simplify (SimplifyOperation(..))
 import Data.Array.Accelerate.Representation.Array (Array, Buffer, Buffers, ArrayR (..))
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.Representation.Shape (ShapeR (..), shapeType, rank)
@@ -43,29 +43,31 @@ import Data.Array.Accelerate.AST.Environment
 import Data.Array.Accelerate.Error
 
 import Data.Array.Accelerate.Trafo.Var
-import Data.Array.Accelerate.Trafo.Exp.Substitution
 import Data.Array.Accelerate.Trafo.Substitution
+import Data.Array.Accelerate.Trafo.Exp.Substitution
+import Data.Array.Accelerate.Trafo.Operation.Substitution ()
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (LabelledArgs, LabelledArg (..), Node(..), ArgLabel (..), EnvLabel, Comp, GVal, EnvLabels, EnvVals, valsNodes)
 import Data.List (sortOn, partition, nubBy)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Functor.Const as C
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (LabelledArgOp (..), BackendClusterArg, MakesILP (..), LabelledArgsOp, BackendCluster)
-import Data.Array.Accelerate.Trafo.Operation.LiveVars
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (LabelledArgOp (..), MakesILP (..), LabelledArgsOp)
 import Control.Applicative ((<|>))
 import Data.Array.Accelerate.AST.Var (varsType)
 import Data.Array.Accelerate.Analysis.Match
+import Data.Kind
 
 
+type PartitionedAcc  op = PreOpenAcc  (ExecCluster op)
+type PartitionedAfun op = PreOpenAfun (ExecCluster op)
 
-type PartitionedAcc  op = PreOpenAcc  (Clustered op)
-type PartitionedAfun op = PreOpenAfun (Clustered op)
 
+data ExecCluster op args
+  = ExecSingle !(op False args)
+  | ExecClustered (Cluster op args)
 
-data Clustered op args = Clustered (Cluster op args) (BackendCluster op args)
-
-instance NFData' op => NFData' (Clustered op) where
-  rnf' :: NFData' op => Clustered op a -> ()
-  rnf' _c = () -- TODO
+instance NFDataOp op => NFData' (ExecCluster op) where
+  rnf' (ExecSingle op) = rnfOp op
+  rnf' (ExecClustered !_c) = () -- TODO: Implement NFData' for @Cluster op@
 
 data Cluster op args where
   SingleOp :: SingleOp op args -> Node Comp -> Cluster op args
@@ -75,7 +77,7 @@ data Cluster op args where
         -> Cluster op args
 
 data SingleOp op args where
-  Single :: op opArgs
+  Single :: op True opArgs
          -> ClusterArgs (FunToEnv args) opArgs
          -> SingleOp op args
 
@@ -224,15 +226,10 @@ both k (IntroO2       f)      ls  (r:>:rs) = r     :>: both k f ls rs
 both k (IntroL        f) (l:>:ls)      rs  = l     :>: both k f ls rs
 both k (IntroR        f)      ls  (r:>:rs) = r     :>: both k f ls rs
 
-
-
-flattenClustered :: Clustered op args -> [Exists op]
-flattenClustered (Clustered c _) = flattenCluster c
-
-flattenCluster :: Cluster op args -> [Exists op]
+flattenCluster :: Cluster op args -> [Exists (op True)]
 flattenCluster = (`go` [])
   where
-    go :: Cluster op args -> [Exists op] -> [Exists op]
+    go :: Cluster op args -> [Exists (op True)] -> [Exists (op True)]
     go (SingleOp (Single op _) _) accum = Exists op : accum
     go (Fused _ a b)              accum = go a $ go b accum
 
@@ -297,31 +294,8 @@ type family FromArgs env a where
 type FromIn  env args = FromArgs env ( InArgs args)
 type FromOut env args = FromArgs env (OutArgs args)
 
-
 data Value sh e = Value e (Sh sh e)
 data Sh sh e    = Shape (ShapeR sh) sh
-
-class TupRmonoid f where
-  pair' :: f a -> f b -> f (a,b)
-  unpair' :: f (a,b) -> (f a, f b)
-
-fromTupR :: TupRmonoid f => f () -> TupR f a -> f a
-fromTupR u TupRunit = u
-fromTupR _ (TupRsingle s) = s
-fromTupR u (TupRpair l r) = pair' (fromTupR u l) (fromTupR u r)
-
-
-varsGet' :: Vars s env t -> Env f env -> TupR f t
-varsGet' t env = mapTupR (\(Var _ idx) -> prj' idx env) t
-
-instance TupRmonoid (TupR f) where
-  pair' = TupRpair
-  unpair' (TupRpair l r) = (l, r)
-  unpair' _ = error "nope"
-  -- injL t p = TupRpair t (proofToR p)
-  -- injR t p = TupRpair (proofToR p) t
-
-
 
 unOpLabels' :: LabelledArgsOp op env args -> LabelledArgs env args
 unOpLabels' = mapArgs unOpLabel
@@ -329,39 +303,13 @@ unOpLabels' = mapArgs unOpLabel
 unOpLabel :: LabelledArgOp op env args -> LabelledArg env args
 unOpLabel (LOp arg l _) = L arg l
 
-data Both f g a = Both (f a) (g a) deriving (Show, Eq)
-fst' :: Both f g a -> f a
-fst' (Both x _) = x
-snd' :: Both f g a -> g a
-snd' (Both _ y) = y
-
-instance (TupRmonoid f, TupRmonoid g) => TupRmonoid (Both f g) where
-  pair' (Both a b) (Both c d) = Both (pair' a c) (pair' b d)
-  unpair' (Both (unpair' -> (a, c)) (unpair' -> (b, d))) = (Both a b, Both c d)
-
-
-zipArgs :: PreArgs f a -> PreArgs g a -> PreArgs (Both f g) a
-zipArgs ArgsNil ArgsNil = ArgsNil
-zipArgs (f:>:fs) (g:>:gs) = Both f g :>: zipArgs fs gs
-
-onZipped :: (f a -> f b -> f c) -> (g a -> g b -> g c) -> (Both f g a -> Both f g b -> Both f g c)
-onZipped f g (Both fa ga) (Both fb gb) = Both (f fa fb) (g ga gb)
-
 -- assumes that the arguments are already sorted!
 fuse :: MakesILP op
-     => LabelledArgsOp op env l -> LabelledArgsOp op env r -> PreArgs f l -> PreArgs f r -> Clustered op l -> Clustered op r
-     -> (forall sh e. f (Out sh e) -> f (In sh e) -> f (Var' sh))
-     -> (forall args. PreArgs f args -> Clustered op args -> result)
-     -> result
-fuse labl labr largs rargs (Clustered cl bl) (Clustered cr br) c k = fuse' labl labr (zipArgs largs bl) (zipArgs rargs br) cl cr (onZipped c combineBackendClusterArg)
-  $ \args c' -> k (mapArgs fst' args) (Clustered c' $ mapArgs snd' args)
-
--- assumes that the arguments are already sorted!
-fuse' :: MakesILP op => LabelledArgsOp op env l -> LabelledArgsOp op env r -> PreArgs f l -> PreArgs f r -> Cluster op l -> Cluster op r
+      => LabelledArgsOp op env l -> LabelledArgsOp op env r -> PreArgs f l -> PreArgs f r -> Cluster op l -> Cluster op r
       -> (forall sh e. f (Out sh e) -> f (In sh e) -> f (Var' sh))
       -> (forall args. PreArgs f args -> Cluster op args -> result)
       -> result
-fuse' labl labr largs rargs l r c k =
+fuse labl labr largs rargs l r c k =
   mkFused labl labr $ \f -> k (both c f largs rargs) (Fused f l r)
 
 mkFused :: MakesILP op => LabelledArgsOp op env l -> LabelledArgsOp op env r -> (forall args. Fusion l r args -> result) -> result
@@ -422,16 +370,14 @@ singleton
   :: MakesILP op
   => Node Comp
   -> LabelledArgsOp op env args
-  -> op args
-  -> (forall args'. Clustered op args' -> LabelledArgsOp op env args' -> r)
+  -> op True args
+  -> (forall args'. Cluster op args' -> LabelledArgsOp op env args' -> r)
   -> r
 singleton l largs op k
   | Exists sorted <- sortAndExpandArgs largs
   , opArgs <- createClusterArgs sorted largs
   = k
-    (Clustered
-      (SingleOp (Single op opArgs) l)
-      (mapArgs getClusterArg sorted))
+    (SingleOp (Single op opArgs) l)
     sorted
 
 createClusterArgs
@@ -612,89 +558,6 @@ expandArg arg@(LOp _ (Arr (TupRsingle (C.Const l), _, _) _) _)
 expandArg (LOp _ (Arr (TupRunit, _, _) _) _) = []
 expandArg _ = internalError "Tuple mismatch with labels"
 
-instance ShrinkArg (BackendClusterArg op) => SLVOperation (Clustered op) where
-  slvOperation (Clustered cluster b) = Just $ ShrinkOperation $ \ff' a' a ->
-    case slvCluster cluster ff' a' a of
-      ShrunkOperation' cluster' args ->
-        ShrunkOperation (Clustered cluster' $ shrinkArgs ff' b) args
-
-instance SimplifyOperation (Clustered op)
-  -- Default implementation, where detectCopy always returns []
-  -- Any copies should already have been detected before the program was fused.
-
-slvClusterArg :: forall f f' t. SubArgs f f' -> ClusterArg (FunToEnv f) t -> ClusterArg (FunToEnv f') t
-slvClusterArg subArgs (ClusterArgSingle idx) = case reindexSlv subArgs idx of
-  ReindexSlvKeep idx' -> ClusterArgSingle idx'
-  _ -> internalError "Expected a preserved variable, as this is not an Out argument"
-slvClusterArg subArgs (ClusterArgArray m shr tp buffers) = ClusterArgArray m shr tp $ go buffers
-  where
-    go :: ClusterArgBuffers (FunToEnv f) m sh e -> ClusterArgBuffers (FunToEnv f') m sh e
-    go (ClusterArgBuffersPair a1 a2) = go a1 `ClusterArgBuffersPair` go a2
-    go (ClusterArgBuffersDead tp idx) = case reindexSlv subArgs idx of
-      ReindexSlvKeep idx' -> ClusterArgBuffersDead tp idx'
-    go (ClusterArgBuffersLive tp idx) = case reindexSlv subArgs idx of
-      ReindexSlvKeep idx' -> ClusterArgBuffersLive tp idx'
-      ReindexSlvDead idx' -> ClusterArgBuffersDead tp idx'
-
-reindexSlv :: SubArgs f f' -> Idx (FunToEnv f) t -> ReindexSlv f' t
-reindexSlv (SubArgsDead _) ZeroIdx = ReindexSlvDead ZeroIdx
-reindexSlv (SubArgsLive arg _) ZeroIdx = case arg of
-  SubArgKeep -> ReindexSlvKeep ZeroIdx
-  SubArgOut SubTupRkeep -> ReindexSlvKeep ZeroIdx
-  _ -> internalError "Expected preserved value"
-reindexSlv (SubArgsDead s) (SuccIdx idx) = case reindexSlv s idx of
-  ReindexSlvKeep idx -> ReindexSlvKeep $ SuccIdx idx
-  ReindexSlvDead idx -> ReindexSlvDead $ SuccIdx idx
-reindexSlv (SubArgsLive _ s) (SuccIdx idx) = case reindexSlv s idx of
-  ReindexSlvKeep idx -> ReindexSlvKeep $ SuccIdx idx
-  ReindexSlvDead idx -> ReindexSlvDead $ SuccIdx idx
-reindexSlv SubArgsNil idx = case idx of {}
-
-data ReindexSlv f t where
-  ReindexSlvKeep :: Idx (FunToEnv f) t -> ReindexSlv f t
-  ReindexSlvDead :: Idx (FunToEnv f) (Var' sh) -> ReindexSlv f (Out sh e)
-
-slvCluster :: Cluster op f -> SubArgs f f' -> Args env' f' -> Args env f -> ShrunkOperation' (Cluster op) env' f'
-slvCluster (SingleOp (Single op args) label) sub args' _
-  = ShrunkOperation' (SingleOp (Single op $ mapArgs (slvClusterArg sub) args) label) args'
-
-slvCluster (Fused fusion left right) sub args1' args1 = splitslvstuff fusion sub args1' args1 $
-  \f' lsub largs' largs rsub rargs' rargs -> case (slvCluster left lsub largs' largs, slvCluster right rsub rargs' rargs) of
-    (ShrunkOperation' lop largs'', ShrunkOperation' rop rargs'') ->
-      ShrunkOperation' (Fused f' lop rop) (both (\x _ -> outvar x) f' largs'' rargs'')
-  where
-    splitslvstuff :: Fusion l r a
-      -> SubArgs a a'
-      -> Args env' a'
-      -> Args env a
-      -> (forall l' r'. Fusion l' r' a' -> SubArgs l l' -> Args env' l' -> Args env l -> SubArgs r r' -> Args env' r' -> Args env r -> result)
-      -> result
-    splitslvstuff EmptyF SubArgsNil ArgsNil ArgsNil k = k EmptyF SubArgsNil ArgsNil ArgsNil SubArgsNil ArgsNil ArgsNil
-    splitslvstuff _ (SubArgsLive (SubArgOut SubTupRskip) _) _ _ _ = error "completely removed out arg using subtupr" --splitslvstuff f (SubArgsDead subs) args' args k
-    splitslvstuff f (SubArgsLive (SubArgOut SubTupRkeep) subs) args' args k = splitslvstuff f (SubArgsLive SubArgKeep subs) args' args k
-    splitslvstuff _ (SubArgsLive (SubArgOut SubTupRpair{}) _) (_:>:_) (_:>:_) _ = error "not SOA'd array"
-    splitslvstuff (Diagonal   f) (SubArgsDead subs) args' (ArgArray _ r sh _:>:args) k = splitslvstuff (Vertical r f) (SubArgsLive SubArgKeep subs) args' (ArgVar (groundToExpVar (shapeType $ arrayRshape r) sh) :>:args) k
-    splitslvstuff (IntroO1    f) (SubArgsDead subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \f lsubs largs' largs rsubs rargs' rargs -> k (IntroL   f) (SubArgsDead lsubs) (arg':>:largs') (arg:>:largs)              rsubs          rargs'         rargs
-    splitslvstuff (IntroO2    f) (SubArgsDead subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \f lsubs largs' largs rsubs rargs' rargs -> k (IntroR   f)              lsubs          largs'         largs  (SubArgsDead rsubs) (arg':>:rargs') (arg:>:rargs)
-    splitslvstuff (IntroL     _) (SubArgsDead _) (_:>:_) (_:>:_) _ = error "out in IntroL/R"
-    splitslvstuff (IntroR     _) (SubArgsDead _) (_:>:_) (_:>:_) _ = error "out in IntroL/R"
-    splitslvstuff (Vertical r  f) (SubArgsLive SubArgKeep subs) (ArgVar arg':>:args') (ArgVar arg:>:args) k = splitslvstuff f subs args' args $ \f lsubs largs' largs rsubs rargs' rargs -> k (Vertical r f) (SubArgsLive SubArgKeep lsubs) (ArgArray Out r sh' buf :>:largs') (ArgArray Out r sh buf :>:largs) (SubArgsLive SubArgKeep rsubs) (ArgArray In r sh' buf :>:rargs') (ArgArray In r sh buf :>:rargs)
-      where
-        buf = error "fused away buffer"
-        sh = expToGroundVar arg
-        sh' = expToGroundVar arg'
-    splitslvstuff (Diagonal   f) (SubArgsLive SubArgKeep subs) (arg'@(ArgArray Out r' sh' buf'):>:args') (arg@(ArgArray Out r sh buf):>:args) k = splitslvstuff f subs args' args $ \f lsubs largs' largs rsubs rargs' rargs -> k (Diagonal   f) (SubArgsLive SubArgKeep lsubs) (arg':>:largs') (arg:>:largs) (SubArgsLive SubArgKeep rsubs) (ArgArray In r' sh' buf':>:rargs') (ArgArray In r sh buf:>:rargs)
-    splitslvstuff (Horizontal f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \f lsubs largs' largs rsubs rargs' rargs -> k (Horizontal f) (SubArgsLive SubArgKeep lsubs) (       arg':>:largs') (       arg:>:largs) (SubArgsLive SubArgKeep rsubs) (      arg':>:rargs') (      arg:>:rargs)
-    splitslvstuff (IntroI1    f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \f lsubs largs' largs rsubs rargs' rargs -> k (IntroI1    f) (SubArgsLive SubArgKeep lsubs) (       arg':>:largs') (       arg:>:largs)                         rsubs                rargs'               rargs
-    splitslvstuff (IntroI2    f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \f lsubs largs' largs rsubs rargs' rargs -> k (IntroI2    f)                         lsubs                 largs'                largs  (SubArgsLive SubArgKeep rsubs) (      arg':>:rargs') (      arg:>:rargs)
-    splitslvstuff (IntroO1    f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \f lsubs largs' largs rsubs rargs' rargs -> k (IntroO1    f) (SubArgsLive SubArgKeep lsubs) (       arg':>:largs') (       arg:>:largs)                         rsubs                rargs'               rargs
-    splitslvstuff (IntroO2    f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \f lsubs largs' largs rsubs rargs' rargs -> k (IntroO2    f)                         lsubs                 largs'                largs  (SubArgsLive SubArgKeep rsubs) (      arg':>:rargs') (      arg:>:rargs)
-    splitslvstuff (IntroL     f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \f lsubs largs' largs rsubs rargs' rargs -> k (IntroL     f) (SubArgsLive SubArgKeep lsubs) (       arg':>:largs') (       arg:>:largs)                         rsubs                rargs'               rargs
-    splitslvstuff (IntroR     f) (SubArgsLive SubArgKeep subs) (arg':>:args') (arg:>:args) k = splitslvstuff f subs args' args $ \f lsubs largs' largs rsubs rargs' rargs -> k (IntroR     f)                         lsubs                 largs'                largs  (SubArgsLive SubArgKeep rsubs) (      arg':>:rargs') (      arg:>:rargs)
-
--- Variant of ShrunkOperation where f is not an existential
-data ShrunkOperation' op env f where
-  ShrunkOperation' :: op f -> Args env f -> ShrunkOperation' op env f
 
 outvar :: Arg env (Out sh e) -> Arg env (Var' sh)
 outvar (ArgArray Out (ArrayR shr _) sh _) = ArgVar $ groundToExpVar (shapeType shr) sh
@@ -729,7 +592,7 @@ showSorted (a :>: args) = case a of
   LOp (ArgArray m _ _ _) (Arr (_,bs,_) (_,sh,_)) _ -> show m <> "{" <> show (valsNodes bs <> valsNodes sh) <> "}" <> showSorted args
   _ -> showSorted args
 
-data FlatCluster op env where
+data FlatCluster (op :: Bool -> Type -> Type) env where
   FlatCluster
     :: ShapeR sh
     -> ELeftHandSide sh () idxEnv
@@ -783,7 +646,7 @@ data FlatOps op env idxEnv where
 
 data FlatOp op env idxEnv where
   FlatOp
-    :: op args
+    :: op True args
     -> Args env args
     -> IdxArgs idxEnv args
     -> FlatOp op env idxEnv
@@ -841,8 +704,9 @@ data ToFlatFusion fun funL funR where
     -> (forall env'. Args env' fun -> Vars GroundR env' (Buffers a) -> Args env' funR)
     -> ToFlatFusion fun funL funR
 
-toFlatClustered :: SetOpIndices op => Clustered op f -> Args env f -> FlatCluster op env
-toFlatClustered (Clustered cluster _) = toFlatCluster cluster
+execToFlatCluster :: SetOpIndices op => ExecCluster op f -> Args env f -> Either (op False f) (FlatCluster op env)
+execToFlatCluster (ExecSingle op) _ = Left op
+execToFlatCluster (ExecClustered cluster) args = Right $ toFlatCluster cluster args
 
 toFlatCluster :: SetOpIndices op => Cluster op f -> Args env f -> FlatCluster op env
 toFlatCluster cluster args
@@ -993,7 +857,7 @@ class SetOpIndices op where
     -- If there is no loop nesting for that depth, this function returns Nothing.
     -- In this case, and only in this case, setOpIndices may return Nothing.
     :: (LoopDepth -> Maybe (Idx idxEnv Int))
-    -> op args
+    -> op True args
     -> Args env args
     -- IdxArgs where only the Out positions are filled
     -> IdxArgs idxEnv args
@@ -1003,7 +867,7 @@ class SetOpIndices op where
     -> Maybe (Either (IsBackpermute args) (IdxArgs idxEnv args))
 
   getOpLoopDirections
-    :: op args
+    :: op True args
     -> Args env args
     -> IdxArgs idxEnv args
     -> [(Idx idxEnv Int, LoopDirection Int)]

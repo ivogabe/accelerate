@@ -10,27 +10,44 @@
 -- Portability : non-portable (GHC extensions)
 --
 
-module Data.Array.Accelerate.Analysis.Hash.Operation ( EncodeOperation(..), hashOperation, encodePreArgs, encodeArg ) where
+module Data.Array.Accelerate.Analysis.Hash.Operation ( EncodeOperation(..), EncodeExecute(..), hashOperation, hashCluster, encodePreArgs, encodeArg ) where
 
 import Data.Array.Accelerate.Analysis.Hash.Exp
 import Data.Array.Accelerate.AST.Partitioned
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph (MakesILP, encodeBackendClusterArg)
 
 import Crypto.Hash.XKCP
 import Data.ByteString.Builder
 
-hashOperation :: EncodeOperation op => op t -> Args env t -> Hash
+hashOperation :: EncodeOperation op => op f t -> Args env t -> Hash
 hashOperation op args
   = hashlazy
   $ toLazyByteString
   $ encodeOperation op <> encodePreArgs encodeArg args
 
-class EncodeOperation op where
-  encodeOperation :: op t -> Builder
+hashCluster :: EncodeOperation op => Cluster op t -> Args env t -> Hash
+hashCluster cluster args
+  = hashlazy
+  $ toLazyByteString
+  $ encodeCluster cluster <> encodePreArgs encodeArg args
 
-instance (MakesILP op, EncodeOperation op) => EncodeOperation (Clustered op) where
-  encodeOperation (Clustered cluster backendCluster) =
-    encodePreArgs encodeBackendClusterArg backendCluster <> encodeCluster cluster
+class EncodeOperation op where
+  encodeOperation :: op b t -> Builder
+
+class EncodeExecute exe where
+  encodeExecute :: exe t -> Builder
+
+instance EncodeOperation op => EncodeExecute (ExecOp op) where
+  encodeExecute (ExecOp f op) = encodeIsFusible f <> encodeOperation op
+
+instance EncodeOperation op => EncodeExecute (ExecCluster op) where
+  encodeExecute (ExecSingle op) =
+    intHost $(hashQ ("ExecSingle" :: String)) <> encodeOperation op
+  encodeExecute (ExecClustered cluster) =
+    intHost $(hashQ ("ExecClustered" :: String)) <> encodeCluster cluster
+
+encodeIsFusible :: IsFusible f -> Builder
+encodeIsFusible Fusible    = intHost $(hashQ ("Fusible" :: String))
+encodeIsFusible NotFusible = intHost $(hashQ ("NotFusible" :: String))
 
 encodePreArgs :: (forall t. arg t -> Builder) -> PreArgs arg f -> Builder
 encodePreArgs f  (a :>: as) = intHost $(hashQ (":>:" :: String)) <> f a <> encodePreArgs f as

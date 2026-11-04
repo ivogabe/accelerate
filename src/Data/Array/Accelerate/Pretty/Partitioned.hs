@@ -25,15 +25,9 @@ import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Representation.Array
 import Data.Array.Accelerate.AST.Var (varsType)
 
-instance (PrettyOp op, SetOpIndices op) => PrettyOp (Clustered op) where
-  prettyOp :: PrettyOp op => Clustered op t -> Adoc
-  prettyOp (Clustered c _) = prettyOp c
-  prettyOpWithArgs env (Clustered c _) = prettyOpWithArgs env c
-
-instance (PrettyOp op, SetOpIndices op) => PrettyOp (Cluster op) where
-  prettyOp _ = "cluster"
-
-  prettyOpWithArgs env cluster args
+instance (PrettyOp op, SetOpIndices op) => PrettyExe (ExecCluster op) where
+  prettyExe env (ExecSingle op) args = hang 2 $ group $ vsep [annotate Execute "execute", prettyOp op, prettyArgs env args]
+  prettyExe env (ExecClustered cluster) args
     {- = prettyFlatCluster env flat
     where
       flat = toFlatCluster cluster args-}

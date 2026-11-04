@@ -30,10 +30,10 @@ import Data.Array.Accelerate.Analysis.Hash.Exp
 import Data.Kind
 
 class (NFData' kernel, NFData' (KernelMetadata kernel)) => IsKernel kernel where
-  type KernelOperation kernel :: Type -> Type
+  type KernelOperation kernel :: Bool -> Type -> Type
   type KernelMetadata  kernel :: Type -> Type
 
-  compileKernel :: Env AccessGroundR env -> Clustered (KernelOperation kernel) args -> Args env args -> kernel env
+  compileKernel :: Env AccessGroundR env -> ExecCluster (KernelOperation kernel) args -> Args env args -> kernel env
 
   kernelMetadata :: KernelFun kernel f -> KernelMetadata kernel f
   default kernelMetadata :: KernelMetadata kernel ~ NoKernelMetadata => KernelFun kernel f -> KernelMetadata kernel f
