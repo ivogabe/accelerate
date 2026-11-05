@@ -437,6 +437,7 @@ library
         , containers                    >= 0.6.7
         , deepseq                       >= 1.4.8
         , double-conversion             >= 2.0
+        , fgl
         , formatting                    >= 7.0
         , half                          >= 0.3
         , hashable                      >= 1.1
@@ -546,8 +547,13 @@ library
         Data.Array.Accelerate.Trafo.Operation.Substitution
         Data.Array.Accelerate.Trafo.Operation.LiveVars
         Data.Array.Accelerate.Trafo.Partitioning.ILP
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.BinaryDefaults
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.Branching
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.Components
         Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.DirectionDefaults
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Lower
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph
@@ -556,6 +562,7 @@ library
         -- Data.Array.Accelerate.Trafo.Partitioning.ILP.HiGHS
         Data.Array.Accelerate.Trafo.Partitioning.ILP.MIP
         Data.Array.Accelerate.Trafo.Partitioning.ILP.NameGeneration
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.Presolve
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Solver
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Var
         Data.Array.Accelerate.Trafo.Partitioning.Stream
