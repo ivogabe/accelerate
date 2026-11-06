@@ -38,9 +38,6 @@ import Data.Array.Accelerate.Error
 import Data.Kind
 import Data.Maybe (isJust)
 
-type a $ b = a b
-infixr 0 $
-
 -- | Vanilla boundary condition specification for stencil operations
 -- Note that this data type is not used in the actual AST, it is just
 -- used to pass to 'mkStencil' or 'mkStencil2'.
@@ -64,7 +61,7 @@ data Boundary env t where
             -> Boundary env (Array sh e)
 
 
-class NFData' op => LowerAcc (op :: Type -> Type) where
+class NFDataOp op => LowerAcc (op :: Bool -> Type -> Type) where
   mkMap         :: Arg env (Fun' (s -> t))
                 -> Arg env (In sh s)
                 -> Arg env (Out sh t)
@@ -129,7 +126,7 @@ class NFData' op => LowerAcc (op :: Type -> Type) where
         typ = TupRpair ty1 ty2
         zippedArg  = ArgArray Out (ArrayR shr typ) (weakenVars w sh) (k weakenId)
         zippedArg' = ArgArray In  (ArrayR shr typ) (weakenVars w sh) (k weakenId) in
-      aletUnique lhs (lowerAlloc (ArrayR shr typ) (fromGrounds sh)) $
+      aletUnique lhs (lowerAlloc (ArrayR shr typ) (groundToExpVar (shapeType shr) sh)) $
         alet LeftHandSideUnit
           (mkZip (weaken w in1) (weaken w in2) zippedArg) $
           mkMap (ArgFun . uncurry' $ weakenArrayInstr w f) zippedArg' $ ArgArray Out outR (weakenVars w sh) (weakenVars w buf)

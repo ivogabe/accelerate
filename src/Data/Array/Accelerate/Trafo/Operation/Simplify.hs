@@ -20,6 +20,7 @@ import Data.Array.Accelerate.AST.IdxSet                     ( IdxSet )
 import qualified Data.Array.Accelerate.AST.IdxSet           as IdxSet
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Operation
+import Data.Array.Accelerate.AST.Partitioned
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Array.Buffer
 import Data.Array.Accelerate.Type
@@ -40,8 +41,18 @@ import Control.Monad
 import Data.Functor.Identity
 
 class SimplifyOperation op where
-  detectCopy :: op f -> Args env f -> [CopyOperation env]
+  detectCopy :: op b f -> Args env f -> [CopyOperation env]
   detectCopy _ _ = []
+
+class SimplifyExecute exe where
+  detectCopy' :: exe f -> Args env f -> [CopyOperation env]
+
+instance SimplifyOperation op => SimplifyExecute (ExecOp op) where
+  detectCopy' (ExecOp _ op) args = detectCopy op args
+
+instance SimplifyOperation op => SimplifyExecute (ExecCluster op) where
+  -- Any copies are probably already detected before the program was fused.
+  detectCopy' _ _ = []
 
 data CopyOperation env where
   CopyOperation
@@ -49,17 +60,17 @@ data CopyOperation env where
     -> Idx env (Buffer t) -- output
     -> CopyOperation env
 
-isNoOp :: SimplifyOperation op => op f -> Args env f -> Bool
--- An operation is a no-op if all outputs are copies of themselves.
+isNoOp :: SimplifyExecute exe => exe f -> Args env f -> Bool
+-- An operation/executable is a no-op if all outputs are copies of themselves.
 -- For instance, 'map id xs xs' is a no-op.
 -- This pattern is created by in-place updates, on the copy of the defaults
 -- array of a permute.
-isNoOp op args = all (\(Exists idx) -> idx `IdxSet.member` copied) $ argsOutputs args
+isNoOp exe args = all (\(Exists idx) -> idx `IdxSet.member` copied) $ argsOutputs args
   where
     copied = IdxSet.fromList
       $ map (\(CopyOperation idx _) -> Exists idx)
       $ filter (\(CopyOperation i o) -> i == o)
-      $ detectCopy op args
+      $ detectCopy' exe args
 
 copyOperationsForArray :: forall env sh sh' t. Arg env (In sh t) -> Arg env (Out sh' t) -> [CopyOperation env]
 copyOperationsForArray (ArgArray _ (ArrayR _ tp) _ input) (ArgArray _ _ _ output) = go tp input output []
@@ -214,11 +225,11 @@ syncSubstitutes env vars =
       )
     $ wprjSet vars (unInfoEnv env)
 
-simplifyFun :: SimplifyOperation op => OperationAfun op () t -> OperationAfun op () t
+simplifyFun :: SimplifyExecute exe => PreOpenAfun exe () t -> PreOpenAfun exe () t
 simplifyFun fun = snd (simplifyFun' fun) emptySimplifyEnv
 
 -- Returns a set of array variables which may have been written to, and a the simplified function (given an InfoEnv)
-simplifyFun' :: SimplifyOperation op => OperationAfun op env t -> (IdxSet env, InfoEnv env -> OperationAfun op env t)
+simplifyFun' :: SimplifyExecute exe => PreOpenAfun exe env t -> (IdxSet env, InfoEnv env -> PreOpenAfun exe env t)
 simplifyFun' (Alam lhs f) =
   (IdxSet.drop' lhs set, \env -> Alam lhs $ f' $ bindEnv lhs env)
   where
@@ -227,7 +238,7 @@ simplifyFun' (Abody body)  = (set, \env -> Abody $ body' env)
   where
     (set, body') = simplify' (TupRsingle Shared) body
 
-simplifyFunWithUniqueness :: SimplifyOperation op => Uniquenesses t -> OperationAfun op env (t -> t) -> (IdxSet env, InfoEnv env -> OperationAfun op env (t -> t))
+simplifyFunWithUniqueness :: SimplifyExecute exe => Uniquenesses t -> PreOpenAfun exe env (t -> t) -> (IdxSet env, InfoEnv env -> PreOpenAfun exe env (t -> t))
 simplifyFunWithUniqueness uniquenesses (Alam lhs (Abody body)) =
   ( IdxSet.drop' lhs set
   , \env -> Alam lhs $ Abody $ body' $ bindEnv lhs env
@@ -237,13 +248,13 @@ simplifyFunWithUniqueness uniquenesses (Alam lhs (Abody body)) =
 simplifyFunWithUniqueness _ (Abody body) = groundFunctionImpossible $ groundsR body
 simplifyFunWithUniqueness _ (Alam lhs (Alam _ _)) = groundFunctionImpossible $ lhsToTupR lhs
 
-simplify :: SimplifyOperation op => OperationAcc op () t -> OperationAcc op () t
+simplify :: SimplifyExecute exe => PreOpenAcc exe () t -> PreOpenAcc exe () t
 simplify acc = snd (simplify' (TupRsingle Shared) acc) emptySimplifyEnv
 
 -- Returns the simplified program and a set of array variables which may have been written to
-simplify' :: SimplifyOperation op => Uniquenesses t -> OperationAcc op env t -> (IdxSet env, InfoEnv env -> OperationAcc op env t)
+simplify' :: SimplifyExecute exe => Uniquenesses t -> PreOpenAcc exe env t -> (IdxSet env, InfoEnv env -> PreOpenAcc exe env t)
 simplify' uniquenesses = \case
-  Exec op args
+  Exec exe args
     | output <- outputArrays args ->
       ( outputArrays args
       , \env ->
@@ -251,10 +262,10 @@ simplify' uniquenesses = \case
           fenceSet = syncSubstitutes env $ IdxSet.fromVarList $ argsVars args
           args' = mapArgs (simplifyArg env) args
         in
-          if isUndefCopy env output $ detectCopy op args then
+          if isUndefCopy env output $ detectCopy' exe args then
             Return TupRunit
           else
-            fence fenceSet $ Exec op args')
+            fence fenceSet $ Exec exe args')
   Return vars ->
     -- Note that we do not need to check for writes to variables here.
     -- This construct may cause aliassing of variables, but an aliassed
@@ -438,7 +449,7 @@ findConstant env tp1 value1 = go env
           _ -> Nothing
       | otherwise = Nothing
 
-bindingEnv :: forall op t env env'. SimplifyOperation op => IdxSet env -> IdxSet env -> GLeftHandSide t env env' -> OperationAcc op env t -> InfoEnv env -> InfoEnv env'
+bindingEnv :: forall exe t env env'. SimplifyExecute exe => IdxSet env -> IdxSet env -> GLeftHandSide t env env' -> PreOpenAcc exe env t -> InfoEnv env -> InfoEnv env'
 bindingEnv _ fenceSet lhs (Compute expr) (InfoEnv environment) = InfoEnv $ go weakenId lhs expr environment
   where
     go :: env :> env1 -> GLeftHandSide s env1 env2 -> Exp env s -> WEnv' Info env1 env1 -> WEnv' Info env2 env2
@@ -471,8 +482,8 @@ bindingEnv _ fenceSet (LeftHandSideSingle _) Alloc{} (InfoEnv env)
   | IdxSet.null fenceSet = InfoEnv $ wpush env InfoUndef
 bindingEnv _ fenceSet (LeftHandSideSingle _) (Unit (Var _ idx)) (InfoEnv env)
   | IdxSet.null fenceSet = InfoEnv $ wpush env $ InfoBuffer (Just $ SuccIdx idx) Nothing []
-bindingEnv outputs fenceSet (LeftHandSideWildcard _) (Exec op args) env
-  | IdxSet.null fenceSet = List.foldl' addCopy env $ detectCopy op args
+bindingEnv outputs fenceSet (LeftHandSideWildcard _) (Exec exe args) env
+  | IdxSet.null fenceSet = List.foldl' addCopy env $ detectCopy' exe args
     where
       addCopy :: InfoEnv env -> CopyOperation env -> InfoEnv env
       addCopy env' (CopyOperation input output)
@@ -591,10 +602,10 @@ unionSubTupR _ _ = Exists SubTupRkeep
 -- to the initial shape of the array.
 awhileSimplifyInvariant
   :: Uniquenesses a
-  -> PreOpenAfun op env (a -> PrimBool)
-  -> PreOpenAfun op env (a -> a)
-  -> GroundVars     env a
-  -> PreOpenAcc  op env a
+  -> PreOpenAfun exe env (a -> PrimBool)
+  -> PreOpenAfun exe env (a -> a)
+  -> GroundVars      env a
+  -> PreOpenAcc  exe env a
 awhileSimplifyInvariant us cond step initial = case awhileDropInvariantFun initial step of
   Exists SubTupRkeep -> Awhile us cond step initial
   Exists sub
@@ -611,7 +622,7 @@ awhileSimplifyInvariant us cond step initial = case awhileDropInvariantFun initi
       Alam lhs _ -> lhsToTupR lhs
       Abody body -> groundFunctionImpossible $ groundsR body
 
-awhileDropInvariantFun :: GroundVars env t -> OperationAfun op env (t -> t) -> Exists (SubTupR t)
+awhileDropInvariantFun :: GroundVars env t -> PreOpenAfun exe env (t -> t) -> Exists (SubTupR t)
 awhileDropInvariantFun initial (Alam lhs (Abody body)) =
   awhileDropInvariant (mapTupR (weaken $ weakenWithLHS lhs) initial) (lhsMaybeVars lhs) body
 awhileDropInvariantFun _initial (Alam lhs (Alam _ _))   = groundFunctionImpossible (lhsToTupR lhs)
@@ -621,7 +632,7 @@ awhileDropInvariantFun _initial (Abody body)            = groundFunctionImpossib
 -- Invariant here means that the step function of the loop returns the input unchanged,
 -- or returns the initial value in each step.
 -- This pattern often occurs with sizes of arrays.
-awhileDropInvariant :: GroundVars env t -> MaybeVars GroundR env t -> OperationAcc op env t -> Exists (SubTupR t)
+awhileDropInvariant :: GroundVars env t -> MaybeVars GroundR env t -> PreOpenAcc exe env t -> Exists (SubTupR t)
 awhileDropInvariant initial argument = \case
   Return vars
     -> matchReturn initial argument vars
@@ -658,18 +669,18 @@ awhileDropInvariant initial argument = \case
     matchReturn TupRunit _ _ = Exists SubTupRskip
     matchReturn _ _ _ = internalError "Tuple mismatch"
 
-subTupFunctionResult :: SubTupR t t' -> OperationAfun op env (ta -> t) -> OperationAfun op env (ta -> t')
+subTupFunctionResult :: SubTupR t t' -> PreOpenAfun exe env (ta -> t) -> PreOpenAfun exe env (ta -> t')
 subTupFunctionResult sub (Alam lhs (Abody body)) = Alam lhs $ Abody $ subTupAcc sub body
 subTupFunctionResult _ _ = internalError "Illegal function"
 
-subTupAcc :: SubTupR t t' -> OperationAcc op env t -> OperationAcc op env t'
+subTupAcc :: SubTupR t t' -> PreOpenAcc exe env t -> PreOpenAcc exe env t'
 subTupAcc sub = \case
   Return vars -> Return $ subTupR sub vars
   Alet lhs us bnd body -> Alet lhs us bnd $ subTupAcc sub body
   Acond c t f -> Acond c (subTupAcc sub t) (subTupAcc sub f)
   _ -> internalError "Cannot subTup this program"
 
-subTupFunctionArgument :: SubTupR t t' -> GroundVars env t -> OperationAfun op env (t -> tr) -> OperationAfun op env (t' -> tr)
+subTupFunctionArgument :: SubTupR t t' -> GroundVars env t -> PreOpenAfun exe env (t -> tr) -> PreOpenAfun exe env (t' -> tr)
 subTupFunctionArgument sub initial (Alam lhs body)
   | SubTupSubstitution lhs' k <- subTupSubstitution sub lhs initial
   = Alam lhs' $ weaken k body
@@ -707,15 +718,15 @@ subTupSubstitution s (LeftHandSideWildcard t) _
   = SubTupSubstitution (LeftHandSideWildcard $ subTupR s t) weakenId
 subTupSubstitution _ _ _ = internalError "Tuple mismatch"
 
-assert :: Text -> Exp env PrimBool -> OperationAcc op env Word8
+assert :: Text -> Exp env PrimBool -> PreOpenAcc exe env Word8
 assert _ (Const _ 1) = Compute (Const scalarTypeWord8 1)
 assert msg c = Aassert msg c
 
-assume :: Exp env PrimBool -> OperationAcc op env Word8
+assume :: Exp env PrimBool -> PreOpenAcc exe env Word8
 assume (Const _ 1) = Compute (Const scalarTypeWord8 1)
 assume c = Aassume c
 
-compute :: Exp env a -> OperationAcc op env a
+compute :: Exp env a -> PreOpenAcc exe env a
 compute (Assert msg c expr) =
   alet
     (LeftHandSideSingle $ GroundRscalar scalarTypeWord8)

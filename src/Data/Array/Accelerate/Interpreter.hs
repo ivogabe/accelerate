@@ -51,6 +51,7 @@ import Control.Monad.ST
 import Data.Bits
 import Data.Array.Accelerate.Backend
 import Data.Array.Accelerate.Array.Buffer
+import Data.Array.Accelerate.Pretty.Operation (prettyExe)
 import Data.Array.Accelerate.Pretty.Partitioned ()
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.LeftHandSide (LeftHandSide (LeftHandSideUnit))
@@ -87,37 +88,37 @@ map !?! key = case map M.!? key of
 
 
 -- we can implement stencils using clamp, mirror or wrap with backpermute and zipwith(map), but for stencils using function we need a little extra.
-data InterpretOp args where
-  IMap         :: InterpretOp (Fun' (s -> t)    -> In sh s -> Out sh  t -> ())
-  IBackpermute :: InterpretOp (Fun' (sh' -> sh) -> In sh t -> Out sh' t -> ())
+data InterpretOp (f :: Bool) args where
+  IMap         :: InterpretOp True (Fun' (s -> t)    -> In sh s -> Out sh  t -> ())
+  IBackpermute :: InterpretOp True (Fun' (sh' -> sh) -> In sh t -> Out sh' t -> ())
   -- -- backpermute which doesn't error when the target index is out of bounds, but then evaluates the other function like a `generate` at the target index.
   -- -- Generalisation of a 'backpermute with default', but not as general as a generate
   -- IBackpermuteOr :: InterpretOp (Fun' (sh' -> sh) -> Fun' (sh -> t) -> In sh t -> Out sh' t -> ())
-  IGenerate    :: InterpretOp (Fun' (sh -> t)              -> Out sh  t -> ())
-  IPermute     :: InterpretOp (Fun' (e -> e -> e)
+  IGenerate    :: InterpretOp True (Fun' (sh -> t)              -> Out sh  t -> ())
+  IPermute     :: InterpretOp True (Fun' (e -> e -> e)
                               -> Mut sh' e
                               -> In sh (PrimMaybe (sh', e))
                               -> ())
-  IPermuteUnique::InterpretOp (Mut sh' e
+  IPermuteUnique::InterpretOp True (Mut sh' e
                               -> In sh (PrimMaybe (sh', e))
                               -> ())
   -- The interpreter doesn't have 'communication' with other 'threads' like the other backends do, to simulate cooperative scan/fold we use an IORef instead
-  IFold1       :: IORef (Map Int e) -> InterpretOp (Fun' (e -> e -> e) -> In (sh, Int) e -> Out sh e -> ())
-  IScan1      :: Direction -> IORef (Map Int e) -> InterpretOp (Fun' (e -> e -> e) -> In (sh, Int) e -> Out (sh, Int) e -> ())
+  IFold1       :: IORef (Map Int e) -> InterpretOp True (Fun' (e -> e -> e) -> In (sh, Int) e -> Out sh e -> ())
+  IScan1      :: Direction -> IORef (Map Int e) -> InterpretOp True (Fun' (e -> e -> e) -> In (sh, Int) e -> Out (sh, Int) e -> ())
   -- append a number of elements to the left or right of each innermost row using the generate function
   -- IAppend :: Side -> Int -> InterpretOp (Fun' ((sh, Int) -> e) -> In (sh, Int) e -> Out (sh, Int) e -> ())
 
 instance LowerAcc InterpretOp where
-  mkMap         a b c   = Exec IMap         (a :>: b :>: c :>:       ArgsNil)
-  mkBackpermute a b c   = Exec IBackpermute (a :>: b :>: c :>:       ArgsNil)
-  mkGenerate    a b     = Exec IGenerate    (a :>: b :>:             ArgsNil)
-  mkPermute     (Just a) b c = Exec IPermute     (a :>: b :>: c :>: ArgsNil)
-  mkPermute     Nothing  b c = Exec IPermuteUnique (b :>: c :>: ArgsNil)
-  mkFold        a Nothing b c = Exec (IFold1 $ unsafePerformIO $ newIORef mempty) (a :>: b :>: c :>:       ArgsNil)
+  mkMap         a b c   = Exec (ExecOp Fusible IMap)         (a :>: b :>: c :>:       ArgsNil)
+  mkBackpermute a b c   = Exec (ExecOp Fusible IBackpermute) (a :>: b :>: c :>:       ArgsNil)
+  mkGenerate    a b     = Exec (ExecOp Fusible IGenerate)    (a :>: b :>:             ArgsNil)
+  mkPermute     (Just a) b c = Exec (ExecOp Fusible IPermute) (a :>: b :>: c :>: ArgsNil)
+  mkPermute     Nothing  b c = Exec (ExecOp Fusible IPermuteUnique) (b :>: c :>: ArgsNil)
+  mkFold        a Nothing b c = Exec (ExecOp Fusible $ IFold1 $ unsafePerformIO $ newIORef mempty) (a :>: b :>: c :>:       ArgsNil)
   -- we lower a Fold with seed element into a Fold1 followed by a map which prepends the seed
-  mkFold a@(ArgFun f) (Just (ArgExp seed)) b@(ArgArray In (ArrayR _ tp) _ _) c@(ArgArray _ arr' sh' _)
+  mkFold a@(ArgFun f) (Just (ArgExp seed)) b@(ArgArray In _ _ _) c@(ArgArray _ arr'@(ArrayR shr tp) sh' _)
     | DeclareVars lhsTemp wTemp kTemp <- declareVars $ buffersR tp =
-      aletUnique lhsTemp (lowerAlloc arr' $ fromGrounds sh') $
+      aletUnique lhsTemp (lowerAlloc arr' $ groundToExpVar (shapeType shr) sh') $
         alet LeftHandSideUnit
           (mkFold (weaken wTemp a) Nothing (weaken wTemp b) (ArgArray Out arr' (weakenVars wTemp sh') (kTemp weakenId))) $
           case mkLHS tp of
@@ -135,8 +136,8 @@ instance LowerAcc InterpretOp where
   --   | DeclareVars lhsTemp1 wTemp  kTemp1 <- declareVars $ buffersR tp
   --   , DeclareVars lhsTemp2 wTemp2 kTemp2 <- declareVars $ buffersR tp
   --   , wTemp1 <- wTemp2 .> wTemp =
-  --     aletUnique lhsTemp1 (lowerAlloc arr $ fromGrounds sh) $
-  --       aletUnique lhsTemp2 (lowerAlloc arr $ fromGrounds $ weakenVars wTemp sh) $
+  --     aletUnique lhsTemp1 (lowerAlloc arr $ groundToExpVar (shapeType shr) sh) $
+  --       aletUnique lhsTemp2 (lowerAlloc arr $ groundToExpVar (shapeType shr) $ weakenVars wTemp sh) $
   --         alet LeftHandSideUnit
   --           (alet LeftHandSideUnit
   --             (mkScan dir (weaken wTemp1 comb) Nothing (weaken wTemp1 i) (ArgArray Out arr (weakenVars wTemp1 sh) (kTemp1 wTemp2)))
@@ -206,7 +207,7 @@ instance SetOpIndices InterpretOp where
   setOpIndices _ _ _ _ = error "TODO"
 
 data InterpretKernel env where
-  InterpretKernel :: Clustered InterpretOp args -> Args env args -> InterpretKernel env
+  InterpretKernel :: Cluster InterpretOp args -> Args env args -> InterpretKernel env
 
 instance NFData' InterpretKernel where
   rnf' (InterpretKernel cluster args) = undefined cluster `seq` rnfArgs args
@@ -223,7 +224,7 @@ instance NFData' InterpretKernel where
 instance PrettyKernel InterpretKernel where
   -- PrettyKernelBody provides a Val but prettyOpWithArgs expects a Val', should we change them to have the
   -- same type (either Val or Val'?)
-  prettyKernel = PrettyKernelBody False $ \env (InterpretKernel cluster args) -> prettyOpWithArgs env cluster args
+  prettyKernel = PrettyKernelBody False $ \env (InterpretKernel cluster args) -> prettyExe env (ExecClustered cluster) args
 
 -- -- -2 is left>right, -1 is right>left, n is 'according to computation n' (e.g. Backpermute)
 -- -- (Note that Labels are uniquely identified by an Int, the parent just gives extra information)
@@ -338,10 +339,6 @@ data Side = Left | Right
 --   --       )
 --   --     (defaultBounds l)
 
---   -- encodeBackendClusterArg (ArrayInfo d l r) = intHost $(hashQ ("ArrayInfo" :: String)) <> intHost d <> intHost l <> intHost r
---   -- encodeBackendClusterArg NonArray          = intHost $(hashQ ("NonArray" :: String))
---   encodeBackendClusterArg BCAI = intHost $(hashQ ("BCAI" :: String))
-
 --   -- mkGraph IBackpermuteOr (_ :>: _ :>: ((L _ (_, Set.toList -> lIns)) :>: _)) l@(Label i _) =
 --   --   Info
 --   --     mempty
@@ -387,15 +384,14 @@ data Side = Left | Right
 --   shrinkArg _ BCAI = BCAI
 --   deadArg BCAI = BCAI
 
-instance NFData' InterpretOp where
-  rnf' (IScan1 dir lookup) = lookup `seq` dir `seq` ()
-  rnf' (IFold1 lookup) = lookup `seq` ()
-  -- rnf' (IAppend side n) = side `seq` n `seq` ()
-  rnf' IMap = ()
-  rnf' IBackpermute = ()
-  rnf' IGenerate = ()
-  rnf' IPermute = ()
-  rnf' IPermuteUnique{} = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
+instance NFDataOp InterpretOp where
+  rnfOp (IScan1 dir lookup) = lookup `seq` dir `seq` ()
+  rnfOp (IFold1 lookup) = lookup `seq` ()
+  rnfOp IMap = ()
+  rnfOp IBackpermute = ()
+  rnfOp IGenerate = ()
+  rnfOp IPermute = ()
+  rnfOp IPermuteUnique{} = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 instance PrettyOp InterpretOp where
   prettyOp IMap         = "map"
@@ -541,8 +537,8 @@ prjVars (TupRsingle var) env = prj (varIdx var) env
 writeOutputInterpreter :: TypeR e -> Vars s env (Buffers e) -> Val env -> Int -> e -> IO ()
 writeOutputInterpreter r buf env n x = writeBuffers r (veryUnsafeUnfreezeBuffers r $ varsGetVal buf env) n x
 
-evalClusterInterpreter :: Clustered InterpretOp args -> Args env args -> Val env -> IO ()
-evalClusterInterpreter (Clustered _c _b) _args _env = error "TODO: Implement evaluator for interpreter"
+evalClusterInterpreter :: Cluster InterpretOp args -> Args env args -> Val env -> IO ()
+evalClusterInterpreter _ _args _env = error "TODO: Implement evaluator for interpreter"
 -- evalClusterInterpreter c@(Cluster _ (Cluster' io _)) args env = doNTimes (iterationsize io args env) $ evalCluster c args env
 
 -- iterationsize (Op _) ArgsNil env = Nothing

@@ -42,10 +42,10 @@ defaultSolver =
 
 -- | Apply the fusion transformation to a function of array arguments
 --
-convertAfun :: (HasCallStack, MakesILP op, SimplifyOperation op, Pretty.PrettyOp (Cluster op)) => FusionType -> OperationAfun op () f -> PartitionedAfun op () f
+convertAfun :: (HasCallStack, MakesILP op, SimplifyOperation op, Pretty.PrettyOp op) => FusionType -> OperationAfun op () f -> PartitionedAfun op () f
 convertAfun = convertAfunWith defaultOptions
 
-convertAfunWith :: (HasCallStack, MakesILP op, SimplifyOperation op, Pretty.PrettyOp (Cluster op)) => Config -> FusionType -> OperationAfun op () f -> PartitionedAfun op () f
+convertAfunWith :: (HasCallStack, MakesILP op, SimplifyOperation op, Pretty.PrettyOp op) => Config -> FusionType -> OperationAfun op () f -> PartitionedAfun op () f
 convertAfunWith _ (Fusion o)       = withSimplStats (ilpFusionF'' defaultSolver o)
 convertAfunWith _ (Benchmarking b) = withSimplStats (benchF b FusedEdges)
 

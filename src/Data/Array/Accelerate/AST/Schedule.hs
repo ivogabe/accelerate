@@ -104,8 +104,8 @@ unsafePerformIOFun (GFunctionRbody tp)    body
 generateKernelNameAndDescription
   -- Function that gives the priority, singular name and plural name of an
   -- operation. The operations with highest priority are used in the name.
-  :: (forall s. op s -> (Int, String, String))
-  -> Clustered op t
+  :: (forall s. op True s -> (Int, String, String))
+  -> Cluster op t
   -- Returns a function name, a detailed description and a brief description
   -> (String, String, String)
 generateKernelNameAndDescription f cluster =
@@ -120,7 +120,7 @@ generateKernelNameAndDescription f cluster =
       | [_] <- ops = True
       | otherwise  = False
 
-    ops = map (\(Exists op) -> f op) $ flattenClustered cluster
+    ops = map (\(Exists op) -> f op) $ flattenCluster cluster
     grouped = groupAndCount ops
     sorted = groupAndCount $ sortOn Down $ ops
 

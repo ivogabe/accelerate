@@ -14,13 +14,11 @@ import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.IdxSet (IdxSet(..))
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Operation hiding (Var)
-import Data.Array.Accelerate.Analysis.Hash.Exp
 import Data.Array.Accelerate.Analysis.Match
 import Data.Array.Accelerate.Array.Buffer
 import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Representation.Type
-import Data.Array.Accelerate.Trafo.Operation.LiveVars
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage (Constraint)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint
@@ -37,6 +35,7 @@ import qualified Data.Map as M
 import Lens.Micro
 import Lens.Micro.Mtl
 
+import Control.Monad
 import Control.Monad.State.Strict (State, runState)
 import Data.Foldable (Foldable (foldr'), traverse_, toList)
 import Data.Kind (Type)
@@ -251,7 +250,7 @@ writeEdgesOf b = to (\g -> S.filter (\(_,b') -> b' == b) (g^.writeEdges))
 -- Separating the ILP into blocks then allows us to pass much smaller ILPs to
 -- the solver, which should make the whole process faster.
 -- If not, we can always merge the blocks together later.
-data FusionILP (op :: Type -> Type) = FusionILP
+data FusionILP (op :: Bool -> Type -> Type) = FusionILP
   { _graph       :: FusionGraph
   , _constraints :: [Constraint]
   , _bounds      :: Bounds
@@ -369,7 +368,7 @@ noInplace node = noInplaceValues %~ S.insert node
 
 -- | The backend has access to a small state so it doesn't accidentally break
 --   the state used by the frontend construction algorithm.
-data BackendGraphState op env = BackendGraphState
+data BackendGraphState (op :: Bool -> Type -> Type) env = BackendGraphState
   { _backendFusionILP  :: FusionILP op    -- ^ The entire ILP.
   , _backendBuffersEnv :: Env env  -- ^ The buffers environment (read only).
   , _backendReadersEnv :: ReadersEnv      -- ^ The readers environment (read only).
@@ -392,31 +391,20 @@ instance HasWritersEnv (BackendGraphState op env) where
   writersEnv :: Lens' (BackendGraphState op env) WritersEnv
   writersEnv f s = f (_backendWritersEnv s) <&> \env -> s{_backendWritersEnv = env}
 
-type BackendCluster op = PreArgs (BackendClusterArg op)
-
-class ( ShrinkArg (BackendClusterArg op), Eq (BackendArg op) , Show (BackendArg op), Ord (BackendArg op) ) => MakesILP op where
+class ( Eq (BackendArg op) , Show (BackendArg op), Ord (BackendArg op) ) => MakesILP (op :: Bool -> Type -> Type) where
 
   -- | Information that the backend attaches to arguments for use in
   --   interpreting/code generation.
+  --
+  -- TODO: Simplify; this is not used for code generation, but only to split
+  -- unrelated operations that were not fused but did get the same Pi value in
+  -- the ILP (if I'm not mistaken)
   type BackendArg op
   defaultBA :: BackendArg op
-
-  -- | Information that the backend attaches to the cluster for use in
-  --   interpreting/code generation.
-  data BackendClusterArg op arg
-  combineBackendClusterArg
-    :: BackendClusterArg op (Out sh e)
-    -> BackendClusterArg op (In sh e)
-    -> BackendClusterArg op (Var' sh)
-  encodeBackendClusterArg  :: BackendClusterArg op arg -> Builder
-
 
   -- | Given an ILP solution, attach the backend-specific information to an
   --   argument.
   labelLabelledArg :: Solution -> Node Comp -> LabelledArg env a -> LabelledArgOp op env a
-
-  -- | Convert a labelled argument to a cluster argument.
-  getClusterArg :: LabelledArgOp op env a -> BackendClusterArg op a
 
   -- | This function defines per-operation backend-specific fusion rules.
   --
@@ -427,10 +415,21 @@ class ( ShrinkArg (BackendClusterArg op), Eq (BackendArg op) , Show (BackendArg 
   -- graph to enforce any additional constraints the implementation may have.
   --
   mkGraph
-    :: Node Comp             -- ^ The label of the operation.
-    -> op args                -- ^ The operation.
+    :: Node Comp              -- ^ The label of the operation.
+    -> op True args           -- ^ The operation.
     -> LabelledArgs env args  -- ^ The arguments to the operation.
     -> State (BackendGraphState op env) ()
+  
+  -- | For non-fusible operations, whether this operation supports in-place
+  -- updates. This is an all-or-nothing switch; an operation either supports
+  -- in-place updates on all inputs and outputs, or none. If needed, we can
+  -- make this more fine grained in the future.
+  --
+  -- For fusible operations, this should be handled by mkGraph
+  opInplace
+    :: op False args
+    -> Bool
+  opInplace _ = False
 
   -- | This function lets the backend define additional constraints on the ILP.
   finalize :: FusionGraph -> [Constraint]
@@ -502,9 +501,9 @@ outFoldSize = var . OutFoldSize
 -- Symbol table
 --------------------------------------------------------------------------------
 
-data Symbol (op :: Type -> Type) where
-  SExe  :: Env env -> LabelledArgs      env args -> op args                            -> Symbol op
-  SExe' :: Env env -> LabelledArgsOp op env args -> op args                            -> Symbol op
+data Symbol (op :: Bool -> Type -> Type) where
+  SExe  :: Env env -> LabelledArgs      env args -> IsFusible b -> op b args           -> Symbol op
+  SExe' :: Env env -> LabelledArgsOp op env args -> IsFusible b -> op b args           -> Symbol op
   SUse  ::            ScalarType e -> Int -> Buffer e                                  -> Symbol op
   SITE  :: Env env -> ExpVar env PrimBool -> Node Comp -> Node Comp                    -> Symbol op
   SWhl  :: Env env -> Node Comp -> Node Comp -> GroundVars env bnd -> Uniquenesses bnd -> Symbol op
@@ -566,7 +565,7 @@ reindexLabelledArgsOp = reindexPreArgs reindexLabelledArgOp
 
 attachBackendLabels :: MakesILP op => Solution -> Symbols op -> Symbols op
 attachBackendLabels sol = M.mapWithKey \cases
-  l (SExe env largs op) -> SExe' env (labelLabelledArgs sol l largs) op
+  l (SExe env largs f op) -> SExe' env (labelLabelledArgs sol l largs) f op
   _  SExe'{} -> internalError "already converted???"
   _  con -> con
 
@@ -876,12 +875,12 @@ instance HasAllocators (FullGraph op) where
   allocators f (ilp, sym, alloc) = f alloc <&> (ilp,sym,)
 
 -- | Construct the full fusion graph for a program.
-mkFullGraph :: MakesILP op => PreOpenAcc op () t -> FullGraph op
+mkFullGraph :: MakesILP op => OperationAcc op () t -> FullGraph op
 mkFullGraph acc = finalizeInplacePaths $ makeManifest (valsNodes res) (s^.fusionILP, s^.symbols, s^.allocators)
   where (res, s) = runState (mkFusionGraph acc) initialFusionGraphState
 
 -- | Construct the full fusion graph for a function.
-mkFullGraphF :: MakesILP op => PreOpenAfun op () a -> FullGraph op
+mkFullGraphF :: MakesILP op => OperationAfun op () a -> FullGraph op
 mkFullGraphF acc = finalizeInplacePaths (s^.fusionILP, s^.symbols, s^.allocators)
   where (_, s) = runState (mkFusionGraphF acc) initialFusionGraphState
 
@@ -895,9 +894,9 @@ makeManifest bs = fusionILP.manifestValues <>~ bs
 
 -- | Construct the fusion graph of a program.
 mkFusionGraph :: forall op env t. MakesILP op
-              => PreOpenAcc op env t
+              => OperationAcc op env t
               -> State (FusionGraphState op env) (GroundVals t)
-mkFusionGraph (Exec op args) = do
+mkFusionGraph (Exec (ExecOp f op) args) = do
   env  <- use environment
   renv <- use readersEnv
   wenv <- use writersEnv
@@ -906,12 +905,30 @@ mkFusionGraph (Exec op args) = do
   let inpArrs      = inputArrays labelledArgs
   let outArrs      = outputArrays labelledArgs
   let notArrs      = notArrays labelledArgs
-  c `readsBuffers`   (inpArrs `S.difference`   outArrs)
-  c `writesBuffers`  (outArrs `S.difference`   inpArrs)
-  c `mutatesBuffers` (inpArrs `S.intersection` outArrs)
-  c `requiresBuffers` notArrs
-  zoom (backendGraphState renv wenv) (mkGraph c op labelledArgs)
-  symbol c ?= SExe env labelledArgs op
+  () <- case f of
+    Fusible -> do
+      c `readsBuffers`    (inpArrs `S.difference`   outArrs)
+      c `writesBuffers`   (outArrs `S.difference`   inpArrs)
+      c `mutatesBuffers`  (inpArrs `S.intersection` outArrs)
+      c `requiresBuffers` notArrs
+      zoom (backendGraphState renv wenv) (mkGraph c op labelledArgs)
+    NotFusible -> do
+      -- By using requiresBuffers instead of readsBuffers, we will not fuse
+      -- this operation with a prior operation that produced the input.
+      c `requiresBuffers` (inpArrs `S.difference`   outArrs)
+      c `writesBuffers`   (outArrs `S.difference`   inpArrs)
+      c `mutatesBuffers`  (inpArrs `S.intersection` outArrs)
+      c `requiresBuffers` notArrs
+      -- Don't fuse output of this operation
+      zoom (backendGraphState renv wenv) $
+        fusionILP.bounds %= (<> foldMap (equal (-3) . WriteDir c) outArrs)
+
+      unless (opInplace op) $
+        zoom (backendGraphState renv wenv) $
+          fusionILP.bounds %= (<> foldMap (equal (-2) . (`ReadDir` c)) inpArrs)
+
+      return ()
+  symbol c ?= SExe env labelledArgs f op
   return TupRunit
 
 mkFusionGraph (Alet LeftHandSideUnit _ bnd body)
@@ -1035,7 +1052,7 @@ mkFusionGraph (Fence deps next) = do
 
 -- | Construct the fusion graph of a single-argument function.
 mkFusionGraphU :: forall op env s t. (MakesILP op)
-               => Uniquenesses s -> PreOpenAfun op env (s -> t)
+               => Uniquenesses s -> OperationAfun op env (s -> t)
                -> State (FusionGraphState op env) (Node Comp)
 mkFusionGraphU _ (Abody body) = groundFunctionImpossible $ groundsR body
 mkFusionGraphU u (Alam lhs f) = do
@@ -1051,7 +1068,7 @@ mkFusionGraphU u (Alam lhs f) = do
 
 -- | Construct the fusion graph of a function.
 mkFusionGraphF :: forall op env t. (MakesILP op)
-               => PreOpenAfun op env t
+               => OperationAfun op env t
                -> State (FusionGraphState op env) (Node Comp)
 mkFusionGraphF (Alam lhs f) = mkFusionGraphU (shared $ lhsToTupR lhs) (Alam lhs f)
 mkFusionGraphF (Abody acc) = do
@@ -1189,7 +1206,7 @@ mkInplacePathsFromClusters g = g&fusionILP.inplacePaths <>~ go initialClusters
 
     clusterInplacePaths :: Node Comp -> Node Comp -> Map InplacePath Number
     clusterInplacePaths cIn cOut = case (g^.symbol cIn, g^.symbol cOut) of
-      (Just (SExe _ largsIn _), Just (SExe _ largsOut _)) ->
+      (Just (SExe _ largsIn _ _), Just (SExe _ largsOut _ _)) ->
         foldMapInputLabels (\lIn -> foldMapOutputLabels (mkInplacePaths 1 cIn cOut lIn) largsOut) largsIn
       _ -> mempty
 

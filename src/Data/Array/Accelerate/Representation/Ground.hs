@@ -60,9 +60,6 @@ buffersR (TupRsingle tp)
 buffersR (TupRpair t1 t2)   = buffersR t1 `TupRpair` buffersR t2
 
 -- | Utilities for working with GroundsR
-typeRtoGroundsR :: TypeR t -> GroundsR t
-typeRtoGroundsR = mapTupR GroundRscalar
-
 bufferImpossible :: ScalarType (Buffer e) -> a
 bufferImpossible (SingleScalarType (NumSingleType (IntegralNumType tp))) = case tp of {}
 bufferImpossible (SingleScalarType (NumSingleType (FloatingNumType tp))) = case tp of {}

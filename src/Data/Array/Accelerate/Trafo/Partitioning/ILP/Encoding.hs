@@ -181,6 +181,8 @@ makeILP obj (FusionILP graph constraints bounds) =
     -- 0 <= m_i  <= 1
     manifestB = foldMap (binary . IsManifest) buffN
 
+    -- TODO: Set bounds for all variables this way, and remove the other code
+    -- that introduces bounds?
     binaryBounds = foldMap binary $ S.filter isBinaryVar $ varsExpr objFun <> varsConstr loweredConstraints
 
 
@@ -336,7 +338,7 @@ interpretInplaceUpdates sol = M.map firstInChain inplaceM
     firstInChain :: Node GVal -> Node GVal
     firstInChain b = maybe b firstInChain (M.lookup b inplaceM)
 
--- | Cluster labels, distinguishing between execute and non-execute labels.
+-- | Cluster labels, distinguishing between (fusible) execute and non-execute labels.
 data ClusterLs = Execs (Nodes Comp) | NonExec (Node Comp)
   deriving (Eq, Show)
 
@@ -351,7 +353,7 @@ splitExecs (xs, xM) symbolM = (f xs, M.map f xM)
 
     isExec :: Node Comp -> Bool
     isExec l = case symbolM M.!? l of
-      Just SExe {} -> True
+      Just SExe{} -> True
       Just SExe'{} -> True
       _ -> False
     isBeforeExec l = case symbolM M.!? l of

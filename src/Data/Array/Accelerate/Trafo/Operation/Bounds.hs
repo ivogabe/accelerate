@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Trafo.Operation.Bounds
@@ -45,6 +46,7 @@ import Data.Array.Accelerate.Trafo.Operation.Bounds.Environment
 
 import qualified Data.List as List
 import Data.Maybe (mapMaybe)
+import Data.Kind
 
 boundsOptimizeAfun
   :: forall op f.
@@ -78,7 +80,7 @@ boundsOptimizeAcc
   -- the bounds of the return value and a transformed term.
   -> (IdxSet benv, BoundsEnv benv (), TermBounds (UniformEnv benv ()) t, OperationAcc op benv t)
 boundsOptimizeAcc env@(BoundsEnv _ _ zero bindings) acc = case acc of
-  Exec op args
+  Exec exe@(ExecOp _ op) args
     | modified <- IdxSet.fromList $ argsOutputs args
     , input <- boundsInputs env args
     -- Remove all references to 'modified' in the bounds graph and input
@@ -86,7 +88,7 @@ boundsOptimizeAcc env@(BoundsEnv _ _ zero bindings) acc = case acc of
     , env' <- env{ boundsGraph = graph' }
     , (output, args') <- boundsOptimizeOp op env input' args
     , env'' <- envWriteArgs args' output env' -- Update env' with output
-    -> (modified, env'', TupRunit, Exec op args')
+    -> (modified, env'', TupRunit, Exec exe args')
 
   Return vars ->
     ( IdxSet.empty
@@ -551,9 +553,9 @@ boundsGraphWithArgsClearNodes graphArgs set =
   List.foldl' (\ga (Exists idx) -> boundsGraphWithArgsClearNode ga idx) graphArgs
     $ IdxSet.toList set
 
-class OperationBounds op where
+class OperationBounds (op :: Bool -> Type -> Type) where
   boundsOptimizeOp
-    :: op args
+    :: op fusible args
     -> BoundsEnv benv ()
     -> InputBoundArgs benv args
     -> Args benv args

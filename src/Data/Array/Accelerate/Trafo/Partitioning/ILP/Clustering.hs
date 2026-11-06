@@ -50,11 +50,11 @@ map' !?? key = case map' M.!? key of
 -- (namely, what it was before fusion), via an GroundsR.
 -- Since fusion goes via an untyped ILP, during reconstruction we need to rebuild the program and temporarily
 -- fulfill this contract: if something goes wrong during fusion or at the caller, bad things happen.
-reconstruct :: forall op a. (MakesILP op, SimplifyOperation op) => GroundsR a -> Bool -> FusionGraph -> [ClusterLs] -> M.Map (Node Comp) [ClusterLs] -> Symbols op -> ReadDirM -> InplaceM -> PreOpenAcc (Clustered op) () a
+reconstruct :: forall op a. (MakesILP op, SimplifyOperation op) => GroundsR a -> Bool -> FusionGraph -> [ClusterLs] -> M.Map (Node Comp) [ClusterLs] -> Symbols op -> ReadDirM -> InplaceM -> PartitionedAcc op () a
 reconstruct repr a b c d e f g = case openReconstruct a EnvNil b c d e f g of
           Exists res -> expectType repr res
 
-reconstructF :: forall op a. (MakesILP op, SimplifyOperation op) => PreOpenAfun op () a -> Bool -> FusionGraph -> [ClusterLs] -> M.Map (Node Comp) [ClusterLs] -> Symbols op -> ReadDirM -> InplaceM -> PreOpenAfun (Clustered op) () a
+reconstructF :: forall exe op a. (MakesILP op, SimplifyOperation op) => PreOpenAfun exe () a -> Bool -> FusionGraph -> [ClusterLs] -> M.Map (Node Comp) [ClusterLs] -> Symbols op -> ReadDirM -> InplaceM -> PartitionedAfun op () a
 reconstructF original a b c d e f g = case openReconstructF a EnvNil b c (Node 1 Nothing) d e f g of
           Exists res -> expectFunTypeEqual original res
 
@@ -125,7 +125,7 @@ openReconstruct   :: (MakesILP op, SimplifyOperation op)
                   -> Symbols op
                   -> ReadDirM
                   -> InplaceM
-                  -> Exists (PreOpenAcc (Clustered op) aenv)
+                  -> Exists (PartitionedAcc op aenv)
 openReconstruct  a b c d   e f g h =
     case openReconstruct' a b c d Nothing e f g h of
       Left x  -> x
@@ -140,13 +140,13 @@ openReconstructF  :: (MakesILP op, SimplifyOperation op)
                   -> Symbols op
                   -> ReadDirM
                   -> InplaceM
-                  -> Exists (PreOpenAfun (Clustered op) aenv)
+                  -> Exists (PartitionedAfun op aenv)
 openReconstructF a b c d l e f g h =
     case openReconstruct' a b c d (Just l) e f g h of
       Right x -> x
       Left{}  -> error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
-openReconstruct' :: forall op aenv. (MakesILP op, SimplifyOperation op) => Bool -> Env aenv -> FusionGraph -> [ClusterLs] -> Maybe (Node Comp) -> M.Map (Node Comp) [ClusterLs] -> Symbols op -> ReadDirM -> InplaceM -> Either (Exists (PreOpenAcc (Clustered op) aenv)) (Exists (PreOpenAfun (Clustered op) aenv))
+openReconstruct' :: forall op aenv. (MakesILP op, SimplifyOperation op) => Bool -> Env aenv -> FusionGraph -> [ClusterLs] -> Maybe (Node Comp) -> M.Map (Node Comp) [ClusterLs] -> Symbols op -> ReadDirM -> InplaceM -> Either (Exists (PartitionedAcc op aenv)) (Exists (PartitionedAfun op aenv))
 openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symbols readDirM inplaceM =
   case mlab of
   Just l  -> Right $ makeASTF labelenv l
@@ -161,17 +161,18 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
     -- Those are stored in the 'prev' argument.
     -- Note also that we currently assume that the final cluster is the return argument: If all computations are relevant
     -- and our analysis is sound, the return argument should always appear last. If not.. oops
-    makeAST :: forall env. Env env -> [ClusterL] -> Exists (PreOpenAcc (Clustered op) env)
+    makeAST :: forall env. Env env -> [ClusterL] -> Exists (PartitionedAcc op env)
     makeAST _ [] = error "empty AST"
     makeAST env [cluster] = case makeCluster env cluster of
-      Fold c args -> Exists $ Exec c $ unLabelOp args
+      Fold c args -> Exists $ Exec (ExecClustered c) $ unLabelOp args
       InitFold o l args -> singleton l args o $
                             \c args' ->
-                                Exists $ Exec c (mapArgs (\(LOp a _ _) -> a) args')
+                                Exists $ Exec (ExecClustered c) (mapArgs (\(LOp a _ _) -> a) args')
       EmptyFold -> Exists $ Return TupRunit
       NotFold con -> case con of
         SExe {}    -> error "should be Fold/InitFold!"
-        SExe'{}    -> error "should be Fold/InitFold!"
+        SExe' _ _ Fusible _ -> error "should be Fold/InitFold!"
+        SExe' env' args NotFusible op -> Exists (Exec (ExecSingle op) $ fromJust $ reindexArgs (mkReindexPartial' env' env) $ unLabelOp args)
         SUse se  n be             -> Exists $ Use se n be
         SITE env' c t f   -> case (makeAST env (subcluster t), makeAST env (subcluster f)) of
           (Exists tacc, Exists facc) -> Exists $ tryBuildAcond
@@ -198,7 +199,6 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
         SUnt env' evar     -> Exists $ Unit            (fromJust $ reindexVar  (mkReindexPartial' env' env) evar)
         SFen {} -> Exists $ Return TupRunit -- Fence with no futher terms does nothing
     makeAST env (cluster:ctail) =
-      -- TODO: use guards to fuse these two identical cases
       case makeCluster env cluster of
         NotFold con
           | SLet mylhs b u <- con ->
@@ -218,7 +218,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
                 _ -> error "nope"
               NonExecL _ -> makeAST env ctail
 
-    makeASTF :: forall env. Env env -> Node Comp -> Exists (PreOpenAfun (Clustered op) env)
+    makeASTF :: forall env. Env env -> Node Comp -> Exists (PartitionedAfun op env)
     makeASTF env l = case makeCluster env (NonExecL l) of
       NotFold (SBod _l') -> case makeAST env (subcluster l) of
           Exists acc -> Exists $ Abody acc
@@ -259,7 +259,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
     makeCluster env (ExecL ls) =
        foldr1 (flip fuseCluster)
                     $ map ( \l -> case symbols !?? l of
-                              SExe' env' args op ->
+                              SExe' env' args Fusible op ->
                                 -- At first thought, this `fromJust` might error if we fuse an array away.
                                 -- It does not: The array will still be in the environment, but after we finish
                                 -- the `foldr1`, the input argument will dissapear. The output argument does not:
@@ -267,13 +267,14 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
                                 -- it stays.
                                 let args' = fromJust $ reindexLabelledArgsOp (mkReindexPartial inplaceM env' env) args
                                 in
-                                  if isNoOp op (unLabelOp args') then
+                                  if isNoOp (ExecOp Fusible op) (unLabelOp args') then
                                     -- Remove operations that became a no-op by in-place updates.
                                     -- For instance, 'map id xs ys' may become 'map id xs xs',
                                     -- which is a no-op.
                                     EmptyFold
                                   else
                                     InitFold op l args'
+                              sym@(SExe' _ _ NotFusible _) -> NotFold sym
                               _                 -> error "avoid this next refactor" -- c -> NotFold c
                           ) ls
     makeCluster _ (NonExecL l) = NotFold $ symbols !?? l
@@ -288,14 +289,14 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
     fuseCluster NotFold{}   _ = error "fuseCluster encountered NotFold" -- Should only occur in singleton clusters
     fuseCluster _   NotFold{} = error "fuseCluster encountered NotFold" -- Should only occur in singleton clusters
 
-weakenAcc :: LeftHandSide s t env env' -> PreOpenAcc op env a -> PreOpenAcc op env' a
-weakenAcc lhs =  runIdentity . reindexAcc (weakenReindex $ weakenWithLHS lhs)
+weakenAcc :: LeftHandSide s t env env' -> PreOpenAcc exe env a -> PreOpenAcc exe env' a
+weakenAcc lhs = runIdentity . reindexAcc (weakenReindex $ weakenWithLHS lhs)
 
 -- | Internal datatype for `makeCluster`.
 
 data FoldType op env
-  = forall args. Fold (Clustered op args) (LabelledArgsOp op env args)
-  | forall args. InitFold (op args) (Node Comp) (LabelledArgsOp op env args)
+  = forall args. Fold (Cluster op args) (LabelledArgsOp op env args)
+  | forall args. InitFold (op True args) (Node Comp) (LabelledArgsOp op env args)
   | EmptyFold
   | NotFold (Symbol op)
 
@@ -316,10 +317,10 @@ consCluster :: forall env args extra op r
              . MakesILP op
             => Node Comp
             -> LabelledArgsOp op env extra
-            -> op extra
+            -> op True extra
             -> LabelledArgsOp op env args
-            -> Clustered op args
-            -> (forall args'. Clustered op args' -> LabelledArgsOp op env args' -> r)
+            -> Cluster op args
+            -> (forall args'. Cluster op args' -> LabelledArgsOp op env args' -> r)
             -> r
 consCluster l lop op lcluster cluster k = singleton l lop op $ \c lop' ->
   fuse
@@ -338,7 +339,7 @@ fuseVertically
   (LOp (ArgArray In  _              _  _) (getLabelDeps -> bs') _)
   = LOp (ArgVar $ groundToExpVar (shapeType shr) sh) (NotArr $ bs <> bs') b
 
-expectType :: HasCallStack => GroundsR t -> PreOpenAcc op env s -> PreOpenAcc op env t
+expectType :: HasCallStack => GroundsR t -> PreOpenAcc exe env s -> PreOpenAcc exe env t
 expectType repr term
   | Just Refl <- matchGroundsR repr $ groundsR term = term
   | otherwise
@@ -361,7 +362,7 @@ matchFunType (Alam lhs1 f1) (Alam lhs2 f2)
 matchFunType (Abody b1) (Abody b2) = matchGroundsR (groundsR b1) (groundsR b2)
 matchFunType _ _ = Nothing
 
-tryBuildAcond :: HasCallStack => ExpVar env PrimBool -> PreOpenAcc op env t1 -> PreOpenAcc op env t2 -> PreOpenAcc op env t1
+tryBuildAcond :: HasCallStack => ExpVar env PrimBool -> PreOpenAcc exe env t1 -> PreOpenAcc exe env t2 -> PreOpenAcc exe env t1
 tryBuildAcond cond true false
   | Just Refl <- matchGroundsR (groundsR true) (groundsR false)
   = Acond cond true false
@@ -372,9 +373,9 @@ tryBuildAlet
   :: HasCallStack
   => GLeftHandSide t1 env1 env2
   -> Uniquenesses t1
-  -> PreOpenAcc op env1 t2
-  -> PreOpenAcc op env2 s
-  -> PreOpenAcc op env1 s
+  -> PreOpenAcc exe env1 t2
+  -> PreOpenAcc exe env2 s
+  -> PreOpenAcc exe env1 s
 tryBuildAlet lhs u bnd next
   | Just Refl <- matchGroundsR (lhsToTupR lhs) (groundsR bnd)
   = Alet lhs u bnd next
@@ -383,10 +384,10 @@ tryBuildAlet lhs u bnd next
 
 tryBuildAwhile
   :: Uniquenesses a
-  -> PreOpenAfun op env c
-  -> PreOpenAfun op env s
-  -> GroundVars     env a
-  -> PreOpenAcc  op env a
+  -> PreOpenAfun exe env c
+  -> PreOpenAfun exe env s
+  -> GroundVars      env a
+  -> PreOpenAcc  exe env a
 tryBuildAwhile u c@(Alam lhsCond (Abody cond)) s@(Alam lhsStep (Abody step)) initial
   | Just Refl <- matchGroundsR tp $ lhsToTupR lhsCond
   , Just Refl <- matchGroundsR (TupRsingle $ GroundRscalar $ scalarType @PrimBool) $ groundsR cond
