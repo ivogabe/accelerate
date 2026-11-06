@@ -289,8 +289,8 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
     fuseCluster NotFold{}   _ = error "fuseCluster encountered NotFold" -- Should only occur in singleton clusters
     fuseCluster _   NotFold{} = error "fuseCluster encountered NotFold" -- Should only occur in singleton clusters
 
-weakenAcc :: LeftHandSide s t env env' -> PreOpenAcc op env a -> PreOpenAcc op env' a
-weakenAcc lhs =  runIdentity . reindexAcc (weakenReindex $ weakenWithLHS lhs)
+weakenAcc :: LeftHandSide s t env env' -> PreOpenAcc exe env a -> PreOpenAcc exe env' a
+weakenAcc lhs = runIdentity . reindexAcc (weakenReindex $ weakenWithLHS lhs)
 
 -- | Internal datatype for `makeCluster`.
 
@@ -339,7 +339,7 @@ fuseVertically
   (LOp (ArgArray In  _              _  _) (getLabelDeps -> bs') _)
   = LOp (ArgVar $ groundToExpVar (shapeType shr) sh) (NotArr $ bs <> bs') b
 
-expectType :: HasCallStack => GroundsR t -> PreOpenAcc op env s -> PreOpenAcc op env t
+expectType :: HasCallStack => GroundsR t -> PreOpenAcc exe env s -> PreOpenAcc exe env t
 expectType repr term
   | Just Refl <- matchGroundsR repr $ groundsR term = term
   | otherwise
@@ -362,7 +362,7 @@ matchFunType (Alam lhs1 f1) (Alam lhs2 f2)
 matchFunType (Abody b1) (Abody b2) = matchGroundsR (groundsR b1) (groundsR b2)
 matchFunType _ _ = Nothing
 
-tryBuildAcond :: HasCallStack => ExpVar env PrimBool -> PreOpenAcc op env t1 -> PreOpenAcc op env t2 -> PreOpenAcc op env t1
+tryBuildAcond :: HasCallStack => ExpVar env PrimBool -> PreOpenAcc exe env t1 -> PreOpenAcc exe env t2 -> PreOpenAcc exe env t1
 tryBuildAcond cond true false
   | Just Refl <- matchGroundsR (groundsR true) (groundsR false)
   = Acond cond true false
@@ -373,9 +373,9 @@ tryBuildAlet
   :: HasCallStack
   => GLeftHandSide t1 env1 env2
   -> Uniquenesses t1
-  -> PreOpenAcc op env1 t2
-  -> PreOpenAcc op env2 s
-  -> PreOpenAcc op env1 s
+  -> PreOpenAcc exe env1 t2
+  -> PreOpenAcc exe env2 s
+  -> PreOpenAcc exe env1 s
 tryBuildAlet lhs u bnd next
   | Just Refl <- matchGroundsR (lhsToTupR lhs) (groundsR bnd)
   = Alet lhs u bnd next
@@ -384,10 +384,10 @@ tryBuildAlet lhs u bnd next
 
 tryBuildAwhile
   :: Uniquenesses a
-  -> PreOpenAfun op env c
-  -> PreOpenAfun op env s
-  -> GroundVars     env a
-  -> PreOpenAcc  op env a
+  -> PreOpenAfun exe env c
+  -> PreOpenAfun exe env s
+  -> GroundVars      env a
+  -> PreOpenAcc  exe env a
 tryBuildAwhile u c@(Alam lhsCond (Abody cond)) s@(Alam lhsStep (Abody step)) initial
   | Just Refl <- matchGroundsR tp $ lhsToTupR lhsCond
   , Just Refl <- matchGroundsR (TupRsingle $ GroundRscalar $ scalarType @PrimBool) $ groundsR cond

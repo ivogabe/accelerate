@@ -421,7 +421,7 @@ data IsFusible b where
 class HasGroundsR f where
   groundsR :: f a -> GroundsR a
 
-instance HasGroundsR (PreOpenAcc op env) where
+instance HasGroundsR (PreOpenAcc exe env) where
   groundsR (Exec _ _)        = TupRunit
   groundsR (Return vars)     = groundsR vars
   groundsR (Manifest var)    = groundsR var
