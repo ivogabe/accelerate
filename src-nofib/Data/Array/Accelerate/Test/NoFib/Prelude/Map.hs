@@ -54,6 +54,7 @@ test_map runN =
         :: forall a. ( P.Integral a, P.FiniteBits a
                      , A.Integral a, A.FiniteBits a
                      , A.FromIntegral a Double
+                     , A.FromIntegral a Float
                      , Similar a, Show a )
         => Gen a
         -> TestTree
@@ -82,7 +83,8 @@ test_map runN =
             , testProperty "countTrailingZeros" $ test_countTrailingZeros runN sh e
 
               -- conversions
-            , testProperty "fromIntegral"       $ test_fromIntegral runN sh e
+            , at @TestDouble $ testProperty "fromIntegral (double)" $ test_fromIntegralDouble runN sh e
+            , at @TestFloat  $ testProperty "fromIntegral (float)"  $ test_fromIntegralFloat  runN sh e
             ]
 
     testFloatingElt
@@ -228,18 +230,31 @@ test_countTrailingZeros runN dim e =
     xs <- forAll (array sh e)
     let !go = runN (A.map A.countTrailingZeros) in go xs ~~~ mapRef countTrailingZerosRef xs
 
-{-# NOINLINE test_fromIntegral #-}
-test_fromIntegral
+{-# NOINLINE test_fromIntegralDouble #-}
+test_fromIntegralDouble
     :: forall sh e. (Shape sh, Show sh, Show e, P.Eq sh, P.Integral e, A.Integral e, A.FromIntegral e Double)
     => RunN
     -> Gen sh
     -> Gen e
     -> Property
-test_fromIntegral runN dim e =
+test_fromIntegralDouble runN dim e =
   property $ do
     sh <- forAll dim
     xs <- forAll (array sh e)
     let !go = runN (A.map A.fromIntegral) in go xs ~~~ mapRef (P.fromIntegral :: e -> Double) xs
+
+{-# NOINLINE test_fromIntegralFloat #-}
+test_fromIntegralFloat
+    :: forall sh e. (Shape sh, Show sh, Show e, P.Eq sh, P.Integral e, A.Integral e, A.FromIntegral e Float)
+    => RunN
+    -> Gen sh
+    -> Gen e
+    -> Property
+test_fromIntegralFloat runN dim e =
+  property $ do
+    sh <- forAll dim
+    xs <- forAll (array sh e)
+    let !go = runN (A.map A.fromIntegral) in go xs ~~~ mapRef (P.fromIntegral :: e -> Float) xs
 
 {-# NOINLINE test_recip #-}
 test_recip
