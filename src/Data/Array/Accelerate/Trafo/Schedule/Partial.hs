@@ -354,41 +354,82 @@ compileKernel'
   => ExecCluster (KernelOperation kernel) args
   -> Args fenv args
   -> CompiledKernel () fenv kernel
-compileKernel' cluster args =
-  go
-    (partialEnvFromList combineAccessGroundR (map (\(Exists (Var tp ix)) -> EnvBinding ix tp) vars))
-    weakenId
-    Empty
-    (\ _ x -> x)
-  where
-    vars = argsVars args
+compileKernel' cluster args = case compileKernel @kernel cluster of
+  Left f ->
+    let
+      vars = argsVars args
 
-    go
-      :: forall fenv1 kenv.
-         PartialEnv AccessGroundR fenv1
-      -> (fenv1 :> fenv)
-      -> Env AccessGroundR kenv
-      -> (forall kenv'. kenv :> kenv' -> PartialEnv (Idx kenv') fenv1 -> PartialEnv (Idx kenv') fenv)
-      -> CompiledKernel kenv fenv kernel
-    go PEnd _  kenv kSubst =
-      CompiledKernel
-        (KernelFunBody $ compileKernel kenv cluster args')
-        ArgsNil
-      where
-        kSubst' = kSubst weakenId PEnd
-        Identity args' = reindexArgs prjIdx args
-        prjIdx :: forall a. Idx fenv a -> Identity (Idx kenv a)
-        prjIdx idx = case prjPartial idx kSubst' of
-          Nothing -> internalError "Variable not found in environment. The environment was probably built incorrectly, argsVars may have missed this variable?"
-          Just idx' -> Identity idx'
-    go (PPush env a@(AccessGroundRscalar tp)) k1 kenv kSubstF
-      | CompiledKernel kernel sargs <- go env (weakenSucc k1) (kenv `Push` a) (\k2 kSubst -> kSubstF (weakenSucc k2) $ PPush kSubst (k2 >:> ZeroIdx))
-      = CompiledKernel (KernelFunLam (KernelArgRscalar tp) kernel) (SArgScalar (Var tp $ k1 >:> ZeroIdx) :>: sargs)
-    go (PPush env a@(AccessGroundRbuffer mod' tp)) k1 kenv kSubstF
-      | CompiledKernel kernel sargs <- go env (weakenSucc k1) (kenv `Push` a) (\k2 kSubst -> kSubstF (weakenSucc k2) $ PPush kSubst (k2 >:> ZeroIdx))
-      = CompiledKernel (KernelFunLam (KernelArgRbuffer mod' tp) kernel) (SArgBuffer mod' (Var (GroundRbuffer tp) $ k1 >:> ZeroIdx) :>: sargs)
-    go (PNone env) k1 kenv kSubstF
-      = go env (weakenSucc k1) kenv (\k2 kSubst -> kSubstF k2 $ PNone kSubst)
+      go
+        :: forall fenv1 kenv.
+          PartialEnv AccessGroundR fenv1
+        -> (fenv1 :> fenv)
+        -> Env AccessGroundR kenv
+        -> (forall kenv'. kenv :> kenv' -> PartialEnv (Idx kenv') fenv1 -> PartialEnv (Idx kenv') fenv)
+        -> CompiledKernel kenv fenv kernel
+      go PEnd _  kenv kSubst =
+        CompiledKernel
+          (KernelFunBody $ f kenv args')
+          ArgsNil
+        where
+          kSubst' = kSubst weakenId PEnd
+          Identity args' = reindexArgs prjIdx args
+          prjIdx :: forall a. Idx fenv a -> Identity (Idx kenv a)
+          prjIdx idx = case prjPartial idx kSubst' of
+            Nothing -> internalError "Variable not found in environment. The environment was probably built incorrectly, argsVars may have missed this variable?"
+            Just idx' -> Identity idx'
+      go (PPush env a@(AccessGroundRscalar tp)) k1 kenv kSubstF
+        | CompiledKernel kernel sargs <- go env (weakenSucc k1) (kenv `Push` a) (\k2 kSubst -> kSubstF (weakenSucc k2) $ PPush kSubst (k2 >:> ZeroIdx))
+        = CompiledKernel (KernelFunLam (KernelArgRscalar tp) kernel) (SArgScalar (Var tp $ k1 >:> ZeroIdx) :>: sargs)
+      go (PPush env a@(AccessGroundRbuffer mod' tp)) k1 kenv kSubstF
+        | CompiledKernel kernel sargs <- go env (weakenSucc k1) (kenv `Push` a) (\k2 kSubst -> kSubstF (weakenSucc k2) $ PPush kSubst (k2 >:> ZeroIdx))
+        = CompiledKernel (KernelFunLam (KernelArgRbuffer mod' tp) kernel) (SArgBuffer mod' (Var (GroundRbuffer tp) $ k1 >:> ZeroIdx) :>: sargs)
+      go (PNone env) k1 kenv kSubstF
+        = go env (weakenSucc k1) kenv (\k2 kSubst -> kSubstF k2 $ PNone kSubst)
+    in
+      go
+        (partialEnvFromList combineAccessGroundR (map (\(Exists (Var tp ix)) -> EnvBinding ix tp) vars))
+        weakenId
+        Empty
+        (\ _ x -> x)
+  Right kernel ->
+    let
+      prepareArgs :: Args fenv f -> SArgs fenv (FirstOrderSArgs f)
+      prepareArgs (ArgVar vars :>: args') =
+        prepareVars vars $
+          prepareArgs args'
+      prepareArgs (ArgArray m (ArrayR shr tp) sh buffers :>: args') =
+        prepareVars (groundToExpVar (shapeType shr) sh) $
+          prepareBuffers m tp buffers $ prepareArgs args'
+      prepareArgs ArgsNil = ArgsNil
+      prepareArgs _ = internalError "Exp' and Fun' arguments are not supported in FirstOrderSArgs"
+
+      prepareVars :: forall t f. ExpVars fenv t -> SArgs fenv f -> SArgs fenv (FirstOrderSArgsScalars t f)
+      prepareVars TupRunit args' = args'
+      prepareVars (TupRpair v1 v2) args' =
+        prepareVars v1 $ prepareVars v2 args'
+      prepareVars (TupRsingle v) args'
+        | Refl <- firstOrderSArgScalar @t @f (varType v) = 
+          SArgScalar v :>: args'
+
+      prepareBuffers :: forall m t f. Modifier m -> TypeR t -> GroundVars fenv (Buffers t) -> SArgs fenv f -> SArgs fenv (FirstOrderSArgsBuffers m (Buffers t) f)
+      prepareBuffers _ TupRunit TupRunit args' = args'
+      prepareBuffers m (TupRpair t1 t2) (TupRpair v1 v2) args' =
+        prepareBuffers m t1 v1 $ prepareBuffers m t2 v2 args'
+      prepareBuffers m (TupRsingle tp) (TupRsingle v) args'
+        | Refl <- reprIsSingle @ScalarType @t @Buffer tp =
+          SArgBuffer m v :>: args'
+      prepareBuffers _ _ _ _ = internalError "Tuple mismatch"
+
+      go :: (SFunToEnv' f env) ~ SFunToEnv (FirstOrderSArgs args) => SArgs fenv f -> OpenKernelFun kernel env f
+      go (SArgScalar v :>: as) = KernelFunLam (KernelArgRscalar $ varType v) $ go as
+      go (SArgBuffer m v :>: as) = case varType v of
+        GroundRbuffer t -> KernelFunLam (KernelArgRbuffer m t) $ go as
+        GroundRscalar t -> bufferImpossible t
+      go ArgsNil = KernelFunBody kernel
+
+      sargs = prepareArgs args
+    in
+      CompiledKernel (go sargs) sargs
 
 toPartial :: IsKernel kernel => PartitionedAcc (KernelOperation kernel) env t -> PartialSchedule kernel env t
 toPartial = snd . toPartial' (TupRsingle Shared)

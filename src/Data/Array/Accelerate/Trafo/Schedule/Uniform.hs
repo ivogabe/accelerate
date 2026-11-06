@@ -54,6 +54,7 @@ import Control.DeepSeq (NFData(rnf))
 import Control.Concurrent
 import Data.IORef
 import System.IO.Unsafe (unsafePerformIO)
+import Data.List (nub)
 
 instance ConvertRC rc => IsSchedule (UniformScheduleFun' rc) where
   type ScheduleInput  (UniformScheduleFun' rc) a = Input a
@@ -212,7 +213,10 @@ transform' (SyncSchedule _ simple schedule) = case schedule of
         buildEffect (SignalAwait signals)
           $ instr
           $ buildEffect (Exec (kernelMetadata kernel) kernel $ args' SkipNone)
-          $ buildEffect (SignalResolve $ map (weaken $ skipWeakenIdx skip) resolvers) buildReturn
+          -- If this kernel was compiled via the Right option in compileKernel,
+          -- it may contain duplicate arguments. 'resolvers' will then contain
+          -- repeated SignalResolvers. We use 'nub' to filter them out.
+          $ buildEffect (SignalResolve $ map (weaken $ skipWeakenIdx skip) $ nub resolvers) buildReturn
   PAtrace msg t -> TransformSchedule $ \fenv _ ctx ->
     case acquireSome fenv $ arrayDescriptorsIdxSet t of
       AcquireSome skip signals resolvers instr mapping'

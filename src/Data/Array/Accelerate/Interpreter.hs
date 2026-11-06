@@ -116,9 +116,9 @@ instance LowerAcc InterpretOp where
   mkPermute     Nothing  b c = Exec (ExecOp Fusible IPermuteUnique) (b :>: c :>: ArgsNil)
   mkFold        a Nothing b c = Exec (ExecOp Fusible $ IFold1 $ unsafePerformIO $ newIORef mempty) (a :>: b :>: c :>:       ArgsNil)
   -- we lower a Fold with seed element into a Fold1 followed by a map which prepends the seed
-  mkFold a@(ArgFun f) (Just (ArgExp seed)) b@(ArgArray In (ArrayR _ tp) _ _) c@(ArgArray _ arr' sh' _)
+  mkFold a@(ArgFun f) (Just (ArgExp seed)) b@(ArgArray In _ _ _) c@(ArgArray _ arr'@(ArrayR shr tp) sh' _)
     | DeclareVars lhsTemp wTemp kTemp <- declareVars $ buffersR tp =
-      aletUnique lhsTemp (lowerAlloc arr' $ fromGrounds sh') $
+      aletUnique lhsTemp (lowerAlloc arr' $ groundToExpVar (shapeType shr) sh') $
         alet LeftHandSideUnit
           (mkFold (weaken wTemp a) Nothing (weaken wTemp b) (ArgArray Out arr' (weakenVars wTemp sh') (kTemp weakenId))) $
           case mkLHS tp of
@@ -136,8 +136,8 @@ instance LowerAcc InterpretOp where
   --   | DeclareVars lhsTemp1 wTemp  kTemp1 <- declareVars $ buffersR tp
   --   , DeclareVars lhsTemp2 wTemp2 kTemp2 <- declareVars $ buffersR tp
   --   , wTemp1 <- wTemp2 .> wTemp =
-  --     aletUnique lhsTemp1 (lowerAlloc arr $ fromGrounds sh) $
-  --       aletUnique lhsTemp2 (lowerAlloc arr $ fromGrounds $ weakenVars wTemp sh) $
+  --     aletUnique lhsTemp1 (lowerAlloc arr $ groundToExpVar (shapeType shr) sh) $
+  --       aletUnique lhsTemp2 (lowerAlloc arr $ groundToExpVar (shapeType shr) $ weakenVars wTemp sh) $
   --         alet LeftHandSideUnit
   --           (alet LeftHandSideUnit
   --             (mkScan dir (weaken wTemp1 comb) Nothing (weaken wTemp1 i) (ArgArray Out arr (weakenVars wTemp1 sh) (kTemp1 wTemp2)))

@@ -18,11 +18,11 @@ import Data.Array.Accelerate.AST.Partitioned
 import Crypto.Hash.XKCP
 import Data.ByteString.Builder
 
-hashOperation :: EncodeOperation op => op f t -> Args env t -> Hash
-hashOperation op args
+hashOperation :: EncodeOperation op => op f t -> Hash
+hashOperation op
   = hashlazy
   $ toLazyByteString
-  $ encodeOperation op <> encodePreArgs encodeArg args
+  $ encodeOperation op
 
 hashCluster :: EncodeOperation op => Cluster op t -> Args env t -> Hash
 hashCluster cluster args

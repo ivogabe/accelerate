@@ -465,7 +465,7 @@ reEnvSubArgs re (a :>: as)
         ReEnvSubBuffers SubTupRskip _
           -- don't kill unit outputs
           | TupRunit <- tp                   -> ReEnvSubArgs (SubArgsLive SubArgKeep subs) (ArgArray Out (ArrayR shr tp) (expectJust $ reEnvVars re sh) TupRunit :>: as')
-          | otherwise                        -> ReEnvSubArgs (SubArgsDead subs) (ArgVar (fromGrounds $ expectJust $ reEnvVars re sh) :>: as')
+          | otherwise                        -> ReEnvSubArgs (SubArgsDead subs) (ArgVar (groundToExpVar (shapeType shr) $ expectJust $ reEnvVars re sh) :>: as')
         ReEnvSubBuffers SubTupRkeep buffers' -> ReEnvSubArgs (SubArgsLive SubArgKeep subs) (ArgArray Out (ArrayR shr tp) (expectJust $ reEnvVars re sh) buffers' :>: as')
         ReEnvSubBuffers sub         buffers' -> ReEnvSubArgs (SubArgsLive (SubArgOut sub) subs) (ArgArray Out (ArrayR shr $ subTupR sub tp) (expectJust $ reEnvVars re sh) buffers' :>: as')
       _ -> ReEnvSubArgs (SubArgsLive SubArgKeep subs) (reEnvArg re a :>: as')
