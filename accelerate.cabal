@@ -265,7 +265,6 @@ common lang
     -Wcompat
     -Widentities
     -Wno-unticked-promoted-constructors
-    -Wunused-packages
 
   cc-options:
     -O3
@@ -302,17 +301,8 @@ common lang
     cpp-options:
       -DACCELERATE_MEMORY_COUNTER
 
-common acc-tracy
-  build-depends:        accelerate-tracy-lib == 0.1.0.0
-
--- Virtual package @system-cxx-std-lib@ is used to configure the system C++
--- standard library.  In versions before GHC 10, @-Wunused-packages@ warns that
--- the package is not used, but this warning should be ignored.
-common cxx-stdlib
-  build-depends:        system-cxx-std-lib == 1.0
-
 library ffi
-  import:               lang, acc-tracy, cxx-stdlib
+  import:               lang
   hs-source-dirs:       src-ffi
 
   exposed-modules:
@@ -323,8 +313,14 @@ library ffi
     Data.Array.Accelerate.FFI.Memory
     Data.Array.Accelerate.FFI.Monitoring
 
+  -- Package @accelerate-tracy-lib@ is used in the C source, not Haskell source.
+  -- Virtual package @system-cxx-std-lib@ is used to configure the system C++
+  -- standard library.  In versions before GHC 10, @-Wunused-packages@ warns
+  -- that these packages are not used, so we turn that warning off below.
   build-depends:
-    , bytestring >= 0.11.5.3
+    , accelerate-tracy-lib == 0.1.0.0
+    , bytestring           >= 0.11.5.3
+    , system-cxx-std-lib   == 1.0
 
   other-extensions:
     CApiFFI
@@ -335,6 +331,7 @@ library ffi
 
   ghc-options:
     -O2
+    -Wno-unused-packages
 
   include-dirs:
     cbits
@@ -363,7 +360,7 @@ library ffi
       -DACCELERATE_MEMORY_COUNTER
 
 library
-  import:               lang, acc-tracy
+  import:               lang
 
   -- Internal dependencies
   build-depends:
@@ -371,6 +368,7 @@ library
 
   -- Inherited dependencies
   build-depends:
+        , accelerate-tracy-lib
         , bytestring
 
   -- External dependencies
@@ -613,6 +611,7 @@ library
         -optcxx=-O3
         -optcxx=-Wall
         -optcxx=-std=c++20
+        -Wunused-packages
 
   if flag(bounds-checks)
     cpp-options:
@@ -740,6 +739,9 @@ library nofib
         Data.Array.Accelerate.Test.NoFib.Misc
         Data.Array.Accelerate.Test.NoFib.Misc.Cache
         Data.Array.Accelerate.Test.NoFib.Misc.Scanl1
+
+  ghc-options:
+    -Wunused-packages
 
 
 test-suite nofib-interpreter
