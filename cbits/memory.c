@@ -7,7 +7,7 @@
 #include <pthread.h>
 #endif  // ACCELERATE_MEMORY_COUNTER
 
-// Installed by accelerate-tracy package
+// Installed by accelerate-tracy-lib package
 #include "accelerate_tracy.h"
 
 #include "align.h"

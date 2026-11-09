@@ -303,7 +303,7 @@ common lang
       -DACCELERATE_MEMORY_COUNTER
 
 common acc-tracy
-  build-depends:        accelerate-tracy == 0.1.0.0
+  build-depends:        accelerate-tracy-lib == 0.1.0.0
 
 -- Virtual package @system-cxx-std-lib@ is used to configure the system C++
 -- standard library.  In versions before GHC 10, @-Wunused-packages@ warns that
