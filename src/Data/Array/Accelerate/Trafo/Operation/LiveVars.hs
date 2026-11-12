@@ -275,7 +275,7 @@ class SLVOperation (op :: IsFusible -> Type -> Type) where
 class SLVExecute (exe :: Type -> Type) where
   slvExecute :: exe f -> Maybe (ShrinkExecute exe f)
 
-newtype ShrinkOperation (op :: IsFusible -> Type -> Type) (b :: IsFusible) f = ShrinkOperation (forall f' env' env. SubArgs f f' -> Args env' f' -> Args env f -> ShrunkOperation op fusible env')
+newtype ShrinkOperation (op :: IsFusible -> Type -> Type) (fusible :: IsFusible) f = ShrinkOperation (forall f' env' env. SubArgs f f' -> Args env' f' -> Args env f -> ShrunkOperation op fusible env')
 newtype ShrinkExecute (exe :: Type -> Type) f = ShrinkExecute (forall f' env' env. SubArgs f f' -> Args env' f' -> Args env f -> ShrunkExecute exe env')
 
 -- existential over f: otherwise, you couldn't change the non-array arguments. You need this e.g. for a Generate: smaller array means smaller function.
