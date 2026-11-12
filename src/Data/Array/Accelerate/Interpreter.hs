@@ -51,7 +51,7 @@ import Control.Monad.ST
 import Data.Bits
 import Data.Array.Accelerate.Backend
 import Data.Array.Accelerate.Array.Buffer
-import Data.Array.Accelerate.Pretty.Operation (prettyExe)
+import Data.Array.Accelerate.Pretty.Operation (prettyExecute)
 import Data.Array.Accelerate.Pretty.Partitioned ()
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.LeftHandSide (LeftHandSide (LeftHandSideUnit))
@@ -88,33 +88,33 @@ map !?! key = case map M.!? key of
 
 
 -- we can implement stencils using clamp, mirror or wrap with backpermute and zipwith(map), but for stencils using function we need a little extra.
-data InterpretOp (f :: Bool) args where
-  IMap         :: InterpretOp True (Fun' (s -> t)    -> In sh s -> Out sh  t -> ())
-  IBackpermute :: InterpretOp True (Fun' (sh' -> sh) -> In sh t -> Out sh' t -> ())
+data InterpretOp (f :: IsFusible) args where
+  IMap         :: InterpretOp Fusible (Fun' (s -> t)    -> In sh s -> Out sh  t -> ())
+  IBackpermute :: InterpretOp Fusible (Fun' (sh' -> sh) -> In sh t -> Out sh' t -> ())
   -- -- backpermute which doesn't error when the target index is out of bounds, but then evaluates the other function like a `generate` at the target index.
   -- -- Generalisation of a 'backpermute with default', but not as general as a generate
   -- IBackpermuteOr :: InterpretOp (Fun' (sh' -> sh) -> Fun' (sh -> t) -> In sh t -> Out sh' t -> ())
-  IGenerate    :: InterpretOp True (Fun' (sh -> t)              -> Out sh  t -> ())
-  IPermute     :: InterpretOp True (Fun' (e -> e -> e)
+  IGenerate    :: InterpretOp Fusible (Fun' (sh -> t)              -> Out sh  t -> ())
+  IPermute     :: InterpretOp Fusible (Fun' (e -> e -> e)
                               -> Mut sh' e
                               -> In sh (PrimMaybe (sh', e))
                               -> ())
-  IPermuteUnique::InterpretOp True (Mut sh' e
+  IPermuteUnique::InterpretOp Fusible (Mut sh' e
                               -> In sh (PrimMaybe (sh', e))
                               -> ())
   -- The interpreter doesn't have 'communication' with other 'threads' like the other backends do, to simulate cooperative scan/fold we use an IORef instead
-  IFold1       :: IORef (Map Int e) -> InterpretOp True (Fun' (e -> e -> e) -> In (sh, Int) e -> Out sh e -> ())
-  IScan1      :: Direction -> IORef (Map Int e) -> InterpretOp True (Fun' (e -> e -> e) -> In (sh, Int) e -> Out (sh, Int) e -> ())
+  IFold1       :: IORef (Map Int e) -> InterpretOp Fusible (Fun' (e -> e -> e) -> In (sh, Int) e -> Out sh e -> ())
+  IScan1      :: Direction -> IORef (Map Int e) -> InterpretOp Fusible (Fun' (e -> e -> e) -> In (sh, Int) e -> Out (sh, Int) e -> ())
   -- append a number of elements to the left or right of each innermost row using the generate function
   -- IAppend :: Side -> Int -> InterpretOp (Fun' ((sh, Int) -> e) -> In (sh, Int) e -> Out (sh, Int) e -> ())
 
 instance LowerAcc InterpretOp where
-  mkMap         a b c   = Exec (ExecOp Fusible IMap)         (a :>: b :>: c :>:       ArgsNil)
-  mkBackpermute a b c   = Exec (ExecOp Fusible IBackpermute) (a :>: b :>: c :>:       ArgsNil)
-  mkGenerate    a b     = Exec (ExecOp Fusible IGenerate)    (a :>: b :>:             ArgsNil)
-  mkPermute     (Just a) b c = Exec (ExecOp Fusible IPermute) (a :>: b :>: c :>: ArgsNil)
-  mkPermute     Nothing  b c = Exec (ExecOp Fusible IPermuteUnique) (b :>: c :>: ArgsNil)
-  mkFold        a Nothing b c = Exec (ExecOp Fusible $ IFold1 $ unsafePerformIO $ newIORef mempty) (a :>: b :>: c :>:       ArgsNil)
+  mkMap         a b c   = Exec (ExecOp FusibleR IMap)         (a :>: b :>: c :>:       ArgsNil)
+  mkBackpermute a b c   = Exec (ExecOp FusibleR IBackpermute) (a :>: b :>: c :>:       ArgsNil)
+  mkGenerate    a b     = Exec (ExecOp FusibleR IGenerate)    (a :>: b :>:             ArgsNil)
+  mkPermute     (Just a) b c = Exec (ExecOp FusibleR IPermute) (a :>: b :>: c :>: ArgsNil)
+  mkPermute     Nothing  b c = Exec (ExecOp FusibleR IPermuteUnique) (b :>: c :>: ArgsNil)
+  mkFold        a Nothing b c = Exec (ExecOp FusibleR $ IFold1 $ unsafePerformIO $ newIORef mempty) (a :>: b :>: c :>:       ArgsNil)
   -- we lower a Fold with seed element into a Fold1 followed by a map which prepends the seed
   mkFold a@(ArgFun f) (Just (ArgExp seed)) b@(ArgArray In _ _ _) c@(ArgArray _ arr'@(ArrayR shr tp) sh' _)
     | DeclareVars lhsTemp wTemp kTemp <- declareVars $ buffersR tp =
@@ -224,7 +224,7 @@ instance NFData' InterpretKernel where
 instance PrettyKernel InterpretKernel where
   -- PrettyKernelBody provides a Val but prettyOpWithArgs expects a Val', should we change them to have the
   -- same type (either Val or Val'?)
-  prettyKernel = PrettyKernelBody False $ \env (InterpretKernel cluster args) -> prettyExe env (ExecClustered cluster) args
+  prettyKernel = PrettyKernelBody False $ \env (InterpretKernel cluster args) -> prettyExecute env (ExecClustered cluster) args
 
 -- -- -2 is left>right, -1 is right>left, n is 'according to computation n' (e.g. Backpermute)
 -- -- (Note that Labels are uniquely identified by an Int, the parent just gives extra information)
@@ -393,17 +393,17 @@ instance NFDataOp InterpretOp where
   rnfOp IPermute = ()
   rnfOp IPermuteUnique{} = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
-instance PrettyOp InterpretOp where
-  prettyOp IMap         = "map"
-  prettyOp IBackpermute = "backpermute"
-  prettyOp IGenerate    = "generate"
-  prettyOp IPermute     = "permute"
-  prettyOp (IFold1 _)   = "fold1"
-  -- prettyOp IBackpermuteOr = "backpermute_with_default_generate"
-  prettyOp (IScan1 LeftToRight _) = "scanl1"
-  prettyOp (IScan1 RightToLeft _) = "scanr1"
-  -- prettyOp (IAppend _ _) = "append"
-  prettyOp IPermuteUnique{} = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
+instance PrettyOperation InterpretOp where
+  prettyOperation IMap         = "map"
+  prettyOperation IBackpermute = "backpermute"
+  prettyOperation IGenerate    = "generate"
+  prettyOperation IPermute     = "permute"
+  prettyOperation (IFold1 _)   = "fold1"
+  -- prettyOperation IBackpermuteOr = "backpermute_with_default_generate"
+  prettyOperation (IScan1 LeftToRight _) = "scanl1"
+  prettyOperation (IScan1 RightToLeft _) = "scanr1"
+  -- prettyOperation (IAppend _ _) = "append"
+  prettyOperation IPermuteUnique{} = error "TODO WALL: NON-EXHAUSTIVE PATTERN MATCH"
 
 instance Execute UniformScheduleFun InterpretKernel where
   data Linked UniformScheduleFun InterpretKernel t = InterpretLinked (UniformScheduleFun InterpretKernel () t)

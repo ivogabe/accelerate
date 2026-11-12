@@ -32,7 +32,7 @@ import qualified Data.Array.Accelerate.AST.Partitioned as Partition
 import Data.Array.Accelerate.AST.Kernel
 import Data.Array.Accelerate.AST.Schedule
 import Data.Array.Accelerate.AST.Schedule.Uniform ( SArg(..), SArgs )
-import Data.Array.Accelerate.Trafo.Schedule.Uniform ( compileKernel', CompiledKernel(..), rnfSArgs )
+import Data.Array.Accelerate.Trafo.Schedule.Uniform ( compileKernelFun, CompiledKernelFun(..), rnfSArgs )
 import Data.Array.Accelerate.AST.Execute
 import Control.Concurrent.MVar
 import Data.Typeable                                                ( (:~:)(..) )
@@ -164,7 +164,7 @@ convertScheduleFun' (Operation.Abody body)
 
 convertSchedule' :: forall kernel env t. IsKernel kernel => Partition.PartitionedAcc (KernelOperation kernel) env t -> SeqSchedule kernel env t
 convertSchedule' (Operation.Exec op args)
-  | CompiledKernel kernel args' <- compileKernel' @env @kernel op args = Exec (kernelMetadata kernel) kernel args'
+  | CompiledKernelFun kernel args' <- compileKernelFun @env @kernel op args = Exec (kernelMetadata kernel) kernel args'
 convertSchedule' (Operation.Return vars) = Return vars
 convertSchedule' (Operation.Manifest var) = Return $ TupRsingle var
 convertSchedule' (Operation.Compute expr) = Compute expr

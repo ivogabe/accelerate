@@ -104,7 +104,7 @@ unsafePerformIOFun (GFunctionRbody tp)    body
 generateKernelNameAndDescription
   -- Function that gives the priority, singular name and plural name of an
   -- operation. The operations with highest priority are used in the name.
-  :: (forall s. op True s -> (Int, String, String))
+  :: (forall s. op Fusible s -> (Int, String, String))
   -> Cluster op t
   -- Returns a function name, a detailed description and a brief description
   -> (String, String, String)

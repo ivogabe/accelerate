@@ -31,7 +31,7 @@ hashCluster cluster args
   $ encodeCluster cluster <> encodePreArgs encodeArg args
 
 class EncodeOperation op where
-  encodeOperation :: op b t -> Builder
+  encodeOperation :: op fusible t -> Builder
 
 class EncodeExecute exe where
   encodeExecute :: exe t -> Builder
@@ -45,9 +45,9 @@ instance EncodeOperation op => EncodeExecute (ExecCluster op) where
   encodeExecute (ExecClustered cluster) =
     intHost $(hashQ ("ExecClustered" :: String)) <> encodeCluster cluster
 
-encodeIsFusible :: IsFusible f -> Builder
-encodeIsFusible Fusible    = intHost $(hashQ ("Fusible" :: String))
-encodeIsFusible NotFusible = intHost $(hashQ ("NotFusible" :: String))
+encodeIsFusible :: IsFusibleR f -> Builder
+encodeIsFusible FusibleR    = intHost $(hashQ ("FusibleR" :: String))
+encodeIsFusible NonFusibleR = intHost $(hashQ ("NonFusibleR" :: String))
 
 encodePreArgs :: (forall t. arg t -> Builder) -> PreArgs arg f -> Builder
 encodePreArgs f  (a :>: as) = intHost $(hashQ (":>:" :: String)) <> f a <> encodePreArgs f as

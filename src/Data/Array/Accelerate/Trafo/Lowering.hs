@@ -61,7 +61,7 @@ data Boundary env t where
             -> Boundary env (Array sh e)
 
 
-class NFDataOp op => LowerAcc (op :: Bool -> Type -> Type) where
+class NFDataOp op => LowerAcc (op :: IsFusible -> Type -> Type) where
   mkMap         :: Arg env (Fun' (s -> t))
                 -> Arg env (In sh s)
                 -> Arg env (Out sh t)

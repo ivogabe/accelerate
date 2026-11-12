@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
@@ -16,7 +15,7 @@
 module Data.Array.Accelerate.AST.Operation (
   PreOpenAcc(..), PreOpenAfun(..),
   OperationAcc, OperationAfun,
-  ExecOp(..), IsFusible(..),
+  ExecOp(..), IsFusible(..), IsFusibleR(..),
   Uniqueness(..), Uniquenesses, shared, unique, pairUniqueness,
 
   GroundR(..), GroundsR, GroundVar, GroundVars, GLeftHandSide, Var(..), Vars,
@@ -411,12 +410,14 @@ type OperationAfun op = PreOpenAfun (ExecOp op)
 
 -- | Execute a single operation.
 -- Marks whether this operation is fusible.
-data ExecOp (op :: Bool -> Type -> Type) t where
-  ExecOp :: IsFusible b -> op b t -> ExecOp op t
+data ExecOp (op :: IsFusible -> Type -> Type) t where
+  ExecOp :: IsFusibleR fusible -> op fusible t -> ExecOp op t
 
-data IsFusible b where
-  Fusible :: IsFusible True
-  NotFusible :: IsFusible False
+data IsFusible = Fusible | NonFusible
+
+data IsFusibleR fusible where
+  FusibleR :: IsFusibleR Fusible
+  NonFusibleR :: IsFusibleR NonFusible
 
 class HasGroundsR f where
   groundsR :: f a -> GroundsR a
@@ -683,7 +684,7 @@ expToGroundVar  (TupRpair x y) = TupRpair (expToGroundVar x) (expToGroundVar y)
 class NFData' f where
   rnf' :: f a -> ()
 
-class NFDataOp (f :: Bool -> Type -> Type) where
+class NFDataOp (f :: IsFusible -> Type -> Type) where
   rnfOp :: f b a -> ()
 
 instance NFData' exe => NFData (PreOpenAcc exe env a) where

@@ -17,7 +17,7 @@
 --
 
 module Data.Array.Accelerate.AST.Kernel (
-  IsKernel(..), KernelArgR(..),
+  IsKernel(..), CompiledKernel(..), KernelArgR(..),
   OpenKernelFun(..), KernelFun,
   NoKernelMetadata, kernelFunKernel,
   FirstOrderSArgs, FirstOrderSArgsScalars, FirstOrderSArgsBuffers,
@@ -35,19 +35,10 @@ import Data.Kind
 import Data.Typeable                                                ( (:~:)(..) )
 
 class (NFData' kernel, NFData' (KernelMetadata kernel)) => IsKernel kernel where
-  type KernelOperation kernel :: Bool -> Type -> Type
+  type KernelOperation kernel :: IsFusible -> Type -> Type
   type KernelMetadata  kernel :: Type -> Type
 
-  compileKernel :: ExecCluster (KernelOperation kernel) args -> Either
-    -- Compile the kernel by compacting the arguments list. This deduplicates
-    -- repeated arguments (which is very common for sizes of arrays), and
-    -- supports Exp' and Fun' arguments, by extracting their free variables.
-    (forall env. Env AccessGroundR env -> Args env args -> kernel env)
-    -- Compile a first-order kernel by directly flattening the arguments list.
-    -- Repeated arguments are stored multiple times in the environment.
-    -- Exp' and Fun' are not supported.
-    -- Typically only used for the foreign function interface.
-    (kernel (SFunToEnv (FirstOrderSArgs args)))
+  compileKernel :: ExecCluster (KernelOperation kernel) args -> CompiledKernel kernel args
 
   kernelMetadata :: KernelFun kernel f -> KernelMetadata kernel f
   default kernelMetadata :: KernelMetadata kernel ~ NoKernelMetadata => KernelFun kernel f -> KernelMetadata kernel f
@@ -57,6 +48,21 @@ class (NFData' kernel, NFData' (KernelMetadata kernel)) => IsKernel kernel where
   -- to return the hash/UID of an already hashed kernel,
   -- or manually encode the kernel.
   encodeKernel :: kernel env -> Either Hash Builder
+
+data CompiledKernel kernel args
+  -- The kernel is compiled by compacting the arguments list. This deduplicates
+  -- repeated arguments (which is very common for sizes of arrays), and
+  -- supports Exp' and Fun' arguments, by extracting their free variables.
+  -- This should be the default for most (all?) backends.
+  = CompactedKernel (forall env. Env AccessGroundR env -> Args env args -> kernel env)
+  -- A first-order kernel is compiled by directly flattening the arguments list.
+  -- Repeated arguments are stored multiple times in the environment.
+  -- Exp' and Fun' are not supported.
+  -- Typically only used for the foreign function interface, as the FFI
+  -- requires a simple mapping from arguments to the environment for the kernel.
+  -- This mapping is implemented as a type-level function in FirstOrderSArgs
+  -- and SFunToEnv.
+  | FirstOrderKernel (kernel (SFunToEnv (FirstOrderSArgs args)))
 
 -- Converts args to an environment for a first-order kernel
 type family FirstOrderSArgs args where

@@ -171,8 +171,8 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
       EmptyFold -> Exists $ Return TupRunit
       NotFold con -> case con of
         SExe {}    -> error "should be Fold/InitFold!"
-        SExe' _ _ Fusible _ -> error "should be Fold/InitFold!"
-        SExe' env' args NotFusible op -> Exists (Exec (ExecSingle op) $ fromJust $ reindexArgs (mkReindexPartial' env' env) $ unLabelOp args)
+        SExe' _ _ FusibleR _ -> error "should be Fold/InitFold!"
+        SExe' env' args NonFusibleR op -> Exists (Exec (ExecSingle op) $ fromJust $ reindexArgs (mkReindexPartial' env' env) $ unLabelOp args)
         SUse se  n be             -> Exists $ Use se n be
         SITE env' c t f   -> case (makeAST env (subcluster t), makeAST env (subcluster f)) of
           (Exists tacc, Exists facc) -> Exists $ tryBuildAcond
@@ -259,7 +259,7 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
     makeCluster env (ExecL ls) =
        foldr1 (flip fuseCluster)
                     $ map ( \l -> case symbols !?? l of
-                              SExe' env' args Fusible op ->
+                              SExe' env' args FusibleR op ->
                                 -- At first thought, this `fromJust` might error if we fuse an array away.
                                 -- It does not: The array will still be in the environment, but after we finish
                                 -- the `foldr1`, the input argument will dissapear. The output argument does not:
@@ -267,14 +267,14 @@ openReconstruct' singletons labelenv graph clusterslist mlab subclustersmap symb
                                 -- it stays.
                                 let args' = fromJust $ reindexLabelledArgsOp (mkReindexPartial inplaceM env' env) args
                                 in
-                                  if isNoOp (ExecOp Fusible op) (unLabelOp args') then
+                                  if isNoOp (ExecOp FusibleR op) (unLabelOp args') then
                                     -- Remove operations that became a no-op by in-place updates.
                                     -- For instance, 'map id xs ys' may become 'map id xs xs',
                                     -- which is a no-op.
                                     EmptyFold
                                   else
                                     InitFold op l args'
-                              sym@(SExe' _ _ NotFusible _) -> NotFold sym
+                              sym@(SExe' _ _ NonFusibleR _) -> NotFold sym
                               _                 -> error "avoid this next refactor" -- c -> NotFold c
                           ) ls
     makeCluster _ (NonExecL l) = NotFold $ symbols !?? l
@@ -296,7 +296,7 @@ weakenAcc lhs = runIdentity . reindexAcc (weakenReindex $ weakenWithLHS lhs)
 
 data FoldType op env
   = forall args. Fold (Cluster op args) (LabelledArgsOp op env args)
-  | forall args. InitFold (op True args) (Node Comp) (LabelledArgsOp op env args)
+  | forall args. InitFold (op Fusible args) (Node Comp) (LabelledArgsOp op env args)
   | EmptyFold
   | NotFold (Symbol op)
 
@@ -317,7 +317,7 @@ consCluster :: forall env args extra op r
              . MakesILP op
             => Node Comp
             -> LabelledArgsOp op env extra
-            -> op True extra
+            -> op Fusible extra
             -> LabelledArgsOp op env args
             -> Cluster op args
             -> (forall args'. Cluster op args' -> LabelledArgsOp op env args' -> r)

@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# OPTIONS_HADDOCK hide #-}
 
@@ -270,18 +269,18 @@ reEnvIdxSet re idxSet =
     mapMaybe (\(Exists ix) -> fmap Exists (reEnvIdx re ix))
              (IdxSet.toList idxSet)
 
-class SLVOperation (op :: Bool -> Type -> Type) where
-  slvOperation :: op b f -> Maybe (ShrinkOperation op b f)
+class SLVOperation (op :: IsFusible -> Type -> Type) where
+  slvOperation :: op fusible f -> Maybe (ShrinkOperation op fusible f)
 
 class SLVExecute (exe :: Type -> Type) where
   slvExecute :: exe f -> Maybe (ShrinkExecute exe f)
 
-newtype ShrinkOperation (op :: Bool -> Type -> Type) (b :: Bool) f = ShrinkOperation (forall f' env' env. SubArgs f f' -> Args env' f' -> Args env f -> ShrunkOperation op b env')
+newtype ShrinkOperation (op :: IsFusible -> Type -> Type) (b :: IsFusible) f = ShrinkOperation (forall f' env' env. SubArgs f f' -> Args env' f' -> Args env f -> ShrunkOperation op fusible env')
 newtype ShrinkExecute (exe :: Type -> Type) f = ShrinkExecute (forall f' env' env. SubArgs f f' -> Args env' f' -> Args env f -> ShrunkExecute exe env')
 
 -- existential over f: otherwise, you couldn't change the non-array arguments. You need this e.g. for a Generate: smaller array means smaller function.
-data ShrunkOperation op b env where
-  ShrunkOperation :: op b f -> Args env f -> ShrunkOperation op b env
+data ShrunkOperation op fusible env where
+  ShrunkOperation :: op fusible f -> Args env f -> ShrunkOperation op fusible env
 data ShrunkExecute exe env where
   ShrunkExecute :: exe f -> Args env f -> ShrunkExecute exe env
 
@@ -402,8 +401,8 @@ data SubArg t t' where
              -> SubArg (Out sh e) (Out sh e')
 
 defaultSlvGenerate
-  :: (forall sh' t'. op b (Fun' (sh' -> t') -> Out sh' t' -> ()))
-  -> Maybe (ShrinkOperation op b (Fun' (sh -> t) -> Out sh t -> ()))
+  :: (forall sh' t'. op fusible (Fun' (sh' -> t') -> Out sh' t' -> ()))
+  -> Maybe (ShrinkOperation op fusible (Fun' (sh -> t) -> Out sh t -> ()))
 defaultSlvGenerate mkGenerate = Just $ ShrinkOperation $ \subArgs args _ -> case subArgs of
   SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
     -> ShrunkOperation mkGenerate args
@@ -413,8 +412,8 @@ defaultSlvGenerate mkGenerate = Just $ ShrinkOperation $ \subArgs args _ -> case
   _ `SubArgsLive` SubArgsDead _ -> internalError "At least one output should be preserved"
 
 defaultSlvMap
-  :: (forall sh' s' t'. op b (Fun' (s' -> t') -> In sh' s' -> Out sh' t' -> ()))
-  -> Maybe (ShrinkOperation op b (Fun' (s -> t) -> In sh s -> Out sh  t -> ()))
+  :: (forall sh' s' t'. op fusible (Fun' (s' -> t') -> In sh' s' -> Out sh' t' -> ()))
+  -> Maybe (ShrinkOperation op fusible (Fun' (s -> t) -> In sh s -> Out sh  t -> ()))
 defaultSlvMap mkMap = Just $ ShrinkOperation $ \subArgs args _ -> case subArgs of
   SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
     -> ShrunkOperation mkMap args
@@ -424,8 +423,8 @@ defaultSlvMap mkMap = Just $ ShrinkOperation $ \subArgs args _ -> case subArgs o
   _ `SubArgsLive` _ `SubArgsLive` SubArgsDead _ -> internalError "At least one output should be preserved"
 
 defaultSlvBackpermute
-  :: (forall sh1' sh2' t'. op b (Fun' (sh2' -> sh1') -> In sh1' t' -> Out sh2' t' -> ()))
-  -> Maybe (ShrinkOperation op b (Fun' (sh2 -> sh1) -> In sh1 t -> Out sh2 t -> ()))
+  :: (forall sh1' sh2' t'. op fusible (Fun' (sh2' -> sh1') -> In sh1' t' -> Out sh2' t' -> ()))
+  -> Maybe (ShrinkOperation op fusible (Fun' (sh2 -> sh1) -> In sh1 t -> Out sh2 t -> ()))
 defaultSlvBackpermute mkBackpermute = Just $ ShrinkOperation $ \subArgs args _ -> case subArgs of
   SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgKeep `SubArgsLive` SubArgsNil
     -> ShrunkOperation mkBackpermute args

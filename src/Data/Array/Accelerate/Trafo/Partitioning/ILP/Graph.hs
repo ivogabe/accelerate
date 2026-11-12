@@ -250,7 +250,7 @@ writeEdgesOf b = to (\g -> S.filter (\(_,b') -> b' == b) (g^.writeEdges))
 -- Separating the ILP into blocks then allows us to pass much smaller ILPs to
 -- the solver, which should make the whole process faster.
 -- If not, we can always merge the blocks together later.
-data FusionILP (op :: Bool -> Type -> Type) = FusionILP
+data FusionILP (op :: IsFusible -> Type -> Type) = FusionILP
   { _graph       :: FusionGraph
   , _constraints :: [Constraint]
   , _bounds      :: Bounds
@@ -368,7 +368,7 @@ noInplace node = noInplaceValues %~ S.insert node
 
 -- | The backend has access to a small state so it doesn't accidentally break
 --   the state used by the frontend construction algorithm.
-data BackendGraphState (op :: Bool -> Type -> Type) env = BackendGraphState
+data BackendGraphState (op :: IsFusible -> Type -> Type) env = BackendGraphState
   { _backendFusionILP  :: FusionILP op    -- ^ The entire ILP.
   , _backendBuffersEnv :: Env env  -- ^ The buffers environment (read only).
   , _backendReadersEnv :: ReadersEnv      -- ^ The readers environment (read only).
@@ -391,7 +391,7 @@ instance HasWritersEnv (BackendGraphState op env) where
   writersEnv :: Lens' (BackendGraphState op env) WritersEnv
   writersEnv f s = f (_backendWritersEnv s) <&> \env -> s{_backendWritersEnv = env}
 
-class ( Eq (BackendArg op) , Show (BackendArg op), Ord (BackendArg op) ) => MakesILP (op :: Bool -> Type -> Type) where
+class ( Eq (BackendArg op) , Show (BackendArg op), Ord (BackendArg op) ) => MakesILP (op :: IsFusible -> Type -> Type) where
 
   -- | Information that the backend attaches to arguments for use in
   --   interpreting/code generation.
@@ -416,7 +416,7 @@ class ( Eq (BackendArg op) , Show (BackendArg op), Ord (BackendArg op) ) => Make
   --
   mkGraph
     :: Node Comp              -- ^ The label of the operation.
-    -> op True args           -- ^ The operation.
+    -> op Fusible args        -- ^ The operation.
     -> LabelledArgs env args  -- ^ The arguments to the operation.
     -> State (BackendGraphState op env) ()
   
@@ -427,7 +427,7 @@ class ( Eq (BackendArg op) , Show (BackendArg op), Ord (BackendArg op) ) => Make
   --
   -- For fusible operations, this should be handled by mkGraph
   opInplace
-    :: op False args
+    :: op NonFusible args
     -> Bool
   opInplace _ = False
 
@@ -501,9 +501,9 @@ outFoldSize = var . OutFoldSize
 -- Symbol table
 --------------------------------------------------------------------------------
 
-data Symbol (op :: Bool -> Type -> Type) where
-  SExe  :: Env env -> LabelledArgs      env args -> IsFusible b -> op b args           -> Symbol op
-  SExe' :: Env env -> LabelledArgsOp op env args -> IsFusible b -> op b args           -> Symbol op
+data Symbol (op :: IsFusible -> Type -> Type) where
+  SExe  :: Env env -> LabelledArgs      env args -> IsFusibleR f -> op f args          -> Symbol op
+  SExe' :: Env env -> LabelledArgsOp op env args -> IsFusibleR f -> op f args          -> Symbol op
   SUse  ::            ScalarType e -> Int -> Buffer e                                  -> Symbol op
   SITE  :: Env env -> ExpVar env PrimBool -> Node Comp -> Node Comp                    -> Symbol op
   SWhl  :: Env env -> Node Comp -> Node Comp -> GroundVars env bnd -> Uniquenesses bnd -> Symbol op
@@ -906,13 +906,13 @@ mkFusionGraph (Exec (ExecOp f op) args) = do
   let outArrs      = outputArrays labelledArgs
   let notArrs      = notArrays labelledArgs
   () <- case f of
-    Fusible -> do
+    FusibleR -> do
       c `readsBuffers`    (inpArrs `S.difference`   outArrs)
       c `writesBuffers`   (outArrs `S.difference`   inpArrs)
       c `mutatesBuffers`  (inpArrs `S.intersection` outArrs)
       c `requiresBuffers` notArrs
       zoom (backendGraphState renv wenv) (mkGraph c op labelledArgs)
-    NotFusible -> do
+    NonFusibleR -> do
       -- By using requiresBuffers instead of readsBuffers, we will not fuse
       -- this operation with a prior operation that produced the input.
       c `requiresBuffers` (inpArrs `S.difference`   outArrs)
@@ -926,8 +926,6 @@ mkFusionGraph (Exec (ExecOp f op) args) = do
       unless (opInplace op) $
         zoom (backendGraphState renv wenv) $
           fusionILP.bounds %= (<> foldMap (equal (-2) . (`ReadDir` c)) inpArrs)
-
-      return ()
   symbol c ?= SExe env labelledArgs f op
   return TupRunit
 

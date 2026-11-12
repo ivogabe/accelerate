@@ -22,7 +22,7 @@ module Data.Array.Accelerate.Trafo.Schedule.Partial (
 
   UnitTuple, UpdateTuple(..), toPartialReturn,
 
-  compileKernel', CompiledKernel(..),
+  compileKernelFun, CompiledKernelFun(..),
 ) where
 
 import Data.Array.Accelerate.Analysis.Match
@@ -343,19 +343,19 @@ combineAccessGroundR (AccessGroundRbuffer m1 tp) (AccessGroundRbuffer m2 _)
   | Exists' m <- combineMod m1 m2 = AccessGroundRbuffer m tp
 combineAccessGroundR a _ = a -- Nothing has to be done when combining two scalars; they don't have access modifiers
 
-data CompiledKernel kenv fenv kernel where
-  CompiledKernel :: OpenKernelFun kernel kenv f
+data CompiledKernelFun kenv fenv kernel where
+  CompiledKernelFun :: OpenKernelFun kernel kenv f
                  -> SArgs fenv f
-                 -> CompiledKernel kenv fenv kernel
+                 -> CompiledKernelFun kenv fenv kernel
 
-compileKernel'
+compileKernelFun
   :: forall fenv kernel args.
      IsKernel kernel
   => ExecCluster (KernelOperation kernel) args
   -> Args fenv args
-  -> CompiledKernel () fenv kernel
-compileKernel' cluster args = case compileKernel @kernel cluster of
-  Left f ->
+  -> CompiledKernelFun () fenv kernel
+compileKernelFun cluster args = case compileKernel @kernel cluster of
+  CompactedKernel f ->
     let
       vars = argsVars args
 
@@ -365,9 +365,9 @@ compileKernel' cluster args = case compileKernel @kernel cluster of
         -> (fenv1 :> fenv)
         -> Env AccessGroundR kenv
         -> (forall kenv'. kenv :> kenv' -> PartialEnv (Idx kenv') fenv1 -> PartialEnv (Idx kenv') fenv)
-        -> CompiledKernel kenv fenv kernel
+        -> CompiledKernelFun kenv fenv kernel
       go PEnd _  kenv kSubst =
-        CompiledKernel
+        CompiledKernelFun
           (KernelFunBody $ f kenv args')
           ArgsNil
         where
@@ -378,11 +378,11 @@ compileKernel' cluster args = case compileKernel @kernel cluster of
             Nothing -> internalError "Variable not found in environment. The environment was probably built incorrectly, argsVars may have missed this variable?"
             Just idx' -> Identity idx'
       go (PPush env a@(AccessGroundRscalar tp)) k1 kenv kSubstF
-        | CompiledKernel kernel sargs <- go env (weakenSucc k1) (kenv `Push` a) (\k2 kSubst -> kSubstF (weakenSucc k2) $ PPush kSubst (k2 >:> ZeroIdx))
-        = CompiledKernel (KernelFunLam (KernelArgRscalar tp) kernel) (SArgScalar (Var tp $ k1 >:> ZeroIdx) :>: sargs)
+        | CompiledKernelFun kernel sargs <- go env (weakenSucc k1) (kenv `Push` a) (\k2 kSubst -> kSubstF (weakenSucc k2) $ PPush kSubst (k2 >:> ZeroIdx))
+        = CompiledKernelFun (KernelFunLam (KernelArgRscalar tp) kernel) (SArgScalar (Var tp $ k1 >:> ZeroIdx) :>: sargs)
       go (PPush env a@(AccessGroundRbuffer mod' tp)) k1 kenv kSubstF
-        | CompiledKernel kernel sargs <- go env (weakenSucc k1) (kenv `Push` a) (\k2 kSubst -> kSubstF (weakenSucc k2) $ PPush kSubst (k2 >:> ZeroIdx))
-        = CompiledKernel (KernelFunLam (KernelArgRbuffer mod' tp) kernel) (SArgBuffer mod' (Var (GroundRbuffer tp) $ k1 >:> ZeroIdx) :>: sargs)
+        | CompiledKernelFun kernel sargs <- go env (weakenSucc k1) (kenv `Push` a) (\k2 kSubst -> kSubstF (weakenSucc k2) $ PPush kSubst (k2 >:> ZeroIdx))
+        = CompiledKernelFun (KernelFunLam (KernelArgRbuffer mod' tp) kernel) (SArgBuffer mod' (Var (GroundRbuffer tp) $ k1 >:> ZeroIdx) :>: sargs)
       go (PNone env) k1 kenv kSubstF
         = go env (weakenSucc k1) kenv (\k2 kSubst -> kSubstF k2 $ PNone kSubst)
     in
@@ -391,7 +391,7 @@ compileKernel' cluster args = case compileKernel @kernel cluster of
         weakenId
         Empty
         (\ _ x -> x)
-  Right kernel ->
+  FirstOrderKernel kernel ->
     let
       prepareArgs :: Args fenv f -> SArgs fenv (FirstOrderSArgs f)
       prepareArgs (ArgVar vars :>: args') =
@@ -429,7 +429,7 @@ compileKernel' cluster args = case compileKernel @kernel cluster of
 
       sargs = prepareArgs args
     in
-      CompiledKernel (go sargs) sargs
+      CompiledKernelFun (go sargs) sargs
 
 toPartial :: IsKernel kernel => PartitionedAcc (KernelOperation kernel) env t -> PartialSchedule kernel env t
 toPartial = snd . toPartial' (TupRsingle Shared)
@@ -437,7 +437,7 @@ toPartial = snd . toPartial' (TupRsingle Shared)
 toPartial' :: IsKernel kernel => Uniquenesses t -> PartitionedAcc (KernelOperation kernel) env t -> (IdxSet env, PartialSchedule kernel env t)
 toPartial' us = \case
   C.Exec cluster args
-    | CompiledKernel kernel sargs <- compileKernel' cluster args ->
+    | CompiledKernelFun kernel sargs <- compileKernelFun cluster args ->
         ( IdxSet.fromList $ sargBufferVars sargs
         , PartialSchedule $ PExec kernel sargs )
   C.Return vars ->

@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds              #-}
 {-# LANGUAGE MultiWayIf             #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances   #-}
@@ -62,7 +61,7 @@ type PartitionedAfun op = PreOpenAfun (ExecCluster op)
 
 
 data ExecCluster op args
-  = ExecSingle !(op False args)
+  = ExecSingle !(op NonFusible args)
   | ExecClustered (Cluster op args)
 
 instance NFDataOp op => NFData' (ExecCluster op) where
@@ -77,7 +76,7 @@ data Cluster op args where
         -> Cluster op args
 
 data SingleOp op args where
-  Single :: op True opArgs
+  Single :: op Fusible opArgs
          -> ClusterArgs (FunToEnv args) opArgs
          -> SingleOp op args
 
@@ -226,10 +225,10 @@ both k (IntroO2       f)      ls  (r:>:rs) = r     :>: both k f ls rs
 both k (IntroL        f) (l:>:ls)      rs  = l     :>: both k f ls rs
 both k (IntroR        f)      ls  (r:>:rs) = r     :>: both k f ls rs
 
-flattenCluster :: Cluster op args -> [Exists (op True)]
+flattenCluster :: Cluster op args -> [Exists (op Fusible)]
 flattenCluster = (`go` [])
   where
-    go :: Cluster op args -> [Exists (op True)] -> [Exists (op True)]
+    go :: Cluster op args -> [Exists (op Fusible)] -> [Exists (op Fusible)]
     go (SingleOp (Single op _) _) accum = Exists op : accum
     go (Fused _ a b)              accum = go a $ go b accum
 
@@ -370,7 +369,7 @@ singleton
   :: MakesILP op
   => Node Comp
   -> LabelledArgsOp op env args
-  -> op True args
+  -> op Fusible args
   -> (forall args'. Cluster op args' -> LabelledArgsOp op env args' -> r)
   -> r
 singleton l largs op k
@@ -592,7 +591,7 @@ showSorted (a :>: args) = case a of
   LOp (ArgArray m _ _ _) (Arr (_,bs,_) (_,sh,_)) _ -> show m <> "{" <> show (valsNodes bs <> valsNodes sh) <> "}" <> showSorted args
   _ -> showSorted args
 
-data FlatCluster (op :: Bool -> Type -> Type) env where
+data FlatCluster (op :: IsFusible -> Type -> Type) env where
   FlatCluster
     :: ShapeR sh
     -> ELeftHandSide sh () idxEnv
@@ -646,7 +645,7 @@ data FlatOps op env idxEnv where
 
 data FlatOp op env idxEnv where
   FlatOp
-    :: op True args
+    :: op Fusible args
     -> Args env args
     -> IdxArgs idxEnv args
     -> FlatOp op env idxEnv
@@ -704,7 +703,7 @@ data ToFlatFusion fun funL funR where
     -> (forall env'. Args env' fun -> Vars GroundR env' (Buffers a) -> Args env' funR)
     -> ToFlatFusion fun funL funR
 
-execToFlatCluster :: SetOpIndices op => ExecCluster op f -> Args env f -> Either (op False f) (FlatCluster op env)
+execToFlatCluster :: SetOpIndices op => ExecCluster op f -> Args env f -> Either (op NonFusible f) (FlatCluster op env)
 execToFlatCluster (ExecSingle op) _ = Left op
 execToFlatCluster (ExecClustered cluster) args = Right $ toFlatCluster cluster args
 
@@ -857,7 +856,7 @@ class SetOpIndices op where
     -- If there is no loop nesting for that depth, this function returns Nothing.
     -- In this case, and only in this case, setOpIndices may return Nothing.
     :: (LoopDepth -> Maybe (Idx idxEnv Int))
-    -> op True args
+    -> op Fusible args
     -> Args env args
     -- IdxArgs where only the Out positions are filled
     -> IdxArgs idxEnv args
@@ -867,7 +866,7 @@ class SetOpIndices op where
     -> Maybe (Either (IsBackpermute args) (IdxArgs idxEnv args))
 
   getOpLoopDirections
-    :: op True args
+    :: op Fusible args
     -> Args env args
     -> IdxArgs idxEnv args
     -> [(Idx idxEnv Int, LoopDirection Int)]

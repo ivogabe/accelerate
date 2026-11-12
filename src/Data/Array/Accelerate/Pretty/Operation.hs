@@ -9,7 +9,7 @@
 --
 
 module Data.Array.Accelerate.Pretty.Operation (
-  PrettyOp(..), PrettyExe(..), prettyArgs,
+  PrettyOperation(..), PrettyExecute(..), prettyArgs,
   prettyAcc, prettyOpenAcc,
   prettyAfun, prettyOpenAfun,
   prettyGroundR, prettyGroundRWithUniqueness,
@@ -37,30 +37,30 @@ import Data.Kind
 
 import Prelude hiding (exp)
 
-class PrettyOp (op :: Bool -> Type -> Type) where
-  prettyOp :: op b t -> Adoc
+class PrettyOperation (op :: IsFusible -> Type -> Type) where
+  prettyOperation :: op fusible t -> Adoc
 
-class PrettyExe (exe :: Type -> Type) where
-  prettyExe :: Val env -> exe t -> Args env t -> Adoc
+class PrettyExecute (exe :: Type -> Type) where
+  prettyExecute :: Val env -> exe t -> Args env t -> Adoc
 
-instance PrettyOp op => PrettyExe (ExecOp op) where
-  prettyExe env (ExecOp _ op) args = hang 2 $ group $ vsep [annotate Execute "execute", prettyOp op, prettyArgs env args]
+instance PrettyOperation op => PrettyExecute (ExecOp op) where
+  prettyExecute env (ExecOp _ op) args = hang 2 $ group $ vsep [annotate Execute "execute", prettyOperation op, prettyArgs env args]
 
-prettyAcc :: PrettyExe exe => PreOpenAcc exe () t -> Adoc
+prettyAcc :: PrettyExecute exe => PreOpenAcc exe () t -> Adoc
 prettyAcc = prettyOpenAcc empty'
 
-prettyAfun :: PrettyExe exe => PreOpenAfun exe () f -> Adoc
+prettyAfun :: PrettyExecute exe => PreOpenAfun exe () f -> Adoc
 prettyAfun = prettyOpenAfun empty'
 
-prettyOpenAfun :: PrettyExe exe => Val' benv -> PreOpenAfun exe benv f -> Adoc
+prettyOpenAfun :: PrettyExecute exe => Val' benv -> PreOpenAfun exe benv f -> Adoc
 prettyOpenAfun env (Abody a) = prettyOpenAcc env a
 prettyOpenAfun env (Alam lhs f) = "\\" <> lhs' <+> "->" <> hardline <> indent 2 (prettyOpenAfun env' f)
   where
     (env', lhs') = prettyGLhsWithTypes env lhs
 
-prettyOpenAcc :: PrettyExe exe => Val' benv -> PreOpenAcc exe benv t -> Adoc
+prettyOpenAcc :: PrettyExecute exe => Val' benv -> PreOpenAcc exe benv t -> Adoc
 prettyOpenAcc env = \case
-  Exec exe args -> prettyExe (val env) exe args
+  Exec exe args -> prettyExecute (val env) exe args
   Return vars -> hang 2 $ group $ vsep [annotate Statement "return", prettyVars (val env) 10 vars]
   Manifest var -> hang 2 $ group $ vsep [annotate Statement "manifest", prettyVar (val env) var]
   Compute exp -> hang 2 $ group $ vsep [annotate Statement "compute", prettyExp (val env) exp]

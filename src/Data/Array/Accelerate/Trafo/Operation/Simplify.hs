@@ -41,7 +41,7 @@ import Control.Monad
 import Data.Functor.Identity
 
 class SimplifyOperation op where
-  detectCopy :: op b f -> Args env f -> [CopyOperation env]
+  detectCopy :: op fusible f -> Args env f -> [CopyOperation env]
   detectCopy _ _ = []
 
 class SimplifyExecute exe where

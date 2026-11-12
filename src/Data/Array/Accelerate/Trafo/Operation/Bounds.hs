@@ -1,4 +1,3 @@
-{-# LANGUAGE DataKinds #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
 -- Module      : Data.Array.Accelerate.Trafo.Operation.Bounds
@@ -553,7 +552,7 @@ boundsGraphWithArgsClearNodes graphArgs set =
   List.foldl' (\ga (Exists idx) -> boundsGraphWithArgsClearNode ga idx) graphArgs
     $ IdxSet.toList set
 
-class OperationBounds (op :: Bool -> Type -> Type) where
+class OperationBounds (op :: IsFusible -> Type -> Type) where
   boundsOptimizeOp
     :: op fusible args
     -> BoundsEnv benv ()

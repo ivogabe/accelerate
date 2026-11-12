@@ -38,7 +38,7 @@ module Data.Array.Accelerate.Backend (
   Partitioning.MakesILP(..),
   IsSchedule(..),
   IsKernel(..),
-  Pretty.PrettyOp(..),
+  Pretty.PrettyOperation(..),
   Execute(..),
   Operation.NFData'(..),
 ) where

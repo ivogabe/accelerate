@@ -113,7 +113,7 @@ convertAfunWithObj
   -> sched kernel () (Scheduled sched (LoweredAfun (ArraysFunctionR f)))
 convertAfunWithObj obj = fst . convertAfunFullOptions defaultOptions (Fusion obj) (const ())
 
-type Trafo sched kernel = (LowerAcc (KernelOperation kernel), Operation.SimplifyOperation (KernelOperation kernel), Operation.SLVOperation (KernelOperation kernel), OperationBounds (KernelOperation kernel), Partitioning.MakesILP (KernelOperation kernel), Partitioned.SetOpIndices (KernelOperation kernel), Pretty.PrettyOp (KernelOperation kernel), Pretty.PrettyKernel kernel, IsSchedule sched, IsKernel kernel, Pretty.PrettySchedule sched)
+type Trafo sched kernel = (LowerAcc (KernelOperation kernel), Operation.SimplifyOperation (KernelOperation kernel), Operation.SLVOperation (KernelOperation kernel), OperationBounds (KernelOperation kernel), Partitioning.MakesILP (KernelOperation kernel), Partitioned.SetOpIndices (KernelOperation kernel), Pretty.PrettyOperation (KernelOperation kernel), Pretty.PrettyKernel kernel, IsSchedule sched, IsKernel kernel, Pretty.PrettySchedule sched)
 
 convertAfunFullOptions
   :: forall sched kernel f m.
