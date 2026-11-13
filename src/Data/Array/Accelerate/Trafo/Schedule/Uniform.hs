@@ -213,7 +213,7 @@ transform' (SyncSchedule _ simple schedule) = case schedule of
         buildEffect (SignalAwait signals)
           $ instr
           $ buildEffect (Exec (kernelMetadata kernel) kernel $ args' SkipNone)
-          -- If this kernel was compiled via the Right option in compileKernel,
+          -- If this kernel was compiled via FirstOrderKernel in compileKernel,
           -- it may contain duplicate arguments. 'resolvers' will then contain
           -- repeated SignalResolvers. We use 'nub' to filter them out.
           $ buildEffect (SignalResolve $ map (weaken $ skipWeakenIdx skip) $ nub resolvers) buildReturn
