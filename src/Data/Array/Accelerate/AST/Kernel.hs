@@ -1,5 +1,4 @@
 {-# LANGUAGE DefaultSignatures    #-}
-{-# LANGUAGE ImpredicativeTypes   #-}
 {-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE UndecidableInstances #-}
 

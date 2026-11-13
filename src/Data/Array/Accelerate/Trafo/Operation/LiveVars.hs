@@ -285,24 +285,22 @@ data ShrunkExecute exe env where
   ShrunkExecute :: exe f -> Args env f -> ShrunkExecute exe env
 
 instance SLVOperation op => SLVExecute (ExecOp op) where
-  slvExecute (ExecOp fusible op) = case slvOperation op of
-    Just (ShrinkOperation shrinkOp) -> Just $ ShrinkExecute $ \sa args' args ->
-      case shrinkOp sa args' args of
-        ShrunkOperation op' args'' ->
-          ShrunkExecute (ExecOp fusible op') args''
-    Nothing -> Nothing
+  slvExecute (ExecOp fusible op) = liftShrinkOp (ExecOp fusible) <$> slvOperation op
 
 instance SLVOperation op => SLVExecute (ExecCluster op) where
-  slvExecute (ExecSingle op) = case slvOperation op of
-    Just (ShrinkOperation shrinkOp) -> Just $ ShrinkExecute $ \sa args' args ->
-      case shrinkOp sa args' args of
-        ShrunkOperation op' args'' ->
-          ShrunkExecute (ExecSingle op') args''
-    Nothing -> Nothing
+  slvExecute (ExecSingle op) = liftShrinkOp ExecSingle <$> slvOperation op
   slvExecute (ExecClustered cluster) = Just $ ShrinkExecute $ \ff' a' a ->
     case slvCluster cluster ff' a' a of
       ShrunkOperation' cluster' args ->
         ShrunkExecute (ExecClustered cluster') args
+
+liftShrinkOp
+  :: (forall f'. op fusible f' -> exe f')
+  -> ShrinkOperation op fusible f
+  -> ShrinkExecute exe f
+liftShrinkOp wrap (ShrinkOperation shrinkOp) = ShrinkExecute $ \sa args' args ->
+  case shrinkOp sa args' args of
+    ShrunkOperation op' args'' -> ShrunkExecute (wrap op') args''
 
 slvClusterArg :: forall f f' t. SubArgs f f' -> ClusterArg (FunToEnv f) t -> ClusterArg (FunToEnv f') t
 slvClusterArg subArgs (ClusterArgSingle idx) = case reindexSlv subArgs idx of
