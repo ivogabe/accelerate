@@ -9,7 +9,8 @@
 /accelerate-cuda/cubits/accelerate_cuda_shape.h
 /accelerate-io/dist/
 /.stack-work
-/cabal.project.local*
+/cabal.project.local
+/cabal.project.local~
 /stack.yaml.lock
 .DS_Store
 *.lock
@@ -18,4 +19,3 @@
 *.o
 /gurobi.log
 /.vscode
-/build-tracy/
