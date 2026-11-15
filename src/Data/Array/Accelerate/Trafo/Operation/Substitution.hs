@@ -41,16 +41,16 @@ data SunkReindexPartial f env env' where
   Sink     :: SunkReindexPartial f env env' -> SunkReindexPartial f (env, s) (env', s)
   ReindexF :: ReindexPartial f env env' -> SunkReindexPartial f env env'
 
-reindexPartial :: (Applicative f) => ReindexPartial f env env' -> PreOpenAcc op env t -> f (PreOpenAcc op env' t)
+reindexPartial :: (Applicative f) => ReindexPartial f env env' -> PreOpenAcc exe env t -> f (PreOpenAcc exe env' t)
 reindexPartial k = reindexA' (ReindexF k)
 
-reindexPartialAfun :: (Applicative f) => ReindexPartial f env env' -> PreOpenAfun op env t -> f (PreOpenAfun op env' t)
+reindexPartialAfun :: (Applicative f) => ReindexPartial f env env' -> PreOpenAfun exe env t -> f (PreOpenAfun exe env' t)
 reindexPartialAfun k = reindexAfun' (ReindexF k)
 
-instance Sink (PreOpenAcc op) where
+instance Sink (PreOpenAcc exe) where
   weaken k = runIdentity . reindexPartial (Identity . (k >:>))
 
-instance Sink (PreOpenAfun op) where
+instance Sink (PreOpenAfun exe) where
   weaken k = runIdentity . reindexPartialAfun (Identity . (k >:>))
 
 instance Sink Arg where
@@ -102,9 +102,9 @@ reindexIdxSet' k set =
     go :: Exists (Idx env) -> f (IdxSet env') -> f (IdxSet env')
     go (Exists ix) acc = IdxSet.insert <$> reindex' k ix <*> acc
 
-reindexA' :: forall op f env env' t. (Applicative f) => SunkReindexPartial f env env' -> PreOpenAcc op env t -> f (PreOpenAcc op env' t)
+reindexA' :: forall exe f env env' t. (Applicative f) => SunkReindexPartial f env env' -> PreOpenAcc exe env t -> f (PreOpenAcc exe env' t)
 reindexA' k = \case
-    Exec op args -> Exec op <$> reindexArgs (reindex' k) args
+    Exec exe args -> Exec exe <$> reindexArgs (reindex' k) args
     Return vars -> Return <$> reindexVars' k vars
     Manifest var -> Manifest <$> reindexVar' k var
     Compute e -> Compute <$> reindexExp' k e
@@ -120,28 +120,28 @@ reindexA' k = \case
     Aassume g -> Aassume <$> reindexExp' k g
     Fence set next -> Fence <$> reindexIdxSet' k set <*> travA next
   where
-    travA :: PreOpenAcc op env s -> f (PreOpenAcc op env' s)
+    travA :: PreOpenAcc exe env s -> f (PreOpenAcc exe env' s)
     travA = reindexA' k
 
-reindexAfun' :: (Applicative f) => SunkReindexPartial f env env' -> PreOpenAfun op env t -> f (PreOpenAfun op env' t)
+reindexAfun' :: (Applicative f) => SunkReindexPartial f env env' -> PreOpenAfun exe env t -> f (PreOpenAfun exe env' t)
 reindexAfun' k (Alam lhs f)
   | Exists lhs' <- rebuildLHS lhs = Alam lhs' <$> reindexAfun' (sinkReindexWithLHS lhs lhs' k) f
 reindexAfun' k (Abody a) = Abody <$> reindexA' k a
 
-pair :: forall op env a b. PreOpenAcc op env a -> PreOpenAcc op env b -> PreOpenAcc op env (a, b)
+pair :: forall exe env a b. PreOpenAcc exe env a -> PreOpenAcc exe env b -> PreOpenAcc exe env (a, b)
 pair = pair' False
 
-pairUnique :: forall op env a b. PreOpenAcc op env a -> PreOpenAcc op env b -> PreOpenAcc op env (a, b)
+pairUnique :: forall exe env a b. PreOpenAcc exe env a -> PreOpenAcc exe env b -> PreOpenAcc exe env (a, b)
 pairUnique = pair' True
 
-pair' :: forall op env a b. Bool -> PreOpenAcc op env a -> PreOpenAcc op env b -> PreOpenAcc op env (a, b)
+pair' :: forall exe env a b. Bool -> PreOpenAcc exe env a -> PreOpenAcc exe env b -> PreOpenAcc exe env (a, b)
 pair' u a b = goA weakenId a
   where
     -- Traverse 'a' and look for a return. We can jump over let bindings
     -- If we don't find a 'return', we must first bind the value in a let,
     -- and then use the newly defined variables instead.
     --
-    goA :: env :> env' -> PreOpenAcc op env' a -> PreOpenAcc op env' (a, b)
+    goA :: env :> env' -> PreOpenAcc exe env' a -> PreOpenAcc exe env' (a, b)
     goA k (Alet lhs uniqueness bnd x)
                            = Alet lhs uniqueness bnd $ goA (weakenWithLHS lhs .> k) x
     goA k (Return vars)    = goB vars $ weaken k b
@@ -149,7 +149,7 @@ pair' u a b = goA weakenId a
       | DeclareVars lhs k' value <- declareVars $ groundsR acc
                            = Alet lhs ((if u then unique else shared) $ groundsR acc) acc $ goB (value weakenId) $ weaken (k' .> k) b
 
-    goB :: GroundVars env' a -> PreOpenAcc op env' b -> PreOpenAcc op env' (a, b)
+    goB :: GroundVars env' a -> PreOpenAcc exe env' b -> PreOpenAcc exe env' (a, b)
     goB varsA (Alet lhs uniqueness bnd x)
                                = Alet lhs uniqueness bnd $ goB (weakenVars (weakenWithLHS lhs) varsA) x
     goB varsA (Return varsB)   = Return (TupRpair varsA varsB)
@@ -157,7 +157,7 @@ pair' u a b = goA weakenId a
       | DeclareVars lhs k value <- declareVars $ groundsR b
                                = Alet lhs ((if u then unique else shared) $ groundsR b) acc $ Return (TupRpair (weakenVars k varsA) (value weakenId))
 
-makeManifest :: PreOpenAcc op env a -> PreOpenAcc op env a
+makeManifest :: PreOpenAcc exe env a -> PreOpenAcc exe env a
 makeManifest acc = case acc of
   Alet lhs uniqueness bnd x -> Alet lhs uniqueness bnd $ makeManifest x
   Exec{} -> acc -- Doesn't return anything
@@ -176,20 +176,20 @@ makeManifest acc = case acc of
   Return vars -> go vars
   Fence set next -> Fence set $ makeManifest next
   where
-    go :: GroundVars env t -> PreOpenAcc op env t
+    go :: GroundVars env t -> PreOpenAcc exe env t
     go TupRunit = Return TupRunit
     go (TupRpair v1 v2) = go v1 `pair` go v2
     go (TupRsingle var@(Var tp _)) = case tp of
       GroundRbuffer _ -> Manifest var
       GroundRscalar _ -> Return $ TupRsingle var
 
-alet :: GLeftHandSide t env env' -> PreOpenAcc op env t -> PreOpenAcc op env' s -> PreOpenAcc op env s
+alet :: GLeftHandSide t env env' -> PreOpenAcc exe env t -> PreOpenAcc exe env' s -> PreOpenAcc exe env s
 alet lhs = alet' lhs $ shared $ lhsToTupR lhs
 
-aletUnique :: GLeftHandSide t env env' -> PreOpenAcc op env t -> PreOpenAcc op env' s -> PreOpenAcc op env s
+aletUnique :: GLeftHandSide t env env' -> PreOpenAcc exe env t -> PreOpenAcc exe env' s -> PreOpenAcc exe env s
 aletUnique lhs = alet' lhs $ unique $ lhsToTupR lhs
 
-alet' :: GLeftHandSide t env env' -> Uniquenesses t -> PreOpenAcc op env t -> PreOpenAcc op env' s -> PreOpenAcc op env s
+alet' :: GLeftHandSide t env env' -> Uniquenesses t -> PreOpenAcc exe env t -> PreOpenAcc exe env' s -> PreOpenAcc exe env s
 alet' lhs us (Fence set1 bnd) (Fence set2 body)
   | set3 <- IdxSet.intersect set1 (IdxSet.drop' lhs set2)
   , not $ IdxSet.null set3
@@ -221,7 +221,7 @@ alet' lhs us (Compute e)       a
   , Pair e1 e2 <- e = alet' l1 u1 (Compute e1) $ alet' l2 u2 (weaken (weakenWithLHS l1) $ Compute e2) a
 alet' lhs us bnd               a = Alet lhs us bnd a
 
-fence :: IdxSet env -> PreOpenAcc op env t -> PreOpenAcc op env t
+fence :: IdxSet env -> PreOpenAcc exe env t -> PreOpenAcc exe env t
 fence set
   | IdxSet.null set = id
   | otherwise = \case

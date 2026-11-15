@@ -229,13 +229,11 @@ foldMapTupR f (TupRsingle a)   = f a
 foldMapTupR _ TupRunit         = mempty
 foldMapTupR f (TupRpair a1 a2) = foldMapTupR f a1 <> foldMapTupR f a2
 
-foldMapMTupR :: (Monad m, Monoid r) => (forall s. a s -> m r) -> TupR a t -> m r
+foldMapMTupR :: (Applicative m, Monoid r) => (forall s. a s -> m r) -> TupR a t -> m r
 foldMapMTupR f (TupRsingle a)   = f a
-foldMapMTupR _ TupRunit         = return mempty
-foldMapMTupR f (TupRpair a1 a2) = do
-  r1 <- foldMapMTupR f a1
-  r2 <- foldMapMTupR f a2
-  return (r1 <> r2)
+foldMapMTupR _ TupRunit         = pure mempty
+foldMapMTupR f (TupRpair a1 a2) =
+  (<>) <$> foldMapMTupR f a1 <*> foldMapMTupR f a2
 
 functionImpossible :: TypeR (s -> t) -> a
 functionImpossible (TupRsingle (SingleScalarType (NumSingleType tp))) = case tp of

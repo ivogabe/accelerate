@@ -9,7 +9,7 @@
 --
 
 module Data.Array.Accelerate.Pretty.Operation (
-  PrettyOp(..), prettyArgs,
+  PrettyOperation(..), PrettyExecute(..), prettyArgs,
   prettyAcc, prettyOpenAcc,
   prettyAfun, prettyOpenAfun,
   prettyGroundR, prettyGroundRWithUniqueness,
@@ -33,33 +33,34 @@ import Data.Array.Accelerate.Type
 
 import Prettyprinter
 import Data.String
+import Data.Kind
 
 import Prelude hiding (exp)
 
-class PrettyOp op where
-  prettyOp :: op t -> Adoc
+class PrettyOperation (op :: IsFusible -> Type -> Type) where
+  prettyOperation :: op fusible t -> Adoc
 
-  -- Only used in OperationAcc, when printing a PartitionedAcc a cluster is printed using prettyOp.
-  -- The reason is that PrettyOp (Cluster' op) instance defines prettyOpWithArgs in terms of prettyOp.
-  --
-  prettyOpWithArgs :: Val env -> op t -> Args env t -> Adoc
-  prettyOpWithArgs env op args = hang 2 $ group $ vsep [annotate Execute "execute", prettyOp op, prettyArgs env args]
+class PrettyExecute (exe :: Type -> Type) where
+  prettyExecute :: Val env -> exe t -> Args env t -> Adoc
 
-prettyAcc :: PrettyOp op => OperationAcc op () t -> Adoc
+instance PrettyOperation op => PrettyExecute (ExecOp op) where
+  prettyExecute env (ExecOp _ op) args = hang 2 $ group $ vsep [annotate Execute "execute", prettyOperation op, prettyArgs env args]
+
+prettyAcc :: PrettyExecute exe => PreOpenAcc exe () t -> Adoc
 prettyAcc = prettyOpenAcc empty'
 
-prettyAfun :: PrettyOp op => OperationAfun op () f -> Adoc
+prettyAfun :: PrettyExecute exe => PreOpenAfun exe () f -> Adoc
 prettyAfun = prettyOpenAfun empty'
 
-prettyOpenAfun :: PrettyOp op => Val' benv -> OperationAfun op benv f -> Adoc
+prettyOpenAfun :: PrettyExecute exe => Val' benv -> PreOpenAfun exe benv f -> Adoc
 prettyOpenAfun env (Abody a) = prettyOpenAcc env a
 prettyOpenAfun env (Alam lhs f) = "\\" <> lhs' <+> "->" <> hardline <> indent 2 (prettyOpenAfun env' f)
   where
     (env', lhs') = prettyGLhsWithTypes env lhs
 
-prettyOpenAcc :: PrettyOp op => Val' benv -> OperationAcc op benv t -> Adoc
+prettyOpenAcc :: PrettyExecute exe => Val' benv -> PreOpenAcc exe benv t -> Adoc
 prettyOpenAcc env = \case
-  Exec op args -> prettyOpWithArgs (val env) op args
+  Exec exe args -> prettyExecute (val env) exe args
   Return vars -> hang 2 $ group $ vsep [annotate Statement "return", prettyVars (val env) 10 vars]
   Manifest var -> hang 2 $ group $ vsep [annotate Statement "manifest", prettyVar (val env) var]
   Compute exp -> hang 2 $ group $ vsep [annotate Statement "compute", prettyExp (val env) exp]

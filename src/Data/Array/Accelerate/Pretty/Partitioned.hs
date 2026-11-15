@@ -25,15 +25,9 @@ import Data.Array.Accelerate.Representation.Shape
 import Data.Array.Accelerate.Representation.Array
 import Data.Array.Accelerate.AST.Var (varsType)
 
-instance (PrettyOp op, SetOpIndices op) => PrettyOp (Clustered op) where
-  prettyOp :: PrettyOp op => Clustered op t -> Adoc
-  prettyOp (Clustered c _) = prettyOp c
-  prettyOpWithArgs env (Clustered c _) = prettyOpWithArgs env c
-
-instance (PrettyOp op, SetOpIndices op) => PrettyOp (Cluster op) where
-  prettyOp _ = "cluster"
-
-  prettyOpWithArgs env cluster args
+instance (PrettyOperation op, SetOpIndices op) => PrettyExecute (ExecCluster op) where
+  prettyExecute env (ExecSingle op) args = hang 2 $ group $ vsep [annotate Execute "execute", prettyOperation op, prettyArgs env args]
+  prettyExecute env (ExecClustered cluster) args
     {- = prettyFlatCluster env flat
     where
       flat = toFlatCluster cluster args-}
@@ -67,7 +61,7 @@ type PrettyArgs = PreArgs PrettyArg
 
 newtype Adoc' t = Adoc' Adoc
 
-prettyCluster :: Bool -> PrettyOp op => Cluster op t -> PrettyArgs t -> Int -> (Adoc, Int)
+prettyCluster :: Bool -> PrettyOperation op => Cluster op t -> PrettyArgs t -> Int -> (Adoc, Int)
 prettyCluster topLevel (SingleOp singleOp _) args fresh = (prettySingleOp topLevel singleOp args, fresh)
 prettyCluster _ (Fused fusion clusterL clusterR) args fresh
   | (leftArgs, rightArgs, horizontals, verticals, diagonals, fresh') <- splitEnv fusion args fresh
@@ -80,13 +74,13 @@ prettyCluster _ (Fused fusion clusterL clusterR) args fresh
       rightDoc
     , fresh''')
 
-prettySingleOp :: PrettyOp op => Bool -> SingleOp op t -> PrettyArgs t -> Adoc
+prettySingleOp :: PrettyOperation op => Bool -> SingleOp op t -> PrettyArgs t -> Adoc
 prettySingleOp topLevel (Single op opArgs) args =
   hang 2 $ group $ vsep $
     [ annotate Execute "execute" | topLevel ]
     ++
     [
-      prettyOp op,
+      prettyOperation op,
       tupled $ map (\(Exists a) -> prettyPrettyArg $ prettyClusterArg args a) $ argsToList opArgs
     ]
 
