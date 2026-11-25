@@ -130,8 +130,8 @@ The [accelerate-examples][accelerate-examples] package provides a range of compu
 
 To run these, either get the source from Hackage using `cabal get accelerate-examples` or clone the [git repository][accelerate-examples], then use `cabal run` on the individual executables.
 
-[![Mandelbrot](https://i.imgur.com/5Tbsp1j.jpg "accelerate-mandelbrot")](https://i.imgur.com/RgXRqsc.jpg)
-[![Raytracer](https://i.imgur.com/7ohhKm9.jpg "accelerate-ray")](https://i.imgur.com/ZNEGEJK.jpg)
+![Mandelbrot](images/accelerate-example-mandelbrot.jpg)
+![Raytracer](images/accelerate-example-ray.jpg)
 
 <!--
 <video width=400 height=300 controls=false autoplay loop>
@@ -144,7 +144,7 @@ To run these, either get the source from Hackage using `cabal get accelerate-exa
 
 [LULESH-accelerate][lulesh-accelerate] is in implementation of the Livermore Unstructured Lagrangian Explicit Shock Hydrodynamics (LULESH) mini-app. [LULESH][LULESH] represents a typical hydrodynamics code such as [ALE3D][ALE3D], but is a highly simplified application, hard-coded to solve the Sedov blast problem on an unstructured hexahedron mesh.
 
-![LULESH mesh](https://i.imgur.com/bIkODKd.jpg)
+![LULESH mesh](images/lulesh.jpg)
 
 
 ### Additional examples
