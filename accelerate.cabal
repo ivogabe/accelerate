@@ -563,6 +563,7 @@ library
         Data.Array.Accelerate.Pretty.Partitioned
         Data.Array.Accelerate.Pretty.Print
         Data.Array.Accelerate.Pretty.Type
+        Data.Array.Accelerate.Smart.Unique
         Data.Array.Accelerate.Trafo.Exp.Algebra
         Data.Array.Accelerate.Trafo.Environment
         Data.Array.Accelerate.Trafo.Operation.Bounds.Algebra

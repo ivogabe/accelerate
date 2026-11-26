@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# OPTIONS_HADDOCK hide #-}
 -- |
@@ -19,11 +20,11 @@ module Data.Array.Accelerate.Smart (
 
   -- * HOAS AST
   -- ** Array computations
-  Acc(..), SmartAcc(..), PreSmartAcc(..),
+  Acc(..), SmartAcc(SmartAcc), PreSmartAcc(..), preSmartAcc, smartAccUnique,
   Level, Direction(..), Message(..),
 
   -- ** Scalar expressions
-  Exp(..), SmartExp(..), PreSmartExp(..),
+  Exp(..), SmartExp(SmartExp), PreSmartExp(..), preSmartExp, smartExpUnique,
   Stencil(..),
   Boundary(..), PreBoundary(..),
   PrimBool,
@@ -82,6 +83,7 @@ import Data.Array.Accelerate.Representation.Stencil                 hiding ( Ste
 import Data.Array.Accelerate.Representation.Tag
 import Data.Array.Accelerate.Representation.Type
 import Data.Array.Accelerate.Representation.Vec
+import Data.Array.Accelerate.Smart.Unique
 import Data.Array.Accelerate.Sugar.Array                            ( Arrays )
 import Data.Array.Accelerate.Sugar.Elt
 import Data.Array.Accelerate.Sugar.Foreign
@@ -99,6 +101,7 @@ import Data.Primitive.Vec
 import Data.Kind
 import Data.Text                                                    ( Text )
 import Data.Text.Lazy.Builder
+import Data.Unique                                                 ( Unique )
 import Formatting
 
 import GHC.TypeLits
@@ -292,8 +295,19 @@ import GHC.TypeLits
 --
 newtype Acc a = Acc (SmartAcc (Sugar.ArraysR a))
 
-newtype SmartAcc a = SmartAcc (PreSmartAcc SmartAcc SmartExp a)
+data SmartAcc a = SmartAcc' !(PreSmartAcc SmartAcc SmartExp a) !Unique
 
+preSmartAcc :: SmartAcc a -> PreSmartAcc SmartAcc SmartExp a
+preSmartAcc (SmartAcc' acc _) = acc
+
+smartAccUnique :: SmartAcc a -> Unique
+smartAccUnique (SmartAcc' _ unique) = unique
+
+pattern SmartAcc :: PreSmartAcc SmartAcc SmartExp a -> SmartAcc a
+pattern SmartAcc acc <-SmartAcc' acc _
+  where
+    SmartAcc = withUnique . SmartAcc'
+{-# COMPLETE SmartAcc #-}
 
 -- The level of lambda-bound variables. The root has level 0; then it
 -- increases with each bound variable — i.e., it is the same as the size of
@@ -471,7 +485,20 @@ data PreSmartAcc acc exp as where
 -- unsupported.
 --
 newtype Exp t = Exp (SmartExp (EltR t))
-newtype SmartExp t = SmartExp (PreSmartExp SmartAcc SmartExp t)
+
+data SmartExp t = SmartExp' !(PreSmartExp SmartAcc SmartExp t) !Unique
+
+preSmartExp :: SmartExp t -> PreSmartExp SmartAcc SmartExp t
+preSmartExp (SmartExp' e _) = e
+
+smartExpUnique :: SmartExp t -> Unique
+smartExpUnique (SmartExp' _ unique) = unique
+
+pattern SmartExp :: PreSmartExp SmartAcc SmartExp t -> SmartExp t
+pattern SmartExp e <- SmartExp' e _
+  where
+    SmartExp = withUnique . SmartExp'
+{-# COMPLETE SmartExp #-}
 
 -- | Scalar expressions to parametrise collective array operations, themselves parameterised over
 -- the type of collective array operations.
