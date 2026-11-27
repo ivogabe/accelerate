@@ -278,7 +278,7 @@ prettySplit env s = case s of
       | IdxSet.null retain = mempty
       | otherwise = hang 2 (group $ vsep [annotate Statement "retain", prettyIdxSet env retain]) <> hardline
       where
-        retain = IdxSet.splitLeft s `IdxSet.intersect` IdxSet.splitRight s
+        retain = IdxSet.splitBoth s
 
 prettySArgs :: Val' benv -> SArgs benv f -> Adoc
 prettySArgs env args = tupled $ map (\(Exists a) -> prettySArg env a) $ argsToList args

@@ -14,10 +14,11 @@ module Data.Array.Accelerate.AST.IdxSet (
   member, varMember, overlaps, isSubsetOf, intersect, union, unions, (\\), (>>=),
   insert, insertVar, insertVars, skip, skip',
   push, push', empty, isEmpty, drop, drop', remove, partialEnvRemoveSet, partialEnvFilterSet,
-  subsetDropped, splitLeft, splitRight,
+  subsetDropped, splitLeft, splitOnlyLeft, splitRight, splitBoth,
   fromList, fromList', fromVarList, fromVars, map,
   singleton, singletonVar, first, null,
-  toList, rnfIdxSet
+  toList, rnfIdxSet,
+  envForEach
 ) where
 
 import Prelude hiding (drop, (>>=), map, null)
@@ -105,7 +106,7 @@ partialEnvFilterSet :: IdxSet env -> PartialEnv f env -> PartialEnv f env
 partialEnvFilterSet (IdxSet set) env = intersectPartialEnv (\_ f -> f) set env
 
 skip :: IdxSet env -> IdxSet (env, t)
-skip = IdxSet . PNone . unIdxSet
+skip = IdxSet . partialEnvSkip . unIdxSet
 
 skip' :: LeftHandSide s t env env' -> IdxSet env -> IdxSet env'
 skip' (LeftHandSideSingle _)   = skip
@@ -142,6 +143,8 @@ subsetDropped = \case
   SubsetDrop subset -> push (subsetDropped subset)
   SubsetEnd         -> empty
 
+-- | Finds the set of indices that are used in @envL@,
+-- either originating from 'SplitLeft' or 'SplitBoth'.
 splitLeft :: Split True env envL envR -> IdxSet env
 splitLeft = \case
   SplitLeft  split -> push (splitLeft split)
@@ -152,11 +155,31 @@ splitLeft = \case
   -- set of all indices in an environment only available via type variable
   -- 'env'. Hence we restrict splitLeft to 'Split True' instead of 'Split rc'.
 
+-- | Finds the set of indices that are used in @envL@ but not in @envR@,
+-- thus originating from 'SplitLeft'.
+splitOnlyLeft :: Split True env envL envR -> IdxSet env
+splitOnlyLeft = \case
+  SplitLeft  split -> push (splitOnlyLeft split)
+  SplitRight split -> skip (splitOnlyLeft split)
+  SplitBoth  split -> skip (splitOnlyLeft split)
+  SplitEnd         -> empty
+
+-- | Finds the set of indices that are used in @envR@,
+-- either originating from 'SplitRight' or 'SplitBoth'.
 splitRight :: Split True env envL envR -> IdxSet env
 splitRight = \case
   SplitLeft  split -> skip (splitRight split)
   SplitRight split -> push (splitRight split)
   SplitBoth  split -> push (splitRight split)
+  SplitEnd         -> empty
+
+-- | Finds the set of indices that are used in both @envL@ and @envR@,
+-- thus originating from 'SplitBoth'.
+splitBoth :: Split True env envL envR -> IdxSet env
+splitBoth = \case
+  SplitLeft  split -> skip (splitBoth split)
+  SplitRight split -> skip (splitBoth split)
+  SplitBoth  split -> push (splitBoth split)
   SplitEnd         -> empty
 
 toList :: IdxSet env -> [Exists (Idx env)]
@@ -199,3 +222,16 @@ rnfIdxSet = foldr (\(Exists ix) () -> rnfIdx ix) () . toList
 
 instance Show (IdxSet env) where
   showsPrec p = showsPrec p . fmap (\(Exists idx) -> idxToInt idx) . toList
+
+-- | Performs an action for each index in an IdxSet, via the corresponding
+-- binding in the environment.
+envForEach
+  :: forall m f env.
+     Applicative m
+  => Env f env -> IdxSet env -> (forall t. f t -> m ()) -> m ()
+envForEach env0 (IdxSet set0) f = go env0 set0
+  where
+    go :: Env f env' -> PartialEnv Present env' -> m ()
+    go _ PEnd = pure ()
+    go (Push env _) (PNone set) = go env set
+    go (Push env b) (PPush set _) = f b *> go env set
