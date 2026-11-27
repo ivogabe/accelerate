@@ -21,7 +21,7 @@ module Data.Array.Accelerate.Trafo.Sharing (
   -- * HOAS to de Bruijn conversion
   convertAcc, convertAccWith,
 
-  Afunction, AfunctionR, ArraysFunctionR, AfunctionRepr(..), afunctionRepr,
+  Afunction, AfunctionR, AfunctionAsyncR, ArraysFunctionR, AfunctionRepr(..), afunctionRepr,
   convertAfun, convertAfunWith, afunctionGroundR,
 
   Function, FunctionR, EltFunctionR, FunctionRepr(..), functionRepr,
@@ -37,6 +37,7 @@ import Data.Array.Accelerate.AST.Environment
 import Data.Array.Accelerate.AST.Idx
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Var
+import Data.Array.Accelerate.Async
 import Data.Array.Accelerate.Analysis.Match
 import Data.Array.Accelerate.Debug.Internal.Trace                   as Debug
 import Data.Array.Accelerate.Error
@@ -181,6 +182,7 @@ data AfunctionRepr f ar areprr where
 --
 class Afunction f where
   type AfunctionR f
+  type AfunctionAsyncR f
   type ArraysFunctionR f
   afunctionRepr    :: HasCallStack => AfunctionRepr f (AfunctionR f) (ArraysFunctionR f)
   afunctionGroundR :: GFunctionR (LoweredAfun (ArraysFunctionR f))
@@ -188,6 +190,7 @@ class Afunction f where
 
 instance (Arrays a, Afunction r) => Afunction (Acc a -> r) where
   type AfunctionR      (Acc a -> r) = a -> AfunctionR r
+  type AfunctionAsyncR (Acc a -> r) = a -> AfunctionAsyncR r
   type ArraysFunctionR (Acc a -> r) = Sugar.ArraysR a -> ArraysFunctionR r
 
   afunctionRepr = AfunctionReprLam $ afunctionRepr @r
@@ -202,6 +205,7 @@ instance (Arrays a, Afunction r) => Afunction (Acc a -> r) where
 
 instance Arrays b => Afunction (Acc b) where
   type AfunctionR      (Acc b) = b
+  type AfunctionAsyncR (Acc b) = IO (Async b)
   type ArraysFunctionR (Acc b) = Sugar.ArraysR b
   afunctionRepr = AfunctionReprBody
   afunctionGroundR

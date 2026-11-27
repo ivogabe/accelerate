@@ -16,10 +16,13 @@
 
 module Data.Array.Accelerate.Backend (
   Backend(..),
-  runAt, runWithAt,
-  run1At, run1WithAt,
-  runNAt, runNWithAt,
+  runAt,  runWithAt,  runAsyncAt,
+  run1At, run1WithAt, run1AsyncAt,
+  runNAt, runNWithAt, runNAsyncAt,
   inspectCompiler,
+
+  -- Async
+  Async, poll, wait,
 
   -- Type classes that a backend should implement:
   Lowering.LowerAcc(..),
@@ -44,6 +47,7 @@ module Data.Array.Accelerate.Backend (
 ) where
 
 import qualified Data.Array.Accelerate.Smart as Smart
+import Data.Array.Accelerate.Async (Async, asyncPure, poll, wait)
 import Data.Array.Accelerate.AST.Schedule
 import Data.Array.Accelerate.AST.Kernel
 import Data.Array.Accelerate.AST.Execute
@@ -87,12 +91,8 @@ runAt = runWithAt @backend defaultOptions
 runWithAt :: forall backend t. (Sugar.Arrays t, Backend backend) => Config -> Smart.Acc t -> t
 runWithAt = runNWithAt @backend
 
-{- runWithObj :: forall backend t. (Sugar.Arrays t, Backend backend) => Objective -> Smart.Acc t -> t
-runWithObj obj acc = Sugar.toArr $ sugarArrays repr $ unsafePerformIO $ executeAcc (lowerArraysR repr) program
-  where
-    repr = Sugar.arraysR @t
-    schedule = convertAccWithObj @(Schedule backend) @(Kernel backend) obj acc
-    program = linkAfunSchedule schedule -}
+runAsyncAt :: forall backend t. (Sugar.Arrays t, Backend backend) => Smart.Acc t -> IO (Async t)
+runAsyncAt = asyncPure . runAt @backend
 
 run1At
   :: forall backend s t.
@@ -108,6 +108,13 @@ run1WithAt
   -> (Smart.Acc s -> Smart.Acc t)
   -> s -> t
 run1WithAt = runNWithAt @backend
+
+run1AsyncAt
+  :: forall backend s t.
+     (Sugar.Arrays s, Sugar.Arrays t, Backend backend)
+  => (Smart.Acc s -> Smart.Acc t)
+  -> s -> IO (Async t)
+run1AsyncAt = runNAsyncAt @backend
 
 runNAt
   :: forall backend f.
@@ -126,6 +133,20 @@ runNWithAt config f = program `seq` sugarFunction (afunctionRepr @f) $ executeAf
   where
     schedule = convertAfunWith @(Schedule backend) @(Kernel backend) config f
     program = linkAfunSchedule schedule
+
+runNAsyncAt
+  :: forall backend f.
+     (Afunction f, Backend backend)
+  => f
+  -> AfunctionAsyncR f
+runNAsyncAt f = program `seq` mkAsyncFun (afunctionRepr @f) (sugarFunction (afunctionRepr @f) $ executeAfun (afunctionGroundR @f) program)
+  where
+    schedule = convertAfunWith @(Schedule backend) @(Kernel backend) defaultOptions f
+    program = linkAfunSchedule schedule
+
+mkAsyncFun :: AfunctionRepr f (AfunctionR f) (ArraysFunctionR f) -> AfunctionR f -> AfunctionAsyncR f
+mkAsyncFun AfunctionReprBody f = asyncPure f
+mkAsyncFun (AfunctionReprLam r) f = mkAsyncFun r . f
 
 {- runNWithObj
   :: forall backend f.

@@ -17,10 +17,10 @@ module Data.Array.Accelerate.Async (
   Async,
 
   -- ** Spawning
-  async, asyncOn, asyncBound,
+  async, asyncPure, asyncOn, asyncBound,
 
   -- ** Querying 'Async's
-  wait, poll, cancel,
+  wait, poll,
 
 ) where
 
@@ -36,13 +36,16 @@ import GHC.IO
 -- to run. Make sure to catch exceptions to avoid "blocked indefinitely on MVar"
 -- errors.
 --
-data Async a = Async {-# UNPACK #-} !ThreadId
-                     {-# UNPACK #-} !(MVar (Either SomeException a))
+newtype Async a = Async (MVar (Either SomeException a))
 
 -- | Spawn an asynchronous action in a separate thread.
 --
 async :: IO a -> IO (Async a)
 async = inline asyncUsing rawForkIO
+
+-- | Spawn a pure computation in a separate thread
+asyncPure :: a -> IO (Async a)
+asyncPure = async . evaluate
 
 -- | Like 'async', but using 'forkOn' internally.
 --
@@ -56,31 +59,32 @@ asyncBound = inline asyncUsing forkOS
 
 asyncUsing :: (IO () -> IO ThreadId) -> IO a -> IO (Async a)
 asyncUsing fork action = do
-   var <- newEmptyMVar
-   tid <- mask $ \restore ->
-            fork $ try (restore action) >>= putMVar var
-   return (Async tid var)
+  var <- newEmptyMVar
+  _ <- mask $ \restore ->
+    fork $ try (restore action) >>= putMVar var
+  return $ Async var
 
 -- | Block the calling thread until the computation completes, then return the
 -- result.
 --
 {-# INLINE wait #-}
 wait :: Async a -> IO a
-wait (Async _ var) = either throwIO return =<< readMVar var
+wait (Async var) = either throwIO return =<< readMVar var
 
 -- | Test whether the asynchronous computation has already completed. If so,
 -- return the result, else 'Nothing'.
 --
 {-# INLINE poll #-}
 poll :: Async a -> IO (Maybe a)
-poll (Async _ var) =
+poll (Async var) =
   maybe (return Nothing) (either throwIO (return . Just)) =<< tryReadMVar var
 
--- | Cancel a running asynchronous computation.
---
-{-# INLINE cancel #-}
-cancel :: Async a -> IO ()
-cancel (Async tid _) = throwTo tid ThreadKilled
+-- An old version of this interface also had a cancel option. However, this
+-- approach does not (reliable) cancel Accelerate programs. It might work
+-- during compilation, but not during execution. Hence we removed this
+-- functionality.
+-- cancel :: Async a -> IO ()
+-- cancel (Async tid _) = throwTo tid ThreadKilled
 
 
 -- A version of 'forkIO' that does not include the outer exception handler. This
