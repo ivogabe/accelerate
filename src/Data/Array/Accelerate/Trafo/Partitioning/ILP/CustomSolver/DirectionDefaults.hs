@@ -1,6 +1,5 @@
 module Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver.DirectionDefaults where
 
-import Data.Array.Accelerate.Trafo.Operation.Bounds.Algebra (TermBound (upper))
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage (Constraint (..))
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (nodeId)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint (Bounds (..), Constants, Expression (..), LinearConstraint (..), Number (..), nComps)

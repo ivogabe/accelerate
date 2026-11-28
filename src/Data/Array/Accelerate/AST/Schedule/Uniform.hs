@@ -27,6 +27,7 @@ module Data.Array.Accelerate.AST.Schedule.Uniform (
   signalResolverImpossible, scalarSignalResolverImpossible,
   rnfBaseR,
   directlyAwaits1, reorder, trivialBinding, trivialSchedule, trivialEffect,
+  awhileInitialRCRetains,
 
   -- ** Free variables
   freeVars, funFreeVars, effectFreeVars, bindingFreeVars,
@@ -39,6 +40,7 @@ import Data.Array.Accelerate.AST.IdxSet ( IdxSet )
 import qualified Data.Array.Accelerate.AST.IdxSet as IdxSet
 import Data.Array.Accelerate.AST.LeftHandSide
 import Data.Array.Accelerate.AST.Var
+import Data.Array.Accelerate.Error
 import Data.Array.Accelerate.Type
 import Data.Array.Accelerate.Representation.Array
 import Data.Array.Accelerate.Representation.Shape
@@ -54,6 +56,8 @@ import Data.IORef
 import Data.Typeable                                                ( (:~:)(..) )
 import Data.Text                                                    ( Text )
 import Data.Kind
+import qualified Data.List as List
+import Data.Maybe (mapMaybe)
 
 -- Generic schedule for a uniform memory space and uniform scheduling.
 -- E.g., we don't have host and device memory or scheduling.
@@ -226,6 +230,54 @@ data ReleasedFun kernel env f where
     :: Subset env envSub
     -> UniformScheduleFunRC kernel envSub f
     -> ReleasedFun kernel env f
+
+-- Computes the updates to reference counts of variables used in the initial
+-- value of an awhile loop. Values that are used multiple times in the
+-- initial value (eg. via a pair (xs, xs)) need to have their reference count
+-- increased.
+--
+-- Values that are in scope but not used should have their reference count
+-- decremented. However, this should not occur since we construct terms in a
+-- way to not include unused bindings in the environment. This function does
+-- check this assumption.
+awhileInitialRCRetains
+  -- | Predicate, to specify which types should be tracked for reference counting
+  :: (forall s. BaseR s -> Bool)
+  -- | Split of environment that was used to construct the environment for the
+  -- initial values. Only used as witness of 'envI'.
+  -> Split True env envI env'
+  -> BaseVars envI t
+  -> [(Exists (BaseVar envI), Int)]
+awhileInitialRCRetains predicate splitEnv initial
+  -- Check whether the environment does not contain unused variables.
+  -- This should not occur if the UniformScheduleRC is constructed properly.
+  -- If there would be unused variables, and we would not check that here, we
+  -- could cause a memory leak as these variables are never released.
+  | IdxSet.fromVarList (flattenTupR initial) /= splitLeft' splitEnv
+  = internalError "Environment of initial values of awhile loop should not contain unused variables."
+  | otherwise
+  = mapMaybe makeGroup
+    $ List.groupBy (\a b -> getIdx a == getIdx b)
+    $ List.sortOn getIdx
+    $ filter predicate'
+    $ flattenTupR initial
+  where
+    splitLeft' :: Split True e1 e2 e3 -> IdxSet e2
+    splitLeft' (SplitLeft s) = IdxSet.push $ splitLeft' s
+    splitLeft' (SplitBoth s) = IdxSet.push $ splitLeft' s
+    splitLeft' (SplitRight s) = splitLeft' s
+    splitLeft' SplitEnd = IdxSet.empty
+
+    predicate' :: Exists (BaseVar envI) -> Bool
+    predicate' (Exists (Var t _)) = predicate t
+
+    getIdx :: Exists (BaseVar envI) -> Int
+    getIdx (Exists (Var _ idx)) = idxToInt idx
+
+    makeGroup :: [Exists (BaseVar envI)] -> Maybe (Exists (BaseVar envI), Int)
+    makeGroup [] = Nothing -- Should be unreachable
+    makeGroup [_] = Nothing -- Reference count does not need an update
+    makeGroup (x:xs) = Just (x, length xs)
 
 type family Input t where
   Input ()         = ()
