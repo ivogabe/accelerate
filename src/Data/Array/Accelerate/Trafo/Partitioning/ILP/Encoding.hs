@@ -62,7 +62,14 @@ data ILPStages = ILPStages
 -- that reward putting non-siblings in the same cluster) this is fine: We will interpret 'cluster 3'
 -- with parents `Nothing` as a different cluster than 'cluster 3' with parents `Just 5`.
 makeILP :: forall op. MakesILP op => Objective -> FusionILP op -> ILP
-makeILP = makeILPWithPresolve True
+makeILP = makeILPWithPresolve False
+-- For now, we disable the presolver for the ILP. This presolver tries to
+-- simplify the ILP before we pass it to an external solver. We should do
+-- more experiments to evaluate this presolver, and add more logic to make it
+-- smarter. Alternatively, we can consider using a custom solver, as
+-- implemented in CustomSolver.hs. This solver would need more performance
+-- optimizations. We track these options in
+-- https://github.com/AccelerateHS/accelerate/issues/585
 
 makeILPWithPresolve :: forall op . MakesILP op => Bool -> Objective -> FusionILP op -> ILP
 makeILPWithPresolve usePresolve obj input =
