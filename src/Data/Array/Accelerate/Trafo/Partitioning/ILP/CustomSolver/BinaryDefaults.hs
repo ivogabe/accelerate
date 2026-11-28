@@ -1,4 +1,4 @@
-module Data.Array.Accelerate.Trafo.Partitioning.ILP.BinaryDefaults where
+module Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver.BinaryDefaults where
 
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage (Constraint (..))
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (InplacePath)

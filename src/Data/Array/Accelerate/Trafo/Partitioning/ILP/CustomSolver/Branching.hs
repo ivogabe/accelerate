@@ -1,4 +1,4 @@
-module Data.Array.Accelerate.Trafo.Partitioning.ILP.Branching
+module Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver.Branching
   ( greedyFusionLeaf
   )
 where

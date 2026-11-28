@@ -1,4 +1,4 @@
-module Data.Array.Accelerate.Trafo.Partitioning.ILP.Components (solveOptimalSplit, solveOptimalWithSplitWithReport, componentSizes) where
+module Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver.Components (solveOptimalSplit, solveOptimalWithSplitWithReport, componentSizes) where
 
 import Control.Monad.State (evalState)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage (Constraint)

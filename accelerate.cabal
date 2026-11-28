@@ -488,13 +488,13 @@ library
         Data.Array.Accelerate.Trafo.Operation.Substitution
         Data.Array.Accelerate.Trafo.Operation.LiveVars
         Data.Array.Accelerate.Trafo.Partitioning.ILP
-        Data.Array.Accelerate.Trafo.Partitioning.ILP.BinaryDefaults
-        Data.Array.Accelerate.Trafo.Partitioning.ILP.Branching
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Clustering
-        Data.Array.Accelerate.Trafo.Partitioning.ILP.Components
         Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage
         Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver
-        Data.Array.Accelerate.Trafo.Partitioning.ILP.DirectionDefaults
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver.BinaryDefaults
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver.Branching
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver.Components
+        Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver.DirectionDefaults
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Encoding
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Lower
         Data.Array.Accelerate.Trafo.Partitioning.ILP.Graph

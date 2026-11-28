@@ -8,8 +8,8 @@ module Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver
   )
 where
 
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.BinaryDefaults (applyBinaryDefaults)
-import Data.Array.Accelerate.Trafo.Partitioning.ILP.Branching (greedyFusionLeaf)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver.BinaryDefaults (applyBinaryDefaults)
+import Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver.Branching (greedyFusionLeaf)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.Labels (InplacePath)
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.LinearConstraint (Bounds (..), Constants (..), Expression (..), Number (..))

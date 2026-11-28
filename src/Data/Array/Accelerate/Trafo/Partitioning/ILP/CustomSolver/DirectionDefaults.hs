@@ -1,4 +1,4 @@
-module Data.Array.Accelerate.Trafo.Partitioning.ILP.DirectionDefaults where
+module Data.Array.Accelerate.Trafo.Partitioning.ILP.CustomSolver.DirectionDefaults where
 
 import Data.Array.Accelerate.Trafo.Operation.Bounds.Algebra (TermBound (upper))
 import Data.Array.Accelerate.Trafo.Partitioning.ILP.ConstraintLanguage (Constraint (..))
